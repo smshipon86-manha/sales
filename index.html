@@ -540,6 +540,8 @@
         .btn-edit { background-color: #f0ad4e; color: #333; font-weight: bold;}
         .btn-delete { background-color: #d9534f; }
         .btn-view { background-color: #5bc0de; color: white; font-weight: bold; }
+        .print-pending { background-color: #d9534f; color: #fff; font-weight: bold; }
+        .print-done { background-color: #3f9142; color: #fff; font-weight: bold; }
 
         /* ক্যাশ মেমো প্রিন্ট স্টাইল */
         .cash-memo-container {
@@ -1096,7 +1098,7 @@ body.edit-modal-open { overflow: hidden !important; }
                                 <th style="width: 80px;">মোট আইটেম</th>
                                 <th style="width: 100px; text-align:right;">মূল্য</th>
                                 <th style="width: 75px; text-align:center;">গড় ছাড়</th>
-                                <th style="width: 200px; text-align: center;">অ্যাকশন</th>
+                                <th style="width: 260px; text-align: center;">অ্যাকশন</th>
                             </tr>
                         </thead>
                         <tbody id="todayInvoiceTableBody">
@@ -3310,7 +3312,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const buyerName = buyerRet ? (buyerRet.name || '') : '';
                 const amount = Math.round(Number(inv.totalAmount || 0) || 0);
                 const avgDiscount = getInvoiceAvgDiscountPercent(inv);
-                tbody.innerHTML += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:6px 4px;"><button class="btn-action btn-view" style="padding:4px 7px;font-size:12px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:4px 7px;font-size:12px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:4px 7px;font-size:12px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button></td></tr>`;
+                tbody.innerHTML += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:6px 4px;"><button class="btn-action btn-view" style="padding:4px 7px;font-size:12px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:4px 7px;font-size:12px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:4px 7px;font-size:12px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action print-pending" id="printBtn_${inv.id}" style="padding:4px 7px;font-size:12px;" onclick="printInvoiceDirect('${inv.id}', this)">🖨️ প্রিন্ট</button></td></tr>`;
             });
         }
 
@@ -3536,6 +3538,34 @@ body.edit-modal-open { overflow: hidden !important; }
                 buyerCopyHTML + `<div class="memo-copy-break"></div>` + sellerCopyHTML;
 
             document.getElementById('cashMemoModal').style.display = 'flex';
+        }
+
+        // দাশবোর্ডের "আজকের ইনভয়েস" তালিকা থেকে সরাসরি প্রিন্ট ডায়ালগে
+        // পাঠানোর জন্য — প্রিভিউ মোডাল খোলা হয় না, একদম সরাসরি প্রিন্ট
+        // ডায়ালগ চলে আসে। প্রিন্ট ডায়ালগ বন্ধ হওয়ার পর (তখনই বোঝা যায়
+        // প্রিন্ট করা "শেষ" হয়েছে) বাটনটা লাল থেকে সবুজ হয়ে যায়।
+        function printInvoiceDirect(id, btn) {
+            if (!checkConnectionOrAlert()) return;
+            const inv = invoices.find(i => i.id === id);
+            if (!inv) return;
+            const retObj = resolveRetailerForInvoice(inv);
+
+            const buyerCopyHTML = buildMemoCopyHTML(inv, retObj, 'ক্রেতার কপি', false);
+            const sellerCopyHTML = buildMemoCopyHTML(inv, retObj, 'বিক্রেতার কপি', true);
+
+            document.getElementById('printableMemoArea').innerHTML =
+                buyerCopyHTML + `<div class="memo-copy-break"></div>` + sellerCopyHTML;
+
+            const onAfterPrint = () => {
+                if (btn) {
+                    btn.classList.remove('print-pending');
+                    btn.classList.add('print-done');
+                    btn.innerText = '🖨️ প্রিন্ট হয়েছে';
+                }
+                window.removeEventListener('afterprint', onAfterPrint);
+            };
+            window.addEventListener('afterprint', onAfterPrint);
+            window.print();
         }
 
         async function deleteInvoice(id) {
@@ -6608,6 +6638,7 @@ function renderStockMultiProductList() {
         function openCustomerLedgerModal() {
             if (!checkConnectionOrAlert()) return;
             document.getElementById('customerLedgerModal').style.display='flex';
+            document.getElementById('ledgerFilterSection').style.display = '';
             const today = getLocalISODate();
             document.getElementById('ledgerFromDate').value = today;
             document.getElementById('ledgerToDate').value = today;
@@ -6627,6 +6658,10 @@ function renderStockMultiProductList() {
             const ret = retailers[index];
             if (!ret) return;
             document.getElementById('customerLedgerModal').style.display = 'flex';
+            // এই এন্ট্রি-পয়েন্ট থেকে (যেমন কালেকশন ফর্মের "লেজার দেখুন" বাটন
+            // থেকে) খোলা হলে তারিখ/রুট/রিটেইলার ফিল্টার ফর্মটা না দেখিয়ে
+            // সরাসরি ফলাফলের টেবিলটাই দেখানো হয় — দ্রুত এক নজরে দেখার জন্য।
+            document.getElementById('ledgerFilterSection').style.display = 'none';
 
             // তারিখ ফাঁকা রাখা হচ্ছে যাতে সম্পূর্ণ ইতিহাস (শুরু থেকে এখন পর্যন্ত) দেখা যায়
             document.getElementById('ledgerFromDate').value = '';
@@ -6998,6 +7033,7 @@ function renderStockMultiProductList() {
     <div class="modal-overlay" id="customerLedgerModal">
       <div class="modal-box" style="width:1400px;max-width:96vw;">
         <div class="modal-header"><h3>কাস্টমারের লেজার</h3><span class="close-btn" onclick="closeModal('customerLedgerModal')">×</span></div>
+        <div id="ledgerFilterSection">
         <div class="report-form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div class="form-group"><label>তারিখ থেকে</label><input type="date" id="ledgerFromDate" onchange="onLedgerFromDateChange()"></div>
           <div class="form-group"><label>তারিখ পর্যন্ত</label><input type="date" id="ledgerToDate"></div>
@@ -7018,6 +7054,7 @@ function renderStockMultiProductList() {
           <button class="btn-submit" onclick="showCustomerLedger()">লেজার দেখুন</button>
           <button class="btn-submit" style="background:#4a6c82;" onclick="showFullCustomerLedgerHistory()">সম্পূর্ণ ইতিহাস দেখুন (সব তারিখ)</button>
           <button class="btn-submit" style="background:#1b7a3f;" onclick="printCustomerLedger()">🖨️ লেজার প্রিন্ট করুন</button>
+        </div>
         </div>
         <div id="ledgerResult" style="margin-top:15px;"></div>
       </div>
