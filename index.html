@@ -1098,7 +1098,7 @@ body.edit-modal-open { overflow: hidden !important; }
                                 <th style="width: 80px;">মোট আইটেম</th>
                                 <th style="width: 100px; text-align:right;">মূল্য</th>
                                 <th style="width: 75px; text-align:center;">গড় ছাড়</th>
-                                <th style="width: 260px; text-align: center;">অ্যাকশন</th>
+                                <th style="width: 220px; text-align: center;">অ্যাকশন</th>
                             </tr>
                         </thead>
                         <tbody id="todayInvoiceTableBody">
@@ -3298,6 +3298,17 @@ body.edit-modal-open { overflow: hidden !important; }
             popup.style.display = 'flex';
         }
 
+        // ইনভয়েসের id-এর ভেতরে (নতুন তৈরি করা হলে) তৈরির সময়ের মিলিসেকেন্ড
+        // টাইমস্ট্যাম্প লুকানো থাকে (যেমন "INV_1736412345678") — একই
+        // তারিখের ভেতরে কোনটা সবচেয়ে পরে তৈরি হয়েছে (মানে "এখন যেটা করলাম")
+        // বের করার জন্য এটাই সবচেয়ে নির্ভুল উপায়।
+        function getInvoiceCreationOrder(inv) {
+            const m = String(inv.id || '').match(/INV_(\d+)/);
+            if (m) return Number(m[1]);
+            const m2 = String(inv.invoiceNo || '').match(/(\d+)/);
+            return m2 ? Number(m2[1]) : 0;
+        }
+
         function renderTodayInvoices() {
             const tbody = document.getElementById('todayInvoiceTableBody');
             tbody.innerHTML = '';
@@ -3305,14 +3316,14 @@ body.edit-modal-open { overflow: hidden !important; }
             const filtered = (invoices || []).filter(inv => {
                 const d = parseBanglaOrISODate(inv.date);
                 return d && d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
-            }).sort((a,b)=>(parseBanglaOrISODate(b.date)||0)-(parseBanglaOrISODate(a.date)||0));
+            }).sort((a,b)=> getInvoiceCreationOrder(b) - getInvoiceCreationOrder(a));
             if(filtered.length === 0) { tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#777;">আজ এখনো কোনো ইনভয়েস তৈরি করা হয়নি।</td></tr>`; return; }
             filtered.forEach(inv => {
                 const buyerRet = resolveRetailerForInvoice(inv);
                 const buyerName = buyerRet ? (buyerRet.name || '') : '';
                 const amount = Math.round(Number(inv.totalAmount || 0) || 0);
                 const avgDiscount = getInvoiceAvgDiscountPercent(inv);
-                tbody.innerHTML += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:6px 4px;"><button class="btn-action btn-view" style="padding:4px 7px;font-size:12px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:4px 7px;font-size:12px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:4px 7px;font-size:12px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action print-pending" id="printBtn_${inv.id}" style="padding:4px 7px;font-size:12px;" onclick="printInvoiceDirect('${inv.id}', this)">🖨️ প্রিন্ট</button></td></tr>`;
+                tbody.innerHTML += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:4px 2px;"><button class="btn-action btn-view" style="padding:2px 5px;font-size:10.5px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:2px 5px;font-size:10.5px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:2px 5px;font-size:10.5px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action print-pending" id="printBtn_${inv.id}" style="padding:2px 5px;font-size:10.5px;" onclick="printInvoiceDirect('${inv.id}', this)">🖨️প্রিন্ট</button></td></tr>`;
             });
         }
 
@@ -3320,7 +3331,11 @@ body.edit-modal-open { overflow: hidden !important; }
             const tbody = document.getElementById('salesSavedInvoiceTableBody');
             if (!tbody) return;
             tbody.innerHTML = '';
-            const sorted = [...(invoices || [])].sort((a,b)=>(parseBanglaOrISODate(b.date)||0)-(parseBanglaOrISODate(a.date)||0));
+            const sorted = [...(invoices || [])].sort((a,b)=>{
+                const dateDiff = (parseBanglaOrISODate(b.date)||0)-(parseBanglaOrISODate(a.date)||0);
+                if (dateDiff !== 0) return dateDiff;
+                return getInvoiceCreationOrder(b) - getInvoiceCreationOrder(a);
+            });
             if (!sorted.length) { tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:#777;">কোনো ইনভয়েস নেই।</td></tr>'; return; }
             sorted.forEach(inv => {
                 tbody.innerHTML += `<tr><td>${escapeHtml(inv.date) || ''}</td><td><b>${escapeHtml(inv.invoiceNo) || ''}</b></td><td>${escapeHtml(displayTraderName(inv.retailer))}</td><td>${inv.invoiceType==='Credit'?'ক্রেডিট':'ক্যাশ'}</td><td>${Number(inv.totalAmount||0).toLocaleString('en-US')} ৳</td><td style="text-align:center;"><button class="btn-action btn-view" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" onclick="openSalesModal('${inv.id}')">এডিট</button></td></tr>`;
