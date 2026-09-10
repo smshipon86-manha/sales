@@ -1300,7 +1300,7 @@ body.edit-modal-open { overflow: hidden !important; }
             </div>
             <div class="form-group" style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
                 <input type="text" id="productSearchBox" onkeyup="filterProductSelectionList()" placeholder="পণ্যের নাম দিয়ে খুঁজুন..." style="padding: 8px; margin-bottom: 0; flex: 1;">
-                <button type="button" class="btn-submit" style="width: auto; margin-top: 0; background-color: #5c7f29; padding: 8px 15px;" onclick="addSelectedProductsToInvoice()">সিলেক্ট করা পণ্যগুলো যোগ করুন</button>
+                <button type="button" class="btn-submit" style="width: auto; margin-top: 0; background-color: #5c7f29; padding: 8px 15px;" onclick="addSelectedProductsToInvoice()"><span id="productSelectCounterInline"></span>সিলেক্ট করা পণ্যগুলো যোগ করুন</button>
             </div>
             <div style="max-height: 60vh; overflow-y: auto; overflow-x: auto; margin-top: 10px;">
                 <table class="data-table">
@@ -2720,7 +2720,29 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!checkConnectionOrAlert()) return;
             document.getElementById('productSelectModal').style.display = 'flex';
             document.getElementById('selectAllCheckbox').checked = false;
+            document.getElementById('productSearchBox').value = '';
+            // নতুন করে পণ্য সিলেক্ট করা শুরু হচ্ছে — আগের কোনো বাকি
+            // সিলেকশন (যদি কোনোভাবে থেকে যায়) মুছে দেওয়া হলো
+            selectedProductIndexesForInvoice.clear();
+            updateProductSelectCounter();
             renderProductSelectionList();
+        }
+
+        // সার্চ বদলালেও কোন কোন পণ্য আগে টিক দেওয়া ছিল তা এই Set-এ
+        // মনে রাখা হয় — তাই একটা পণ্য সিলেক্ট করে আবার নতুন করে সার্চ
+        // করলেও আগের টিক মার্ক মুছে যায় না।
+        let selectedProductIndexesForInvoice = new Set();
+
+        function updateProductSelectCounter() {
+            const n = selectedProductIndexesForInvoice.size;
+            const el = document.getElementById('productSelectCounterInline');
+            if (el) el.textContent = n > 0 ? `(${toBanglaNumber(n)}টি সিলেক্ট করা হয়েছে) ` : '';
+        }
+
+        function toggleProductIndexSelection(idx, checked) {
+            if (checked) selectedProductIndexesForInvoice.add(idx);
+            else selectedProductIndexesForInvoice.delete(idx);
+            updateProductSelectCounter();
         }
 
         // একটা পণ্য এ পর্যন্ত মোট কত পিস/কার্টুন বিক্রি হয়েছে (সব ইনভয়েস মিলিয়ে)
@@ -2768,7 +2790,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 }
                 tbody.innerHTML += `
                     <tr style="${out ? 'opacity:.62;background:#fff1f1;' : ''}">
-                        <td style="text-align:center;"><input type="checkbox" class="product-checkbox" value="${idx}" ${out ? 'disabled' : ''}></td>
+                        <td style="text-align:center;"><input type="checkbox" class="product-checkbox" value="${idx}" ${out ? 'disabled' : ''} ${selectedProductIndexesForInvoice.has(idx) ? 'checked' : ''} onchange="toggleProductIndexSelection(${idx}, this.checked)"></td>
                         <td>${escapeHtml(p.code) || '-'}</td>
                         <td><b>${escapeHtml(p.name)}</b>${out ? '<div style="color:#d9534f;font-weight:bold;margin-top:3px;">স্টকে নাই</div>' : ''}</td>
                         <td>${Number(p.price||0).toLocaleString('en-US')} ৳</td>
@@ -2800,18 +2822,24 @@ body.edit-modal-open { overflow: hidden !important; }
 
         function toggleSelectAllProducts(master) {
             const checkboxes = document.querySelectorAll('.product-checkbox');
-            checkboxes.forEach(cb => cb.checked = master.checked);
+            checkboxes.forEach(cb => {
+                cb.checked = master.checked;
+                const idx = parseInt(cb.value);
+                if (master.checked) selectedProductIndexesForInvoice.add(idx);
+                else selectedProductIndexesForInvoice.delete(idx);
+            });
+            updateProductSelectCounter();
         }
 
         function addSelectedProductsToInvoice() {
             if (!checkConnectionOrAlert()) return;
-            const checkboxes = document.querySelectorAll('.product-checkbox:checked');
-            if(checkboxes.length === 0) {
+            if (selectedProductIndexesForInvoice.size === 0) {
                 alert("দয়া করে কমপক্ষে একটি পণ্য সিলেক্ট করুন।");
                 return;
             }
-            checkboxes.forEach(cb => {
-                let p = products[parseInt(cb.value)];
+            selectedProductIndexesForInvoice.forEach(idx => {
+                let p = products[idx];
+                if (!p) return;
                 let exists = selectedInvoiceItems.find(item => item.name === p.name);
                 if(!exists) {
                     const stockQty = getProductStockQty(p.name);
@@ -2826,6 +2854,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     });
                 }
             });
+            selectedProductIndexesForInvoice.clear();
             closeModal('productSelectModal');
             renderInvoiceItemTable();
         }
@@ -4182,7 +4211,10 @@ function renderStockMultiProductList() {
             tbody.innerHTML = '';
             let lowStockCount = 0;
             const LOW_STOCK_THRESHOLD = 3; // ৩ কার্টুনের নিচে নামলে সতর্কতা
-            stocks.forEach((st, index) => {
+            // অক্ষর অনুযায়ী (A-Z) সাজানো হচ্ছে — এডিট/ডিলিট বাটনে তবুও স্টকের
+            // আসল (original) ইনডেক্স ব্যবহার হয়, যাতে সঠিক এন্ট্রিটাই এডিট/ডিলিট হয়।
+            const sortedStocks = stocks.map((st, index) => ({st, index})).sort((a, b) => String(a.st.productName||'').localeCompare(String(b.st.productName||'')));
+            sortedStocks.forEach(({st, index}) => {
                 const product = findProductByName(st.productName);
                 const parts = getStockDisplayParts(st.qty, product);
                 const ppc = getPiecesPerCarton(product);
@@ -6925,6 +6957,40 @@ function renderStockMultiProductList() {
             document.getElementById('collectionSuccessDetails').innerHTML=`<div><b>তারিখ:</b> ${date}</div><div><b>কালেকশন:</b> ${amount.toLocaleString('en-US')} ৳</div><div><b>কালেকশনের পর মোট বাকি:</b> ${due.toLocaleString('en-US')} ৳</div>`;
             p.style.display='flex';
         }
+
+        // ========== ডাবল-ক্লিক/ডাবল-সাবমিট সুরক্ষা ==========
+        // ইন্টারনেট স্লো থাকলে "OK"/"কনফার্ম" বাটনে দুইবার চাপ পড়লে একই
+        // ডেটা দুইবার সেভ হয়ে যাওয়ার ঝুঁকি থাকে (যেমন একই ইনভয়েস/কালেকশন
+        // দুইবার তৈরি হওয়া)। নিচের guardAgainstDoubleSubmit() প্রতিটা
+        // গুরুত্বপূর্ণ সেভ-ফাংশনকে এমনভাবে মুড়িয়ে দেয় যে, প্রথমটা শেষ না
+        // হওয়া পর্যন্ত সেই একই ফাংশনের দ্বিতীয় কল সম্পূর্ণ উপেক্ষা করা হয় —
+        // তাই বাটনে যতবারই চাপ পড়ুক, আসল সেভ-এর কাজ একবারের বেশি হবে না।
+        const __busyGuardKeys = new Set();
+        function guardAgainstDoubleSubmit(fn, key) {
+            return async function (...args) {
+                if (__busyGuardKeys.has(key)) return; // আগের কল এখনো চলছে — এই কলটা উপেক্ষা করা হলো
+                __busyGuardKeys.add(key);
+                try {
+                    return await fn.apply(this, args);
+                } finally {
+                    __busyGuardKeys.delete(key);
+                }
+            };
+        }
+
+        // যেসব বাটন সরাসরি ডেটা সেভ/তৈরি/অ্যাপ্রুভ করে, সেগুলোকেই সুরক্ষা
+        // দেওয়া হচ্ছে (মুছে ফেলার বাটনে দিলাম না, কারণ দুইবার ডিলিট করলে
+        // ক্ষতির কিছু নেই, দ্বিতীয়বার শুধু কিছু পাবে না)।
+        saveInvoiceData = guardAgainstDoubleSubmit(saveInvoiceData, 'saveInvoiceData');
+        saveProduct = guardAgainstDoubleSubmit(saveProduct, 'saveProduct');
+        saveStock = guardAgainstDoubleSubmit(saveStock, 'saveStock');
+        saveRetailer = guardAgainstDoubleSubmit(saveRetailer, 'saveRetailer');
+        saveCollection = guardAgainstDoubleSubmit(saveCollection, 'saveCollection');
+        addRoute = guardAgainstDoubleSubmit(addRoute, 'addRoute');
+        markOnlineOrderStatus = guardAgainstDoubleSubmit(markOnlineOrderStatus, 'markOnlineOrderStatus');
+        approveOnlineCollection = guardAgainstDoubleSubmit(approveOnlineCollection, 'approveOnlineCollection');
+        rejectOnlineCollection = guardAgainstDoubleSubmit(rejectOnlineCollection, 'rejectOnlineCollection');
+        restoreFromBackupJSON = guardAgainstDoubleSubmit(restoreFromBackupJSON, 'restoreFromBackupJSON');
 
 </script>
 
