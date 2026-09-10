@@ -275,6 +275,10 @@
             align-items: center;
         }
 
+        /* কালেকশন/অন্য যেকোনো পপ-আপের ভেতর থেকে লেজার খোলা হলেও এটা
+           সবসময় সবার উপরে দেখা যাবে — বন্ধ করলে নিচের পপ-আপে ফিরে যাবে। */
+        #customerLedgerModal { z-index: 2100; }
+
         .modal-box {
             background: #fff;
             width: 950px;
@@ -933,7 +937,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 <ul class="dropdown">
                     <li><a onclick="openRetailerReportModal()">রিটেইলার তালিকা</a></li>
                     <li><a onclick="openCustomerDueReportModal()">কাস্টমার বাকি (Due Report)</a></li>
-                    <li><a onclick="openTodayStockReportModal()">আজকের স্টক</a></li>
+                    <li><a onclick="openStockReportModal()">স্টক রিপোর্ট</a></li>
                     <li><a onclick="openSalesDateRangeReportModal()">আজকের সেলস</a></li>
                     <li><a onclick="openCustomerLedgerModal()">কাস্টমারের লেজার</a></li>
                     <li><a onclick="openStockLogReportModal()">স্টক যোগের ইতিহাস</a></li>
@@ -1237,6 +1241,24 @@ body.edit-modal-open { overflow: hidden !important; }
     </div>
 
     <!-- আজকের সেলস / তারিখ অনুযায়ী সেলস রিপোর্ট পপ-আপ -->
+    <!-- স্টক রিপোর্ট (তারিখ পর্যন্ত) পপ-আপ -->
+    <div class="modal-overlay" id="stockReportModal">
+        <div class="modal-box" style="width: 480px; max-width: 96vw;">
+            <div class="modal-header">
+                <h3>স্টক রিপোর্ট</h3>
+                <span class="close-btn" onclick="closeModal('stockReportModal')">&times;</span>
+            </div>
+            <div class="form-group">
+                <label>কোন তারিখ পর্যন্তের স্টক দেখতে চান?</label>
+                <input type="date" id="stockReportAsOfDate">
+            </div>
+            <div style="font-size:12px; color:#666; margin-bottom:12px;">
+                আজকের তারিখ রাখলে এই মুহূর্তের আসল/লাইভ স্টক দেখাবে। পুরোনো কোনো তারিখ বেছে নিলে, বর্তমান স্টক থেকে হিসাব করে সেই তারিখ পর্যন্ত (ওই দিন শেষে) স্টক আনুমানিকভাবে কেমন ছিল তা দেখানো হবে — অর্থাৎ ওই তারিখের পরে যত বিক্রি হয়েছে তা যোগ করে, আর যত স্টক যুক্ত হয়েছে তা বাদ দিয়ে। <b style="color:#c0392b;">⚠️ যদি মাঝে কখনো "স্টক এডিট" দিয়ে সরাসরি সংখ্যা বদলে থাকেন (তারিখ ছাড়া), সেটুকু এই হিসাবে ধরা পড়বে না — তাই ছোট পার্থক্য থাকতে পারে।</b>
+            </div>
+            <button class="btn-submit" onclick="generateStockReportForDate()">রিপোর্ট দেখুন</button>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="salesDateRangeReportModal">
         <div class="modal-box" style="width:1450px; max-width:96vw;">
             <div class="modal-header">
@@ -1818,6 +1840,13 @@ body.edit-modal-open { overflow: hidden !important; }
         let onlineOrdersUnsubscribe = null;
         let onlineOrders = []; // এসআর-এর পাঠানো অনলাইন অর্ডারের তালিকা
         let currentConvertingOnlineOrderId = null; // ইনভয়েসে রূপান্তর করার সময় কোন অনলাইন অর্ডার থেকে হচ্ছে তা মনে রাখা
+        // ফায়ারবেজ থেকে routes/products/stocks/retailers একবার সম্পূর্ণ লোড
+        // হওয়ার আগে যদি কোনো সেভ-অ্যাকশন (ইনভয়েস/রিটেইলার/কালেকশন যেকোনো
+        // কিছু) চাপা পড়ে, তাহলে syncToFirebase() লোকাল মেমোরির অসম্পূর্ণ/খালি
+        // অবস্থাটাই আসল ডেটার ওপর লিখে ফেলতে পারে — এতে স্টক/রিটেইলার ডেটা
+        // হারিয়ে যাওয়ার মতো গুরুতর ক্ষতি হতে পারে (এটাই আগে একবার হয়েছিল)।
+        // তাই প্রথম লোড সম্পূর্ণ না হওয়া পর্যন্ত সব সেভ-অ্যাকশন আটকে রাখা হচ্ছে।
+        let initialDataLoaded = false;
         let onlineCollectionsUnsubscribe = null;
         let onlineCollections = []; // এসপিও-এর পাঠানো কালেকশন (বাকি জমার) রিকোয়েস্টের তালিকা
 
@@ -1845,6 +1874,10 @@ body.edit-modal-open { overflow: hidden !important; }
                         stocks = data.stocks || [];
                         stockLogs = Array.isArray(data.stockLogs) ? data.stockLogs : [];
                         products = Array.isArray(data.products) ? data.products : defaultProducts;
+                        // আসল ডেটা সফলভাবে লোড হয়ে গেছে — এখন থেকে সেভ/সিঙ্ক
+                        // করা নিরাপদ, কারণ লোকাল মেমোরি আর ফায়ারবেজের ডেটা
+                        // একই অবস্থায় আছে।
+                        initialDataLoaded = true;
                         const productPricingChanged = normalizeProductPiecePrices();
 
                         // এক-বারের মাইগ্রেশন: আগে তৈরি হওয়া রিটেইলারদের আইডি
@@ -1896,6 +1929,7 @@ body.edit-modal-open { overflow: hidden !important; }
                         stocks = [];
                         retailers = defaultRetailers;
                         normalizeProductPiecePrices();
+                        initialDataLoaded = true;
                         syncToFirebase();
                     }
                     badge.classList.remove("offline");
@@ -2008,6 +2042,14 @@ body.edit-modal-open { overflow: hidden !important; }
 
         function syncToFirebase() {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
+            // সবচেয়ে জরুরি সুরক্ষা: ফায়ারবেজ থেকে আসল ডেটা (routes/products/
+            // stocks/retailers) একবার সম্পূর্ণ লোড না হওয়া পর্যন্ত কোনো সেভ
+            // এখানে যেতে দেওয়া হবে না। নাহলে লোকাল মেমোরির অসম্পূর্ণ/খালি
+            // অবস্থা আসল ডেটার ওপর লিখে ফেলে ডেটা স্থায়ীভাবে হারিয়ে যেতে পারে।
+            if (!initialDataLoaded) {
+                alert('তথ্য এখনো সম্পূর্ণ লোড হয়নি — একটু অপেক্ষা করে (ইন্টারনেট সংযোগ চেক করে) আবার চেষ্টা করুন। এই মুহূর্তে সেভ করলে ডেটা হারিয়ে যাওয়ার ঝুঁকি আছে, তাই সেটা আটকে দেওয়া হলো। প্রয়োজনে পেজ রিলোড করুন।');
+                return Promise.resolve(false);
+            }
             updateDashboardStats();
             // লক্ষ্য করুন: ইনভয়েস এখন এখানে সেভ হয় না। প্রতিটা ইনভয়েস আলাদাভাবে
             // "sales_invoices" কালেকশনে saveInvoiceDoc()/deleteInvoiceDoc() দিয়ে
@@ -5196,16 +5238,65 @@ function renderStockMultiProductList() {
             renderCustomerDueReport(query);
         }
 
-        function openTodayStockReportModal() {
+        function openStockReportModal() {
             if (!checkConnectionOrAlert()) return;
-            const today = getSystemDateString();
+            document.getElementById('stockReportAsOfDate').value = getLocalISODate();
+            document.getElementById('stockReportAsOfDate').max = getLocalISODate();
+            document.getElementById('stockReportModal').style.display = 'flex';
+        }
+
+        // বর্তমান স্টক থেকে পিছনে হিসাব করে একটা পুরোনো তারিখ পর্যন্ত স্টক
+        // আনুমানিকভাবে কেমন ছিল তা বের করা — asOfISO তারিখের পরে যত বিক্রি
+        // (ইনভয়েস) হয়েছে তা যোগ করে, আর যত স্টক যুক্ত (স্টক লগ) হয়েছে তা
+        // বাদ দিয়ে। ম্যানুয়াল "স্টক এডিট" (তারিখহীন) এই হিসাবে ধরা পড়ে না।
+        function computeStockAsOf(asOfISO) {
+            const todayISO = getLocalISODate();
+            if (asOfISO >= todayISO) {
+                return stocks.map(st => ({ productName: st.productName, qty: parseFloat(st.qty || 0) || 0 }));
+            }
+            const map = {};
+            stocks.forEach(st => { map[st.productName] = parseFloat(st.qty || 0) || 0; });
+
+            (invoices || []).forEach(inv => {
+                const d = toLocalISODate(parseBanglaOrISODate(inv.date));
+                if (!d || d <= asOfISO) return; // শুধু asOfISO-এর পরের ইনভয়েস
+                (inv.items || []).forEach(it => {
+                    const product = products.find(p => p.name === it.name);
+                    const ppc = getPiecesPerCarton(product);
+                    const { cartonQty, pieceQty } = getItemLineAmounts(it);
+                    const cartonEquiv = (Number(cartonQty) || 0) + (Number(pieceQty) || 0) / ppc;
+                    map[it.name] = (map[it.name] || 0) + cartonEquiv;
+                });
+            });
+
+            (stockLogs || []).forEach(log => {
+                const d = toLocalISODate(parseBanglaOrISODate(log.date));
+                if (!d || d <= asOfISO) return; // শুধু asOfISO-এর পরে যুক্ত হওয়া স্টক
+                const product = products.find(p => p.name === log.productName);
+                const ppc = getPiecesPerCarton(product);
+                const cartonEquiv = (Number(log.qtyPieces) || 0) / ppc;
+                map[log.productName] = (map[log.productName] || 0) - cartonEquiv;
+            });
+
+            return Object.keys(map).map(name => ({ productName: name, qty: map[name] }));
+        }
+
+        function generateStockReportForDate() {
+            const asOfISO = document.getElementById('stockReportAsOfDate').value || getLocalISODate();
+            const todayISO = getLocalISODate();
+            const isToday = asOfISO >= todayISO;
+            const stockList = computeStockAsOf(asOfISO);
+            buildStockReportWindow(stockList, asOfISO, isToday);
+        }
+
+        function buildStockReportWindow(stockList, asOfISO, isToday) {
+            const dateLabel = isToday ? getSystemDateString() : isoToSystemDate(asOfISO);
+            const titleSuffix = isToday ? '' : ' (আনুমানিক, তারিখ পর্যন্ত)';
             let rows = '';
             let total = 0;
             let totalAfterDiscount = 0;
             const csvRows = [['ক্রম','পণ্যের নাম','কার্টুন মূল্য','স্টক (কার্টুন)','স্টক (পিস)','মোট দাম','১৫% বাদে দাম']];
-            // যে পণ্যের স্টক আসলে ০ বা তার কম (যেমন সম্পূর্ণ বিক্রি হয়ে গেছে),
-            // সেগুলো "স্টকে নেই" হিসেবে ধরে রিপোর্টে দেখানো হয় না।
-            const inStock = stocks.filter(st => (parseFloat(st.qty || 0) || 0) > 0.001)
+            const inStock = stockList.filter(st => (parseFloat(st.qty || 0) || 0) > 0.001)
                 .slice().sort((a,b) => String(a.productName||'').localeCompare(String(b.productName||'')));
             let sNo = 0;
             inStock.forEach((st) => {
@@ -5215,32 +5306,24 @@ function renderStockMultiProductList() {
                 const ppc = getPiecesPerCarton(product);
                 const qtyPiece = Math.round(qtyCarton * ppc);
                 const amount = qtyCarton * cartonPrice;
-                // ১৫% বাদ দেওয়ার পর দাম — গোডাউন/স্টক মূল্যায়নের সময় ব্যবসায়িক
-                // ছাড় ধরে হিসাব করার জন্য।
                 const amountAfterDiscount = amount * 0.85;
                 total += amount;
                 totalAfterDiscount += amountAfterDiscount;
                 sNo++;
-                // কার্টুন সংখ্যা এখন দশমিকসহ দেখানো হচ্ছে (যেমন 4.5 কার্টুন) — অর্থাৎ
-                // মোট পিস সংখ্যাকে কার্টুন-রেশিও দিয়ে ভাগ করলে যা হয়, ঠিক সেটাই।
-                // আগে এই কলামে শুধু পূর্ণ কার্টুন সংখ্যা (যেমন 4) দেখানো হতো।
                 const cartonDisplay = Math.round(qtyCarton * 100) / 100;
                 rows += `<tr><td>${sNo}</td><td><b>${st.productName}</b></td><td style="text-align:right;">${cartonPrice.toLocaleString('en-US')} ৳</td><td style="text-align:right;">${cartonDisplay}</td><td style="text-align:right;">${qtyPiece}</td><td style="text-align:right;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:right;">${Math.round(amountAfterDiscount).toLocaleString('en-US')} ৳</td></tr>`;
                 csvRows.push([sNo, st.productName, cartonPrice, cartonDisplay, qtyPiece, amount, Math.round(amountAfterDiscount)]);
             });
-            if (!rows) rows = `<tr><td colspan="7" style="text-align:center;">আজ কোনো স্টক নেই।</td></tr>`;
+            if (!rows) rows = `<tr><td colspan="7" style="text-align:center;">${isToday ? 'আজ কোনো স্টক নেই।' : 'ওই তারিখে কোনো স্টক ছিল না (হিসাব অনুযায়ী)।'}</td></tr>`;
             csvRows.push([]);
             csvRows.push(['সকল পণ্যের মোট মূল্য', '', '', '', '', total, Math.round(totalAfterDiscount)]);
 
-            // পপ-আপ উইন্ডোর ভেতরেই CSV ডাউনলোড করা যাবে এমন একটা বাটন — মূল
-            // উইন্ডোর সাথে সংযোগ (window.opener) ছাড়াই স্বয়ংসম্পূর্ণভাবে কাজ করে,
-            // যাতে পপ-আপ ব্লকার বা opener বন্ধ থাকলেও ডাউনলোড কাজ করে।
             const csvColCount = 7;
             const csvPad = (text) => [text, ...Array(csvColCount - 1).fill('')];
             const csvRowsWithHeader = [
                 csvPad('বিসমিল্লাহির রহমানির রাহিম'),
                 csvPad('মেসার্স ধুনট সিড এন্ড এগ্রো ট্রেডার্স'),
-                csvPad('আজকের স্টক'),
+                csvPad('স্টক রিপোর্ট' + titleSuffix),
                 csvPad(''),
                 ...csvRows
             ];
@@ -5248,7 +5331,7 @@ function renderStockMultiProductList() {
             const csvBase64 = btoa(unescape(encodeURIComponent(csvContent)));
 
             const w = window.open('', '_blank');
-            w.document.write(`<html lang="bn"><head><meta charset="UTF-8"><title>আজকের স্টক</title>
+            w.document.write(`<html lang="bn"><head><meta charset="UTF-8"><title>স্টক রিপোর্ট</title>
             <style>body{font-family:Arial,sans-serif;padding:25px}h2{text-align:center}table{width:100%;border-collapse:collapse}th,td{border:1px solid #999;padding:8px}th{background:#eee}.total{font-weight:bold;text-align:right;margin-top:15px}.report-actions{text-align:center;margin-bottom:18px;}.report-actions button{padding:9px 20px;margin:0 6px;border:none;border-radius:6px;font-size:14px;cursor:pointer;}#printBtn{background:#333;color:#fff;}#downloadStockCsvBtn{background:#1b7a3f;color:#fff;}</style>
             </head>
             <body>
@@ -5256,7 +5339,8 @@ function renderStockMultiProductList() {
                 <button id="printBtn">প্রিন্ট করুন</button>
                 <button id="downloadStockCsvBtn">CSV ডাউনলোড করুন</button>
             </div>
-            <h2>আজকের স্টক</h2><p style="text-align:center">তারিখ: ${today}</p>
+            <h2>স্টক রিপোর্ট${titleSuffix}</h2><p style="text-align:center">তারিখ: ${dateLabel}</p>
+            ${!isToday ? '<p style="text-align:center;color:#c0392b;font-size:13px;">⚠️ এটি আনুমানিক হিসাব — ম্যানুয়াল স্টক এডিট (তারিখহীন) এতে ধরা পড়ে না।</p>' : ''}
             <table><thead><tr><th>ক্রম</th><th>পণ্যের নাম</th><th>কার্টুন মূল্য</th><th>স্টক (কার্টুন)</th><th>স্টক (পিস)</th><th>মোট দাম</th><th>১৫% বাদে দাম</th></tr></thead><tbody>${rows}</tbody></table>
             <div class="total">সকল পণ্যের মোট মূল্য: ${total.toLocaleString('en-US')} ৳</div>
             <div class="total">সকল পণ্যের ১৫% বাদে মোট মূল্য: ${Math.round(totalAfterDiscount).toLocaleString('en-US')} ৳</div>
@@ -5266,7 +5350,7 @@ function renderStockMultiProductList() {
                     const csv = decodeURIComponent(escape(atob('${csvBase64}')));
                     const a = document.createElement('a');
                     a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
-                    a.download = 'today_stock_${today}.csv';
+                    a.download = 'stock_report_${asOfISO}.csv';
                     a.click();
                     URL.revokeObjectURL(a.href);
                 });
@@ -6754,8 +6838,20 @@ function renderStockMultiProductList() {
             const idx=document.getElementById('collectionRetailerSelect').value;
             const ret=idx!==''?retailers[parseInt(idx)]:null;
             document.getElementById('collectionDueBox').innerText=`বর্তমান বাকি: ${Number(ret?.currentDue||0).toLocaleString('en-US')} ৳`;
+            const ledgerBtn = document.getElementById('collectionViewLedgerBtn');
+            if (ledgerBtn) ledgerBtn.style.display = ret ? 'block' : 'none';
             // রিটেইলার বেছে নেওয়ার সাথে সাথেই টাকার ঘরে ফোকাস চলে যায়
             if (ret) document.getElementById('collectionAmount').focus();
+        }
+
+        // কালেকশন পপ-আপ থেকেই বেছে নেওয়া রিটেইলারের সম্পূর্ণ লেজার দেখা —
+        // কালেকশন করার আগে এক নজরে তার লেনদেনের ইতিহাস দেখে নেওয়া যায়।
+        // কালেকশন ফর্মের তথ্য (তারিখ/টাকা/নোট) হারিয়ে যায় না, লেজার বন্ধ
+        // করলে আগের অবস্থায়ই ফিরে আসবে।
+        function viewLedgerFromCollection() {
+            const idx = document.getElementById('collectionRetailerSelect').value;
+            if (idx === '') { alert('আগে রিটেইলার নির্বাচন করুন।'); return; }
+            openCustomerLedgerForRetailer(parseInt(idx));
         }
 
         // "সম্পূর্ণ বাকি" বাটনে চাপলে বর্তমান বাকির পুরো টাকাটাই টাকার
@@ -6866,6 +6962,7 @@ function renderStockMultiProductList() {
               <select id="collectionRetailerSelect" class="collection-big-field" onchange="showCollectionDue()"></select>
             </div>
             <div id="collectionDueBox" class="collection-due-box">বর্তমান বাকি: 0 ৳</div>
+            <button type="button" id="collectionViewLedgerBtn" class="btn-action btn-view" style="width:100%; margin-bottom:10px; display:none;" onclick="viewLedgerFromCollection()">📒 এই রিটেইলারের লেজার দেখুন</button>
             <div class="form-group">
               <label>কালেকশন টাকা</label>
               <div style="display:flex; gap:8px;">
