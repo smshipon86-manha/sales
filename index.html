@@ -2775,8 +2775,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const aInStock = a.stockQty > 0.001 ? 1 : 0;
                 const bInStock = b.stockQty > 0.001 ? 1 : 0;
                 if (aInStock !== bInStock) return bInStock - aInStock;
-                // স্টকে থাকা পণ্যগুলোর মধ্যে বেশি বিক্রি হওয়া পণ্য আগে দেখানো হয়
-                if (aInStock && a.salesRank !== b.salesRank) return b.salesRank - a.salesRank;
+                // স্টকে আছে/নেই — দুই দলের ভেতরেই এখন A-Z (অক্ষর) অনুযায়ী সাজানো
                 return a.p.name.localeCompare(b.p.name);
             });
             let currentGroup = null;
@@ -2859,6 +2858,9 @@ body.edit-modal-open { overflow: hidden !important; }
                 }
             });
             selectedProductIndexesForInvoice.clear();
+            // পণ্য যে ক্রমেই টিক দিয়ে সিলেক্ট করা হোক না কেন, ইনভয়েস আইটেম
+            // তালিকায় সবসময় A-Z (অক্ষর) অনুযায়ী সাজানো থাকবে।
+            selectedInvoiceItems.sort((a, b) => String(a.name||'').localeCompare(String(b.name||'')));
             closeModal('productSelectModal');
             renderInvoiceItemTable();
         }
