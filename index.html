@@ -457,17 +457,18 @@
 
         /* ইনভয়েসের উপরের অংশ (রুট/রিটেইলার/টাইপ ইত্যাদি) ছোট/সংক্ষিপ্ত রাখা
            হয়েছে, যাতে নিচের পণ্যের তালিকার জন্য বেশি জায়গা থাকে। */
+        .invoice-header-compact { padding: 6px 10px !important; gap: 12px !important; }
         .invoice-header-compact .form-group {
-            margin-bottom: 6px;
+            margin-bottom: 3px;
         }
         .invoice-header-compact .form-group label {
-            font-size: 12.5px;
-            margin-bottom: 2px;
+            font-size: 11px;
+            margin-bottom: 1px;
         }
         .invoice-header-compact .form-group input,
         .invoice-header-compact .form-group select {
-            padding: 5px 7px;
-            font-size: 13px;
+            padding: 3px 6px;
+            font-size: 12px;
         }
 
         .btn-submit {
@@ -540,7 +541,7 @@
         .btn-edit { background-color: #f0ad4e; color: #333; font-weight: bold;}
         .btn-delete { background-color: #d9534f; }
         .btn-view { background-color: #5bc0de; color: white; font-weight: bold; }
-        .print-pending { background-color: #d9534f; color: #fff; font-weight: bold; }
+        .print-pending { background-color: #e67e22; color: #fff; font-weight: bold; }
         .print-done { background-color: #3f9142; color: #fff; font-weight: bold; }
 
         /* ক্যাশ মেমো প্রিন্ট স্টাইল */
@@ -1226,6 +1227,7 @@ body.edit-modal-open { overflow: hidden !important; }
             <div style="margin-top:12px; padding:10px 14px; border:2px solid #5c7f29; background:#f4f8ef; text-align:right; font-size:16px; font-weight:bold; line-height:1.7;">
                 <div style="color:#555;">মোট MRP = <span id="invoiceMrpPreview">0 ৳</span></div>
                 <div style="font-size:18px;">ছাড়ে মোট মূল্য = <span id="invoiceTotalPreview">0 ৳</span></div>
+                <div style="font-size:13px; color:#c0392b;">গড় ছাড় = <span id="invoiceAvgDiscountPreview">০%</span></div>
             </div>
 
             <button class="btn-submit" id="btnSaveInvoice" style="margin-top: 15px; background-color: #5c7f29;" onclick="saveInvoiceData()">ইনভয়েস সেভ ও কনফার্ম করুন</button>
@@ -2887,9 +2889,12 @@ body.edit-modal-open { overflow: hidden !important; }
                             <input type="text" inputmode="numeric" value="${item.pieceQty || ''}" placeholder="পিস" class="item-nav-input" data-row="${index}" data-col="1" style="width:75px;padding:6px;background:#fff8e1;border:1px solid #ffcc80;border-radius:5px;" onchange="updateItemQty(${index}, 'piece', this.value)" onkeydown="handleItemInputArrowKey(event, this)">
                         </td>
                         <td>
-                            <div style="position:relative; display:inline-block;">
-                                <input type="text" inputmode="decimal" value="${item.discountPercent || ''}" placeholder="০" class="item-nav-input" data-row="${index}" data-col="2" style="width:95px;padding:6px 24px 6px 8px;background:#fce4ec;border:1px solid #f48fb1;border-radius:5px;" onchange="updateItemDiscount(${index}, this.value)" onkeydown="handleItemInputArrowKey(event, this)">
-                                <span style="position:absolute; right:6px; top:50%; transform:translateY(-50%); font-size:12px; color:#ad1457; pointer-events:none;">%</span>
+                            <div style="display:flex; align-items:center; gap:3px;">
+                                <div style="position:relative; display:inline-block;">
+                                    <input type="text" inputmode="decimal" value="${item.discountPercent || ''}" placeholder="০" class="item-nav-input" data-row="${index}" data-col="2" style="width:80px;padding:6px 24px 6px 8px;background:#fce4ec;border:1px solid #f48fb1;border-radius:5px;" onchange="updateItemDiscount(${index}, this.value)" onkeydown="handleItemInputArrowKey(event, this)">
+                                    <span style="position:absolute; right:6px; top:50%; transform:translateY(-50%); font-size:12px; color:#ad1457; pointer-events:none;">%</span>
+                                </div>
+                                ${index > 0 ? `<input type="checkbox" title="উপরের সারির ছাড়% এখানে বসান" onclick="copyDiscountFromAbove(${index}); this.checked=false;" style="cursor:pointer; width:12px; height:12px;">` : ''}
                             </div>
                         </td>
                         <td id="rowGross_${index}" style="white-space:nowrap;">${grossTotal.toLocaleString('en-US')} ৳</td>
@@ -2974,6 +2979,21 @@ body.edit-modal-open { overflow: hidden !important; }
             updateRowTotals(index);
         }
 
+        // ঠিক ওপরের সারিতে যে ছাড়% বসানো আছে, সেটাই এই সারিতে কপি করে
+        // দেয় — একই ছাড়% বারবার হাতে লিখতে হবে না, চেকবক্সে একবার ক্লিক
+        // করলেই হয়ে যাবে।
+        function copyDiscountFromAbove(index) {
+            if (index <= 0) return;
+            const prevItem = selectedInvoiceItems[index - 1];
+            const currentItem = selectedInvoiceItems[index];
+            if (!prevItem || !currentItem) return;
+            const val = prevItem.discountPercent === '' || prevItem.discountPercent === undefined || prevItem.discountPercent === null
+                ? '' : String(prevItem.discountPercent);
+            const input = document.querySelector(`.item-nav-input[data-row="${index}"][data-col="2"]`);
+            if (input) input.value = val;
+            updateItemDiscount(index, val);
+        }
+
         function getPiecesPerCarton(product) {
             const stored = parseFloat(product?.piecesPerCarton || product?.pieces || product?.cartonPieces || 0) || 0;
             const name = String(product?.name || '').toUpperCase().replace(/\s+/g, '');
@@ -3053,11 +3073,25 @@ body.edit-modal-open { overflow: hidden !important; }
         function updateInvoiceTotalPreview() {
             let el = document.getElementById('invoiceTotalPreview');
             let mrpEl = document.getElementById('invoiceMrpPreview');
+            let avgEl = document.getElementById('invoiceAvgDiscountPreview');
             if (!el) return;
             el.innerText = calculateInvoiceTotal().toLocaleString('en-US') + ' ৳';
             if (mrpEl) {
                 const mrpTotal = selectedInvoiceItems.reduce((sum, item) => sum + getItemLineAmounts(item).grossTotal, 0);
                 mrpEl.innerText = Math.round(mrpTotal).toLocaleString('en-US') + ' ৳';
+            }
+            if (avgEl) {
+                // দাম-ভিত্তিক ওজনযুক্ত (weighted) গড় ছাড় % — মোট ছাড়ের টাকা ÷
+                // মোট MRP। শুধু %-গুলোর সাধারণ গড় নিলে ভুল হতো (কম দামি
+                // পণ্যের ছাড় বেশি দামি পণ্যের সমান গুরুত্ব পেয়ে যেত)।
+                let totalGross = 0, totalDiscountAmount = 0;
+                selectedInvoiceItems.forEach(item => {
+                    const { grossTotal, discountAmount } = getItemLineAmounts(item);
+                    totalGross += grossTotal;
+                    totalDiscountAmount += discountAmount;
+                });
+                const avgPct = totalGross > 0 ? (totalDiscountAmount / totalGross) * 100 : 0;
+                avgEl.innerText = (Math.round(avgPct * 100) / 100) + '%';
             }
         }
 
@@ -3323,7 +3357,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const buyerName = buyerRet ? (buyerRet.name || '') : '';
                 const amount = Math.round(Number(inv.totalAmount || 0) || 0);
                 const avgDiscount = getInvoiceAvgDiscountPercent(inv);
-                tbody.innerHTML += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:4px 2px;"><button class="btn-action btn-view" style="padding:2px 5px;font-size:10.5px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:2px 5px;font-size:10.5px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:2px 5px;font-size:10.5px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action print-pending" id="printBtn_${inv.id}" style="padding:2px 5px;font-size:10.5px;" onclick="printInvoiceDirect('${inv.id}', this)">🖨️প্রিন্ট</button></td></tr>`;
+                tbody.innerHTML += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:4px 2px;"><button class="btn-action btn-view" style="padding:2px 5px;font-size:10.5px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:2px 5px;font-size:10.5px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:2px 5px;font-size:10.5px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action ${isInvoicePrinted(inv.id) ? 'print-done' : 'print-pending'}" id="printBtn_${inv.id}" style="padding:2px 5px;font-size:10.5px;" onclick="printInvoiceDirect('${inv.id}', this)">${isInvoicePrinted(inv.id) ? '🖨️প্রিন্ট হয়েছে' : '🖨️প্রিন্ট'}</button></td></tr>`;
             });
         }
 
@@ -3555,10 +3589,29 @@ body.edit-modal-open { overflow: hidden !important; }
             document.getElementById('cashMemoModal').style.display = 'flex';
         }
 
+        // কোন কোন ইনভয়েস প্রিন্ট করা হয়ে গেছে তা ব্রাউজারেই (localStorage)
+        // সেভ করে রাখা হয় — তাই পেজ রিলোড/রিফ্রেশ করলেও প্রিন্ট-করা বাটনগুলো
+        // সবুজ আর "প্রিন্ট হয়েছে" লেখাই থেকে যাবে, আবার লাল হয়ে যাবে না।
+        function getPrintedInvoiceIds() {
+            try { return new Set(JSON.parse(localStorage.getItem('printed_invoice_ids') || '[]')); }
+            catch (e) { return new Set(); }
+        }
+        function isInvoicePrinted(id) {
+            return getPrintedInvoiceIds().has(id);
+        }
+        function markInvoicePrinted(id) {
+            try {
+                const s = getPrintedInvoiceIds();
+                s.add(id);
+                localStorage.setItem('printed_invoice_ids', JSON.stringify(Array.from(s)));
+            } catch (e) { /* localStorage না থাকলেও অ্যাপ চলতে থাকবে, শুধু স্থায়ীভাবে মনে থাকবে না */ }
+        }
+
         // দাশবোর্ডের "আজকের ইনভয়েস" তালিকা থেকে সরাসরি প্রিন্ট ডায়ালগে
         // পাঠানোর জন্য — প্রিভিউ মোডাল খোলা হয় না, একদম সরাসরি প্রিন্ট
         // ডায়ালগ চলে আসে। প্রিন্ট ডায়ালগ বন্ধ হওয়ার পর (তখনই বোঝা যায়
-        // প্রিন্ট করা "শেষ" হয়েছে) বাটনটা লাল থেকে সবুজ হয়ে যায়।
+        // প্রিন্ট করা "শেষ" হয়েছে) বাটনটা লাল থেকে সবুজ হয়ে যায়, এবং এটা
+        // স্থায়ীভাবে (localStorage-এ) মনে রাখা হয়।
         function printInvoiceDirect(id, btn) {
             if (!checkConnectionOrAlert()) return;
             const inv = invoices.find(i => i.id === id);
@@ -3572,6 +3625,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 buyerCopyHTML + `<div class="memo-copy-break"></div>` + sellerCopyHTML;
 
             const onAfterPrint = () => {
+                markInvoicePrinted(id);
                 if (btn) {
                     btn.classList.remove('print-pending');
                     btn.classList.add('print-done');
