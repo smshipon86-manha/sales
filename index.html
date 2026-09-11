@@ -6377,13 +6377,20 @@ function renderStockMultiProductList() {
             flatRows.sort((a, b) => a.buyerName.localeCompare(b.buyerName) || (parseBanglaOrISODate(a.date) || 0) - (parseBanglaOrISODate(b.date) || 0));
 
             let grandTotal = 0;
+            const dataStartRow = sheet.rowCount + 1;
             flatRows.forEach((r, i) => {
                 grandTotal += r.total;
                 const rowNum = sheet.rowCount + 1;
+                // একই তারিখ + একই রিটেইলার পরপর সারিতে থাকলে, দ্বিতীয়/পরের
+                // সারিতে তারিখ ও রিটেইলারের নাম আর লেখা হয় না — নিচে এই
+                // সারিগুলো একসাথে মার্জ করে দেওয়া হবে, যাতে শুধু একবারই
+                // তারিখ/নাম দেখা যায়, শুধু পণ্য আর পরিমাণ ভাগে ভাগে দেখাবে।
+                const prev = flatRows[i - 1];
+                const sameGroup = prev && prev.buyerName === r.buyerName && prev.date === r.date;
                 const values = [
                     toBanglaNumber(i + 1),
-                    toBanglaNumber(r.date),
-                    r.buyerName,
+                    sameGroup ? '' : toBanglaNumber(r.date),
+                    sameGroup ? '' : r.buyerName,
                     r.productName,
                     r.qtyText,
                     toBanglaNumber(Math.round(r.unitPrice)),
@@ -6397,6 +6404,29 @@ function renderStockMultiProductList() {
                     cell.alignment = { horizontal: (idx === 2 || idx === 3) ? 'left' : 'center', vertical: 'middle' };
                 });
             });
+
+            // তারিখ (কলাম ২) আর রিটেইলারের নাম (কলাম ৩) কলামে পরপর একই
+            // গ্রুপের সারিগুলো একসাথে মার্জ (vertical merge) করে দেওয়া হচ্ছে।
+            {
+                let groupStartIdx = 0;
+                for (let i = 1; i <= flatRows.length; i++) {
+                    const r = flatRows[i];
+                    const startR = flatRows[groupStartIdx];
+                    const sameAsStart = r && r.buyerName === startR.buyerName && r.date === startR.date;
+                    if (!sameAsStart) {
+                        const groupEndIdx = i - 1;
+                        if (groupEndIdx > groupStartIdx) {
+                            const topRow = dataStartRow + groupStartIdx;
+                            const bottomRow = dataStartRow + groupEndIdx;
+                            sheet.mergeCells(topRow, 2, bottomRow, 2);
+                            sheet.mergeCells(topRow, 3, bottomRow, 3);
+                            sheet.getCell(topRow, 2).alignment = { horizontal: 'center', vertical: 'middle' };
+                            sheet.getCell(topRow, 3).alignment = { horizontal: 'left', vertical: 'middle' };
+                        }
+                        groupStartIdx = i;
+                    }
+                }
+            }
 
             const totalRowNum = sheet.rowCount + 1;
             sheet.mergeCells(totalRowNum, 1, totalRowNum, 6);
