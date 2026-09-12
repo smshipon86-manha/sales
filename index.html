@@ -2747,6 +2747,11 @@ body.edit-modal-open { overflow: hidden !important; }
             if (checked) selectedProductIndexesForInvoice.add(idx);
             else selectedProductIndexesForInvoice.delete(idx);
             updateProductSelectCounter();
+            // চেকবক্সে ক্লিক করার পর ফোকাস আবার সার্চ বক্সেই ফিরিয়ে দেওয়া
+            // হচ্ছে — তাই মাউস দিয়ে আবার সার্চ বক্সে ক্লিক না করেই সরাসরি
+            // পরের পণ্যের নাম টাইপ করা যাবে।
+            const searchBox = document.getElementById('productSearchBox');
+            if (searchBox) searchBox.focus();
         }
 
         // একটা পণ্য এ পর্যন্ত মোট কত পিস/কার্টুন বিক্রি হয়েছে (সব ইনভয়েস মিলিয়ে)
@@ -3387,6 +3392,10 @@ body.edit-modal-open { overflow: hidden !important; }
             const traderName = retObj ? displayTraderName(retObj.trader || inv.retailer) : displayTraderName(inv.retailer);
             const typeText = inv.invoiceType === 'Cash' ? 'ক্যাশ' : 'ক্রেডিট';
             const addressText = retObj ? addressWithBazar(retObj.address || '') : '';
+            // প্রিন্ট/ভিউ করার ঠিক এই মুহূর্তের সময় — ব্রাউজারের নিজস্ব
+            // হেডার/ফুটারে (যেখানে লিংক দেখা যায়) ভরসা না করে, মেমোর
+            // ভেতরেই তারিখের পাশে সময়টা যোগ করে দেওয়া হচ্ছে।
+            const printTimeText = toBanglaNumber(new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }));
 
             // মেমোর "সর্বমোট" এখন প্রতিটা পণ্যের সারিতে যে রাউন্ড করা টাকা
             // (যেমন ৮০.২০ → ৮১) দেখানো হয়, সেই রাউন্ড করা সংখ্যাগুলো যোগ
@@ -3510,6 +3519,7 @@ body.edit-modal-open { overflow: hidden !important; }
                             </div>
                             <div style="width:31%; margin-left:auto; text-align:left; font-size:11px; line-height:1.6;">
                                 <div>তারিখ : ${escapeHtml(inv.date || '')}</div>
+                                <div>প্রিন্ট টাইম : ${escapeHtml(printTimeText)}</div>
                                 <div>ক্রেতার নাম : <b>${escapeHtml(buyerName)}</b></div>
                                 <div>ট্রেডার্সের নাম : ${escapeHtml(traderName)}</div>
                                 <div>ঠিকানা : ${escapeHtml(addressText)}</div>
