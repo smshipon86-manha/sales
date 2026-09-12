@@ -1387,13 +1387,21 @@ body.edit-modal-open { overflow: hidden !important; }
                 <input type="date" id="stockAddDate">
                 <div style="font-size:12px; color:#666; margin-top:3px;">যেদিন এই পণ্যগুলো গুদামে/দোকানে এসেছে, সেই তারিখটা নির্বাচন করুন — পরে "স্টক যোগের ইতিহাস" রিপোর্টে এই তারিখ ধরে খুঁজে পাবেন।</div>
             </div>
-            <div class="form-group">
+            <div class="form-group" id="stockInvoiceRefGroup">
+                <label>রেফারেন্স/ইনভয়েস নম্বর (ঐচ্ছিক) :</label>
+                <input type="text" id="stockInvoiceRef" placeholder="যেমন: চালান নং, ইনভয়েস নং">
+                <div style="font-size:12px; color:#666; margin-top:3px;">এই ব্যাচের স্টক কোন চালান/ইনভয়েসের আওতায় এসেছে তা লিখে রাখুন — পরে "স্টক যোগের ইতিহাস" রিপোর্টে এই নম্বর দিয়ে বোঝা যাবে কোন চালানে কী কী এসেছিল।</div>
+            </div>
+            <button class="btn-submit" id="btnConfirmStockInfo" onclick="confirmStockInfoStep()">✅ কনফার্ম করে পণ্য সিলেক্ট করুন</button>
+
+            <div class="form-group" id="stockProductListSection" style="display:none;">
                 <label>একাধিক পণ্য সিলেক্ট করুন এবং প্রতিটির পাশে পিস সংখ্যা লিখুন:</label>
+                <input type="text" id="stockProductSearchInput" oninput="filterStockProductList()" placeholder="পণ্যের নাম দিয়ে খুঁজুন..." style="width:100%; padding:8px; margin-bottom:8px; border:1px solid #ccc; border-radius:6px; box-sizing:border-box;">
                 <div id="stockMultiProductList" style="max-height:300px; overflow-y:auto; border:1px solid #ddd; border-radius:8px; padding:6px 10px;"></div>
                 <div id="stockPhaseActionBar" style="margin-top:8px;"></div>
             </div>
 
-            <button class="btn-submit" id="btnSaveStock" onclick="saveStock()">সেভ করুন</button>
+            <button class="btn-submit" id="btnSaveStock" onclick="saveStock()" style="display:none;">সেভ করুন</button>
 
             <div style="margin-top:14px; padding:10px; background:#f5f5f5; border-radius:8px;">
                 <div style="font-weight:bold; margin-bottom:6px; font-size:14px;">একসাথে অনেক পণ্যের স্টক যোগ করতে CSV আপলোড করুন</div>
@@ -2730,6 +2738,9 @@ body.edit-modal-open { overflow: hidden !important; }
             selectedProductIndexesForInvoice.clear();
             updateProductSelectCounter();
             renderProductSelectionList();
+            // মোডাল খোলার সাথে সাথেই সার্চ বক্সে ফোকাস চলে যায় — তাই মাউস
+            // দিয়ে ক্লিক না করেই সরাসরি কি-বোর্ড দিয়ে টাইপ করা যাবে।
+            setTimeout(() => { document.getElementById('productSearchBox').focus(); }, 50);
         }
 
         // সার্চ বদলালেও কোন কোন পণ্য আগে টিক দেওয়া ছিল তা এই Set-এ
@@ -2839,18 +2850,40 @@ body.edit-modal-open { overflow: hidden !important; }
             updateProductSelectCounter();
         }
 
+        function getRetailerLastDiscountForProduct(retailerIndex, productName) {
+            const ret = retailers[retailerIndex];
+            if (!ret) return null;
+            const retTrader = displayTraderName(ret.trader || '');
+            const matchingInvoices = (invoices || [])
+                .filter(inv => inv.route === ret.route && displayTraderName(inv.retailer || '') === retTrader)
+                .sort((a, b) => getInvoiceCreationOrder(b) - getInvoiceCreationOrder(a));
+            for (const inv of matchingInvoices) {
+                const item = (inv.items || []).find(it => it.name === productName);
+                if (item) {
+                    const { discountPercent } = getItemLineAmounts(item);
+                    if (discountPercent !== undefined && discountPercent !== null && discountPercent !== '') return discountPercent;
+                }
+            }
+            return null;
+        }
+
         function addSelectedProductsToInvoice() {
             if (!checkConnectionOrAlert()) return;
             if (selectedProductIndexesForInvoice.size === 0) {
                 alert("দয়া করে কমপক্ষে একটি পণ্য সিলেক্ট করুন।");
                 return;
             }
+            const retailerIndexStr = document.getElementById('salesRetailerSelect').value;
+            const retailerIndex = retailerIndexStr !== '' ? parseInt(retailerIndexStr) : null;
+            let autoFilledCount = 0;
             selectedProductIndexesForInvoice.forEach(idx => {
                 let p = products[idx];
                 if (!p) return;
                 let exists = selectedInvoiceItems.find(item => item.name === p.name);
                 if(!exists) {
                     const stockQty = getProductStockQty(p.name);
+                    const histDiscount = retailerIndex !== null ? getRetailerLastDiscountForProduct(retailerIndex, p.name) : null;
+                    if (histDiscount !== null) autoFilledCount++;
                     selectedInvoiceItems.push({
                         name: p.name,
                         inventory: stockQty,
@@ -2858,7 +2891,8 @@ body.edit-modal-open { overflow: hidden !important; }
                         cartonPrice: parseFloat(p.price || 0) || 0,
                         piecePrice: getRatioBasedPiecePrice(p),
                         cartonQty: "",
-                        pieceQty: ""
+                        pieceQty: "",
+                        discountPercent: histDiscount !== null ? histDiscount : ''
                     });
                 }
             });
@@ -2868,6 +2902,9 @@ body.edit-modal-open { overflow: hidden !important; }
             selectedInvoiceItems.sort((a, b) => String(a.name||'').localeCompare(String(b.name||'')));
             closeModal('productSelectModal');
             renderInvoiceItemTable();
+            if (autoFilledCount > 0) {
+                showSaveToast(autoFilledCount + 'টি পণ্যে এই রিটেইলারের আগের ছাড়% নিজে থেকেই বসানো হয়েছে');
+            }
         }
 
         function renderInvoiceItemTable() {
@@ -4184,6 +4221,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     <td style="text-align:right; white-space:nowrap;">${qtyPieces.toLocaleString('en-US')} পিস</td>
                     <td style="text-align:right; white-space:nowrap;">${Math.round(mrp).toLocaleString('en-US')} ৳</td>
                     <td style="text-align:right; white-space:nowrap;">${Math.round(afterDiscount).toLocaleString('en-US')} ৳</td>
+                    <td style="white-space:nowrap;">${escapeHtml(log.invoiceRef || '-')}</td>
                     <td style="text-align:center; white-space:nowrap;"><button class="btn-action btn-delete" onclick="deleteStockLogEntry('${log.id}')">মুছুন</button></td>
                 </tr>`;
             }).join('');
@@ -4192,15 +4230,16 @@ body.edit-modal-open { overflow: hidden !important; }
                 <div style="overflow-x:auto;">
                     <table class="data-table" style="table-layout:fixed; width:100%;">
                         <colgroup>
-                            <col style="width:50px;"><col style="width:110px;"><col><col style="width:100px;"><col style="width:120px;"><col style="width:130px;"><col style="width:80px;">
+                            <col style="width:50px;"><col style="width:110px;"><col><col style="width:100px;"><col style="width:120px;"><col style="width:130px;"><col style="width:110px;"><col style="width:80px;">
                         </colgroup>
-                        <thead><tr><th>ক্রম</th><th>তারিখ</th><th>পণ্যের নাম</th><th>পিস সংখ্যা</th><th>MRP দাম</th><th>১৫% বাদে দাম</th><th>অ্যাকশন</th></tr></thead>
+                        <thead><tr><th>ক্রম</th><th>তারিখ</th><th>পণ্যের নাম</th><th>পিস সংখ্যা</th><th>MRP দাম</th><th>১৫% বাদে দাম</th><th>রেফারেন্স/ইনভয়েস নং</th><th>অ্যাকশন</th></tr></thead>
                         <tbody>${rows}
                             <tr style="font-weight:bold;background:#eee;">
                                 <td colspan="3" style="text-align:right; white-space:nowrap;">সর্বমোট =</td>
                                 <td style="text-align:right; white-space:nowrap;">${totalPieces.toLocaleString('en-US')} পিস</td>
                                 <td style="text-align:right; white-space:nowrap;">${Math.round(totalMrp).toLocaleString('en-US')} ৳</td>
                                 <td style="text-align:right; white-space:nowrap;">${Math.round(totalAfterDiscount).toLocaleString('en-US')} ৳</td>
+                                <td></td>
                                 <td></td>
                             </tr>
                         </tbody>
@@ -4225,7 +4264,7 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!result) return;
             const { from, to, filtered } = result;
             if (filtered.length === 0) { alert('এই সময়ের মধ্যে কোনো স্টক যোগ করা হয়নি।'); return; }
-            const rows = [['ক্রম', 'তারিখ', 'পণ্যের নাম', 'পিস সংখ্যা', 'MRP দাম', '১৫% বাদে দাম']];
+            const rows = [['ক্রম', 'তারিখ', 'পণ্যের নাম', 'পিস সংখ্যা', 'MRP দাম', '১৫% বাদে দাম', 'রেফারেন্স/ইনভয়েস নং']];
             let totalMrp = 0, totalAfterDiscount = 0;
             filtered.forEach((log, i) => {
                 const qtyPieces = Number(log.qtyPieces || 0) || 0;
@@ -4235,15 +4274,38 @@ body.edit-modal-open { overflow: hidden !important; }
                 const mrp = ppc > 0 ? (qtyPieces / ppc) * cartonPrice : 0;
                 const afterDiscount = mrp * 0.85;
                 totalMrp += mrp; totalAfterDiscount += afterDiscount;
-                rows.push([i + 1, log.date || '', log.productName || '', qtyPieces, Math.round(mrp), Math.round(afterDiscount)]);
+                rows.push([i + 1, log.date || '', log.productName || '', qtyPieces, Math.round(mrp), Math.round(afterDiscount), log.invoiceRef || '']);
             });
             rows.push([]);
-            rows.push(['সর্বমোট', '', '', '', Math.round(totalMrp), Math.round(totalAfterDiscount)]);
+            rows.push(['সর্বমোট', '', '', '', Math.round(totalMrp), Math.round(totalAfterDiscount), '']);
             downloadCSVFile(rows, `stock_log_${from}_to_${to}.csv`, 'স্টক যোগের ইতিহাস');
         }
 
 let stockSelectedIndexes = new Set();
 let stockMultiPhase = 'select'; // 'select' → checkbox দিয়ে পণ্য বাছা, 'qty' → শুধু বাছাই করা পণ্যে পিস সংখ্যা লেখা
+let stockInfoConfirmed = false; // তারিখ+রেফারেন্স নম্বর কনফার্ম করার আগে পণ্যের তালিকা দেখানো হয় না
+let stockProductSearchFilter = '';
+
+// তারিখ ও রেফারেন্স/ইনভয়েস নম্বর আগে কনফার্ম করার পরই পণ্যের তালিকা
+// দেখা যাবে — এতে ভুলবশত রেফারেন্স নম্বর ছাড়াই পণ্য সিলেক্ট শুরু হয়ে
+// যাওয়ার সুযোগ থাকে না।
+function confirmStockInfoStep() {
+    stockInfoConfirmed = true;
+    document.getElementById('btnConfirmStockInfo').style.display = 'none';
+    document.getElementById('stockInvoiceRefGroup').style.opacity = '0.6';
+    document.getElementById('stockInvoiceRef').disabled = true;
+    document.getElementById('stockAddDate').disabled = true;
+    document.getElementById('stockProductListSection').style.display = 'block';
+    stockProductSearchFilter = '';
+    document.getElementById('stockProductSearchInput').value = '';
+    renderStockMultiProductList();
+    setTimeout(() => { document.getElementById('stockProductSearchInput').focus(); }, 50);
+}
+
+function filterStockProductList() {
+    stockProductSearchFilter = document.getElementById('stockProductSearchInput').value || '';
+    renderStockMultiProductList();
+}
 
 function renderStockMultiProductList() {
             const container = document.getElementById('stockMultiProductList');
@@ -4264,25 +4326,40 @@ function renderStockMultiProductList() {
             }
         }
 
+        // চেকবক্সে ক্লিক করার সাথে সাথেই stockSelectedIndexes আপডেট হয়ে যায়
+        // (আগে শুধু "নির্বাচিত পণ্য দেখুন" চাপার সময় DOM থেকে পড়া হতো) —
+        // তাই সার্চ করে তালিকা পাল্টে গেলেও আগের সিলেকশন হারায় না।
+        function toggleStockProductSelection(idx, checked) {
+            if (checked) stockSelectedIndexes.add(idx);
+            else stockSelectedIndexes.delete(idx);
+            // চেকবক্সে ক্লিক করার পর ফোকাস আবার সার্চ বক্সেই ফিরিয়ে দেওয়া
+            // হচ্ছে, যাতে মাউস দিয়ে ক্লিক না করেই পরের পণ্য খোঁজা/Backspace
+            // চাপা যায়।
+            const searchBox = document.getElementById('stockProductSearchInput');
+            if (searchBox) searchBox.focus();
+        }
+
         function renderStockSelectPhase(container, actionBar) {
-            const sortedForStock = products.map((p, index) => ({p, index})).sort((a, b) => a.p.name.localeCompare(b.p.name));
+            const q = stockProductSearchFilter.trim().toLowerCase();
+            const sortedForStock = products.map((p, index) => ({p, index}))
+                .filter(({p}) => !q || p.name.toLowerCase().includes(q))
+                .sort((a, b) => a.p.name.localeCompare(b.p.name));
             const rowsHtml = sortedForStock.map(({p, index}) => `
                     <label class="stock-multi-row" style="display:flex; align-items:center; gap:8px; padding:7px 4px; border-bottom:1px solid #eee;">
-                        <input type="checkbox" class="stockMultiCheck" data-index="${index}" ${stockSelectedIndexes.has(index) ? 'checked' : ''}>
+                        <input type="checkbox" class="stockMultiCheck" data-index="${index}" ${stockSelectedIndexes.has(index) ? 'checked' : ''} onchange="toggleStockProductSelection(${index}, this.checked)">
                         <span>${escapeHtml(p.name)}</span>
                     </label>`).join('');
-            container.innerHTML = `
-                <div style="font-size:12px; color:#666; margin-bottom:6px;">যত পণ্যের স্টক আজ যুক্ত করবেন সব সিলেক্ট করুন — তালিকা স্ক্রল করে নিচেও দেখুন। সিলেক্ট শেষ হলে নিচে (তালিকার বাইরে, সবসময় দেখা যাবে এমন জায়গায়) থাকা বাটনে চাপুন।</div>
-                <div>${rowsHtml}</div>`;
+            container.innerHTML = sortedForStock.length
+                ? `<div>${rowsHtml}</div>`
+                : `<div style="padding:10px; color:#777;">"${escapeHtml(q)}" দিয়ে কোনো পণ্য পাওয়া যায়নি।</div>`;
             if (actionBar) {
-                actionBar.innerHTML = `<button type="button" class="btn-action btn-view" style="width:100%; padding:12px; font-size:15px; font-weight:bold;" onclick="confirmStockSelection()">✅ নির্বাচিত পণ্য দেখুন (এরপর পিস সংখ্যা লিখবেন)</button>`;
+                const n = stockSelectedIndexes.size;
+                actionBar.innerHTML = `<button type="button" class="btn-action btn-view" style="width:100%; padding:12px; font-size:15px; font-weight:bold;" onclick="confirmStockSelection()">✅ নির্বাচিত পণ্য দেখুন${n > 0 ? ` (${toBanglaNumber(n)}টি সিলেক্ট করা হয়েছে)` : ''}</button>`;
             }
         }
 
         function confirmStockSelection() {
-            const checks = Array.from(document.querySelectorAll('.stockMultiCheck:checked'));
-            if (checks.length === 0) { alert('অন্তত একটি পণ্য সিলেক্ট করুন।'); return; }
-            stockSelectedIndexes = new Set(checks.map(c => Number(c.dataset.index)));
+            if (stockSelectedIndexes.size === 0) { alert('অন্তত একটি পণ্য সিলেক্ট করুন।'); return; }
             stockMultiPhase = 'qty';
             renderStockMultiProductList();
         }
@@ -4312,9 +4389,17 @@ function renderStockMultiProductList() {
             document.getElementById('stockModalTitle').innerText = "স্টক এড করুন";
             document.getElementById('btnSaveStock').innerText = "সেভ করুন";
             document.getElementById('stockAddDate').value = getLocalISODate();
+            document.getElementById('stockAddDate').disabled = false;
+            document.getElementById('stockInvoiceRef').value = '';
+            document.getElementById('stockInvoiceRef').disabled = false;
+            document.getElementById('stockInvoiceRefGroup').style.opacity = '1';
+            document.getElementById('btnConfirmStockInfo').style.display = '';
+            document.getElementById('stockProductListSection').style.display = 'none';
+            document.getElementById('btnSaveStock').style.display = 'none';
+            stockInfoConfirmed = false;
+            stockProductSearchFilter = '';
             stockSelectedIndexes = new Set();
             stockMultiPhase = 'select';
-            renderStockMultiProductList();
         }
 
         function renderStocks() {
@@ -4377,6 +4462,7 @@ function renderStockMultiProductList() {
             }
 
             const stockDate = document.getElementById('stockAddDate').value || getLocalISODate();
+            const stockInvoiceRefValue = (document.getElementById('stockInvoiceRef').value || '').trim();
 
             entries.forEach(({ product, qtyPieces }) => {
                 const ppc = getPiecesPerCarton(product);
@@ -4385,13 +4471,15 @@ function renderStockMultiProductList() {
                 const existing = stocks.find(st => st.productName === product.name);
                 if (existing) existing.qty = (parseFloat(existing.qty || 0) || 0) + cartonEquivalent;
                 else stocks.push({ productName: product.name, qty: cartonEquivalent });
-                // তারিখসহ একটা লগ এন্ট্রি রাখা হয় — পরে "স্টক যোগের ইতিহাস"
-                // রিপোর্টে দেখা/ডাউনলোড করা যাবে কবে কোন পণ্য এসেছিল।
+                // তারিখ ও রেফারেন্স/ইনভয়েস নম্বরসহ একটা লগ এন্ট্রি রাখা হয় —
+                // পরে "স্টক যোগের ইতিহাস" রিপোর্টে দেখা/ডাউনলোড করা যাবে
+                // কবে, কোন চালান/ইনভয়েসের আওতায় কোন পণ্য এসেছিল।
                 stockLogs.push({
                     id: 'SLOG_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
                     date: isoToSystemDate(stockDate),
                     productName: product.name,
-                    qtyPieces: Math.round(qtyPieces)
+                    qtyPieces: Math.round(qtyPieces),
+                    invoiceRef: stockInvoiceRefValue
                 });
             });
 
