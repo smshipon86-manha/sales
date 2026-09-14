@@ -1024,7 +1024,7 @@ body.edit-modal-open { overflow: hidden !important; }
 
     <!-- কালেকশন রিপোর্ট — তারিখ অনুযায়ী সব রিটেইলারের কালেকশন (পুরোনো ও নতুন দুই উৎস মিলিয়ে) -->
     <div class="modal-overlay" id="collectionReportModal">
-        <div class="modal-box" style="width: 1000px; max-width: 96vw;">
+        <div class="modal-box" style="width: 1250px; max-width: 98vw;">
             <div class="modal-header">
                 <h3>কালেকশন রিপোর্ট</h3>
                 <span class="close-btn" onclick="closeModal('collectionReportModal')">&times;</span>
@@ -5214,14 +5214,17 @@ function renderStockMultiProductList() {
                     <td style="white-space:nowrap;">${i + 1}</td>
                     <td style="white-space:nowrap;">${escapeHtml(r.date)}</td>
                     <td style="white-space:nowrap;">${escapeHtml(r.route)}</td>
-                    <td>${escapeHtml(displayTraderName(r.trader))}${r.name ? ' (' + escapeHtml(r.name) + ')' : ''}</td>
+                    <td style="white-space:normal; word-break:break-word;">${escapeHtml(displayTraderName(r.trader))}${r.name ? ' (' + escapeHtml(r.name) + ')' : ''}</td>
                     <td style="text-align:right; white-space:nowrap;">${r.amount.toLocaleString('en-US')} ৳</td>
                     <td>${escapeHtml(r.note)}</td>
                 </tr>`).join('');
             container.innerHTML = `
                 <div style="font-weight:bold; margin-bottom:8px;">${isoToSystemDate(from)} থেকে ${isoToSystemDate(to)}${routeFilter ? ' | রুট: ' + escapeHtml(routeFilter) : ''} | মোট এন্ট্রি: ${rows.length}টি | সর্বমোট: ${total.toLocaleString('en-US')} ৳</div>
                 <div style="overflow-x:auto;">
-                    <table class="data-table" style="width:100%;">
+                    <table class="data-table" style="width:100%; table-layout:fixed;">
+                        <colgroup>
+                            <col style="width:55px;"><col style="width:100px;"><col style="width:110px;"><col><col style="width:120px;"><col style="width:180px;">
+                        </colgroup>
                         <thead><tr><th>ক্রম</th><th>তারিখ</th><th>রুট</th><th>রিটেইলার</th><th>টাকা</th><th>নোট</th></tr></thead>
                         <tbody>${bodyRows}
                             <tr style="font-weight:bold; background:#eee;">
@@ -7487,6 +7490,7 @@ function renderStockMultiProductList() {
                 retailerId: ret.id || '',
                 route: ret.route,
                 retailerTrader: ret.trader,
+                retailerName: ret.name || '',
                 date: isoToSystemDate(date),
                 amount,
                 note,
