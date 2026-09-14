@@ -547,7 +547,7 @@
         /* ক্যাশ মেমো প্রিন্ট স্টাইল */
         .cash-memo-container {
             background: white;
-            padding: 25px;
+            padding: 25px 10px 25px 10px;
             width: 100%;
             max-width: 800px;
             margin: 0 auto;
@@ -667,7 +667,7 @@
 <style id="mobile-report-styles">
 @media (max-width: 768px) {
   .modal-box { width: calc(100vw - 20px) !important; max-width: calc(100vw - 20px) !important; max-height: 92vh; overflow-y: auto; }
-  .cash-memo-container { padding: 12px !important; }
+  .cash-memo-container { padding: 12px 5px 12px 5px !important; }
   .memo-table { font-size: 12px; }
   .memo-table th, .memo-table td { padding: 5px !important; font-size: 12px !important; }
   .data-table { min-width: 650px; }
@@ -941,6 +941,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     <li><a onclick="openSalesDateRangeReportModal()">আজকের সেলস</a></li>
                     <li><a onclick="openCustomerLedgerModal()">কাস্টমারের লেজার</a></li>
                     <li><a onclick="openStockLogReportModal()">স্টক যোগের ইতিহাস</a></li>
+                    <li><a onclick="openCollectionReportModal()">কালেকশন রিপোর্ট</a></li>
                 </ul>
             </li>
             <li class="has-dropdown">
@@ -1018,6 +1019,26 @@ body.edit-modal-open { overflow: hidden !important; }
                 <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadStockLogReportCSV()">CSV ডাউনলোড করুন</button>
             </div>
             <div id="stockLogReportResult" style="margin-top:15px;"></div>
+        </div>
+    </div>
+
+    <!-- কালেকশন রিপোর্ট — তারিখ অনুযায়ী সব রিটেইলারের কালেকশন (পুরোনো ও নতুন দুই উৎস মিলিয়ে) -->
+    <div class="modal-overlay" id="collectionReportModal">
+        <div class="modal-box" style="width: 1000px; max-width: 96vw;">
+            <div class="modal-header">
+                <h3>কালেকশন রিপোর্ট</h3>
+                <span class="close-btn" onclick="closeModal('collectionReportModal')">&times;</span>
+            </div>
+            <div class="report-form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                <div class="form-group"><label>তারিখ থেকে</label><input type="date" id="collectionReportFromDate" onchange="renderCollectionReport()"></div>
+                <div class="form-group"><label>তারিখ পর্যন্ত</label><input type="date" id="collectionReportToDate" onchange="renderCollectionReport()"></div>
+                <div class="form-group"><label>রুট</label><select id="collectionReportRouteFilter" onchange="renderCollectionReport()"><option value="">-- সব রুট --</option></select></div>
+            </div>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
+                <button class="btn-submit" style="width:auto;" onclick="renderCollectionReport()">রিপোর্ট দেখুন</button>
+                <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadCollectionReportCSV()">CSV ডাউনলোড করুন</button>
+            </div>
+            <div id="collectionReportResult" style="margin-top:15px;"></div>
         </div>
     </div>
 
@@ -3565,7 +3586,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     ? Math.max(0, currentDueVal - (Number(inv.totalAmount || 0) || 0))
                     : currentDueVal;
                 if (previousDueVal > 0 || currentDueVal > 0) {
-                    dueHTML = `<div style="font-size: 11px; margin-top: 5px; font-weight: bold; color: #000;">
+                    dueHTML = `<div style="display:inline-block; font-size: 11px; margin-top: 5px; font-weight: bold; color: #000; border:1.5px solid #000; padding:6px 10px; border-radius:4px;">
                         ${previousDueVal > 0 ? `<div>পূর্বের বাকি : <b>${toBanglaNumber(previousDueVal.toLocaleString('en-US'))} ৳</b></div>` : ''}
                         <div>সর্বমোট বাকি : <b>${toBanglaNumber(currentDueVal.toLocaleString('en-US'))} ৳</b></div>
                     </div>`;
@@ -5133,6 +5154,103 @@ function renderStockMultiProductList() {
                 if (ret.id && c.retailerId) return c.retailerId === ret.id;
                 return c.route === ret.route && c.retailerTrader === ret.trader;
             });
+        }
+
+        // ========== কালেকশন রিপোর্ট (তারিখ অনুযায়ী) ==========
+        // পুরোনো (রিটেইলারের ভেতরে embedded) আর নতুন (retailer_collections)
+        // দুই উৎসের সব কালেকশন একসাথে মিলিয়ে, তারিখ দিয়ে ফিল্টার করে
+        // রিটার্ন করে — নাম, রুট, তারিখ, টাকা, নোট সহ।
+        function openCollectionReportModal() {
+            if (!checkConnectionOrAlert()) return;
+            document.getElementById('collectionReportModal').style.display = 'flex';
+            const today = getLocalISODate();
+            document.getElementById('collectionReportFromDate').value = today;
+            document.getElementById('collectionReportToDate').value = today;
+            const routeSelect = document.getElementById('collectionReportRouteFilter');
+            routeSelect.innerHTML = '<option value="">-- সব রুট --</option>';
+            routes.forEach(r => { routeSelect.innerHTML += `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`; });
+            renderCollectionReport();
+        }
+
+        function getAllCollectionsInRange(fromISO, toISO, routeFilter) {
+            const rows = [];
+            retailers.forEach(ret => {
+                if (routeFilter && ret.route !== routeFilter) return;
+                (ret.collections || []).forEach(c => {
+                    const d = parseBanglaOrISODate(c.date);
+                    const iso = d ? toLocalISODate(d) : '';
+                    if (iso && iso >= fromISO && iso <= toISO) {
+                        rows.push({ date: c.date, iso, route: ret.route, trader: ret.trader, name: ret.name, amount: Number(c.amount || 0) || 0, note: c.note || '' });
+                    }
+                });
+            });
+            (retailerCollectionsLive || []).forEach(c => {
+                if (routeFilter && c.route !== routeFilter) return;
+                const d = parseBanglaOrISODate(c.date);
+                const iso = d ? toLocalISODate(d) : '';
+                if (iso && iso >= fromISO && iso <= toISO) {
+                    rows.push({ date: c.date, iso, route: c.route, trader: c.retailerTrader, name: c.retailerName || '', amount: Number(c.amount || 0) || 0, note: c.note || '' });
+                }
+            });
+            rows.sort((a, b) => a.iso.localeCompare(b.iso));
+            return rows;
+        }
+
+        function renderCollectionReport() {
+            const from = document.getElementById('collectionReportFromDate').value;
+            const to = document.getElementById('collectionReportToDate').value;
+            const routeFilter = document.getElementById('collectionReportRouteFilter').value;
+            if (!from || !to) { alert('দুটি তারিখ নির্বাচন করুন।'); return; }
+            if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
+            const rows = getAllCollectionsInRange(from, to, routeFilter);
+            const container = document.getElementById('collectionReportResult');
+            if (rows.length === 0) {
+                container.innerHTML = '<div style="padding:20px;text-align:center;color:#777;">এই সময়ের মধ্যে কোনো কালেকশন পাওয়া যায়নি।</div>';
+                return;
+            }
+            const total = rows.reduce((s, r) => s + r.amount, 0);
+            const bodyRows = rows.map((r, i) => `
+                <tr>
+                    <td style="white-space:nowrap;">${i + 1}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(r.date)}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(r.route)}</td>
+                    <td>${escapeHtml(displayTraderName(r.trader))}${r.name ? ' (' + escapeHtml(r.name) + ')' : ''}</td>
+                    <td style="text-align:right; white-space:nowrap;">${r.amount.toLocaleString('en-US')} ৳</td>
+                    <td>${escapeHtml(r.note)}</td>
+                </tr>`).join('');
+            container.innerHTML = `
+                <div style="font-weight:bold; margin-bottom:8px;">${isoToSystemDate(from)} থেকে ${isoToSystemDate(to)}${routeFilter ? ' | রুট: ' + escapeHtml(routeFilter) : ''} | মোট এন্ট্রি: ${rows.length}টি | সর্বমোট: ${total.toLocaleString('en-US')} ৳</div>
+                <div style="overflow-x:auto;">
+                    <table class="data-table" style="width:100%;">
+                        <thead><tr><th>ক্রম</th><th>তারিখ</th><th>রুট</th><th>রিটেইলার</th><th>টাকা</th><th>নোট</th></tr></thead>
+                        <tbody>${bodyRows}
+                            <tr style="font-weight:bold; background:#eee;">
+                                <td colspan="4" style="text-align:right;">সর্বমোট =</td>
+                                <td style="text-align:right;">${total.toLocaleString('en-US')} ৳</td>
+                                <td></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>`;
+        }
+
+        function downloadCollectionReportCSV() {
+            const from = document.getElementById('collectionReportFromDate').value;
+            const to = document.getElementById('collectionReportToDate').value;
+            const routeFilter = document.getElementById('collectionReportRouteFilter').value;
+            if (!from || !to) { alert('দুটি তারিখ নির্বাচন করুন।'); return; }
+            if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
+            const rows = getAllCollectionsInRange(from, to, routeFilter);
+            if (rows.length === 0) { alert('এই সময়ের মধ্যে কোনো কালেকশন পাওয়া যায়নি।'); return; }
+            const csvRows = [['ক্রম', 'তারিখ', 'রুট', 'রিটেইলার (ট্রেডার্স)', 'ব্যক্তির নাম', 'টাকা', 'নোট']];
+            let total = 0;
+            rows.forEach((r, i) => {
+                total += r.amount;
+                csvRows.push([i + 1, r.date, r.route, displayTraderName(r.trader), r.name || '', r.amount, r.note]);
+            });
+            csvRows.push([]);
+            csvRows.push(['সর্বমোট', '', '', '', '', total, '']);
+            downloadCSVFile(csvRows, `collection_report_${from}_to_${to}.csv`, 'কালেকশন রিপোর্ট');
         }
 
         function recalculateRetailerDue(ret) {
@@ -7403,18 +7521,41 @@ function renderStockMultiProductList() {
             document.getElementById('collectionDueBox').innerText=`বর্তমান বাকি: ${dueAfter.toLocaleString('en-US')} ৳`;
             document.getElementById('collectionAmount').value='';
             document.getElementById('collectionNote').value='';
-            showCollectionSuccessPopup(date,amount,dueAfter);
+            showCollectionSuccessPopup(date,amount,dueAfter,ret);
             renderCustomerDueReport();
         }
-        function showCollectionSuccessPopup(date,amount,due){
+        function showCollectionSuccessPopup(date,amount,due,ret){
             let p=document.getElementById('collectionSuccessModal');
             if(!p){
                 p=document.createElement('div');p.id='collectionSuccessModal';p.className='modal-overlay';
-                p.innerHTML=`<div class="modal-box" style="width:420px;text-align:center;"><div style="font-size:58px;color:#5c7f29;">✓</div><h2 style="color:#5c7f29;">কালেকশন সফল হয়েছে</h2><div id="collectionSuccessDetails" style="line-height:2;font-size:16px;"></div><button class="btn-submit" onclick="closeModal('collectionSuccessModal')">ঠিক আছে</button></div>`;
+                p.innerHTML=`<div class="modal-box" style="width:420px;text-align:center;"><div style="font-size:58px;color:#5c7f29;">✓</div><h2 style="color:#5c7f29;">কালেকশন সফল হয়েছে</h2><div id="collectionSuccessDetails" style="line-height:2;font-size:16px;"></div><div style="display:flex; gap:8px; margin-top:10px;"><button class="btn-submit" style="flex:1;" onclick="closeModal('collectionSuccessModal')">ঠিক আছে</button><button class="btn-submit" id="collectionSmsBtn" style="flex:0 0 52px; background:#1f6a3a; font-size:20px; padding:10px 0;" title="রিটেইলারকে মেসেজ পাঠান">💬</button></div></div>`;
                 document.body.appendChild(p);
             }
             document.getElementById('collectionSuccessDetails').innerHTML=`<div><b>তারিখ:</b> ${date}</div><div><b>কালেকশন:</b> ${amount.toLocaleString('en-US')} ৳</div><div><b>কালেকশনের পর মোট বাকি:</b> ${due.toLocaleString('en-US')} ৳</div>`;
+            const smsBtn = document.getElementById('collectionSmsBtn');
+            if (smsBtn) {
+                smsBtn.onclick = () => sendCollectionSms(date, amount, due, ret);
+                smsBtn.style.display = (ret && ret.mobile) ? '' : 'none';
+            }
             p.style.display='flex';
+        }
+
+        // রিটেইলারের সেভ করা মোবাইল নম্বরে ফোনের নিজের SMS অ্যাপ খুলে
+        // কালেকশনের তথ্য (বাংলায়) আগে থেকে লিখে দেওয়া হয় — শুধু "সেন্ড"
+        // চাপলেই মেসেজ চলে যাবে।
+        function sendCollectionSms(date, amount, due, ret) {
+            if (!ret || !ret.mobile) { alert('এই রিটেইলারের মোবাইল নম্বর সেভ করা নেই।'); return; }
+            const previousDue = due + amount;
+            const traderName = displayTraderName(ret.trader || '');
+            const message = `${traderName}\n` +
+                `তারিখ: ${date}\n` +
+                `পূর্বের বাকি: ${toBanglaNumber(previousDue.toLocaleString('en-US'))} ৳\n` +
+                `পরিশোধ: ${toBanglaNumber(amount.toLocaleString('en-US'))} ৳\n` +
+                `বর্তমান বাকি: ${toBanglaNumber(due.toLocaleString('en-US'))} ৳\n` +
+                `পরিবেশক: সিনজেনটা, ধুনট, বগুড়া`;
+            const mobileDigits = String(ret.mobile).trim();
+            const dialNumber = mobileDigits.startsWith('0') ? mobileDigits : ('0' + mobileDigits);
+            window.location.href = `sms:${dialNumber}?body=${encodeURIComponent(message)}`;
         }
 
         // ========== ডাবল-ক্লিক/ডাবল-সাবমিট সুরক্ষা ==========
