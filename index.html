@@ -4177,8 +4177,9 @@ body.edit-modal-open { overflow: hidden !important; }
                 alert('কালেকশন সেভ করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।');
                 return;
             }
-            retailerCollectionsLive.push(newEntry);
-            recalculateRetailerDue(ret);
+            // ম্যানুয়াল push বাদ দেওয়া হলো — Firestore-এর লাইভ listener নিজে
+            // থেকেই retailerCollectionsLive আপডেট করে দেয়। দুই জায়গা থেকে
+            // একসাথে যোগ হলে একই কালেকশন ডাবল-কাউন্ট হয়ে যাচ্ছিল।
 
             try {
                 await db.collection('online_collections').doc(reqId).set({ status: 'approved' }, { merge: true });
@@ -7068,7 +7069,7 @@ function renderStockMultiProductList() {
                 }
                 if (typeFilter && r.type !== typeFilter) return; // ফিল্টারে না মিললে সারিটা দেখানো হবে না
                 const rowClass = r.transactionType === 'openingDue' ? 'ledger-row-opening'
-                    : r.transactionType === 'collection' ? 'ledger-row-collection'
+                    : (r.transactionType === 'collection' || r.transactionType === 'collection_v2') ? 'ledger-row-collection'
                     : (r.transactionType === 'invoice' && r.type === 'ক্রেডিট ইনভয়েস') ? 'ledger-row-credit'
                     : (r.transactionType === 'invoice' && r.type === 'ক্যাশ ইনভয়েস') ? 'ledger-row-cash'
                     : '';
@@ -7315,12 +7316,17 @@ function renderStockMultiProductList() {
                 alert('কালেকশন সেভ করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।');
                 return;
             }
-            retailerCollectionsLive.push(newEntry);
-            recalculateRetailerDue(ret);
-            document.getElementById('collectionDueBox').innerText=`বর্তমান বাকি: ${ret.currentDue.toLocaleString('en-US')} ৳`;
+            // এখানে ম্যানুয়ালি retailerCollectionsLive-এ push করা হচ্ছে না —
+            // কারণ Firestore-এর লাইভ listener প্রায় সাথে সাথেই এই এন্ট্রিটা
+            // নিজে থেকে যোগ করে দেয়। ম্যানুয়াল push + listener-এর push দুটো
+            // একসাথে ঘটলে একই কালেকশন দুইবার যোগ হয়ে যাচ্ছিল (ডাবল-কাউন্ট
+            // বাগ) — তাই শুধু তাৎক্ষণিক স্ক্রিনে দেখানোর জন্য বাকিটা এখানে
+            // আলাদাভাবে (অ্যারেতে হাত না দিয়ে) হিসাব করা হচ্ছে।
+            const dueAfter = Math.max(0, due - amount);
+            document.getElementById('collectionDueBox').innerText=`বর্তমান বাকি: ${dueAfter.toLocaleString('en-US')} ৳`;
             document.getElementById('collectionAmount').value='';
             document.getElementById('collectionNote').value='';
-            showCollectionSuccessPopup(date,amount,ret.currentDue);
+            showCollectionSuccessPopup(date,amount,dueAfter);
             renderCustomerDueReport();
         }
         function showCollectionSuccessPopup(date,amount,due){
