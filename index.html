@@ -2206,7 +2206,8 @@ body.edit-modal-open { overflow: hidden !important; }
                 }
             }
 
-            // আজকে যত কালেকশন এন্ট্রি হয়েছে (সব রিটেইলার মিলিয়ে), তার যোগফল
+            // আজকে যত কালেকশন এন্ট্রি হয়েছে (সব রিটেইলার মিলিয়ে, পুরোনো ও
+            // নতুন দুই উৎস থেকেই), তার যোগফল
             let todayCollectionTotal = 0;
             let todayCollectionCount = 0;
             (retailers || []).forEach(ret => {
@@ -2217,6 +2218,13 @@ body.edit-modal-open { overflow: hidden !important; }
                         todayCollectionCount++;
                     }
                 });
+            });
+            (retailerCollectionsLive || []).forEach(c => {
+                const d = parseBanglaOrISODate(c.date || '');
+                if (d && toLocalISODate(d) === today) {
+                    todayCollectionTotal += Number(c.amount || 0) || 0;
+                    todayCollectionCount++;
+                }
             });
 
             const money = value => toBanglaNumber(Math.round(value).toLocaleString('en-US')) + ' ৳';
@@ -7244,7 +7252,7 @@ function renderStockMultiProductList() {
                 if(r.transactionType==='invoice' && r.type==='ক্যাশ ইনভয়েস') totalCashSales += r.sales;
                 totalCollection += r.collection;
                 totalCashDeposit += (r.cashDepositAmount || 0);
-                if (r.transactionType === 'collection') {
+                if (r.transactionType === 'collection' || r.transactionType === 'collection_v2') {
                     const d = parseBanglaOrISODate(r.date);
                     if (d && (!lastCollectionDate || d > lastCollectionDate)) lastCollectionDate = d;
                 }
