@@ -552,6 +552,24 @@
             max-width: 800px;
             margin: 0 auto;
             color: #000;
+            position: relative;
+            overflow: hidden;
+        }
+        .memo-paid-watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-35deg);
+            font-size: 80px;
+            font-weight: 900;
+            color: rgba(0, 0, 0, 0.22);
+            letter-spacing: 6px;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 1;
+            border: 6px solid rgba(0, 0, 0, 0.22);
+            padding: 4px 28px;
+            border-radius: 10px;
         }
         .memo-header-top {
             border-bottom: 2px solid #000;
@@ -3762,6 +3780,7 @@ body.edit-modal-open { overflow: hidden !important; }
 
             return `
                 <div class="cash-memo-container">
+                    ${inv.invoiceType === 'Cash' ? '<div class="memo-paid-watermark">পরিশোধ</div>' : ''}
                     <div style="text-align:center;"><span class="memo-copy-label">${copyLabel}</span></div>
                     <div class="memo-header-top" style="border-bottom:2px solid #000; padding-bottom:6px; margin-bottom:8px;">
                         <div class="memo-header-cols" style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
