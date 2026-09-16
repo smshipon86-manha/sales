@@ -7613,6 +7613,9 @@ function renderStockMultiProductList() {
             const idx = document.getElementById('collectionRetailerSelect').value;
             if (idx === '') { alert('আগে রিটেইলার নির্বাচন করুন।'); return; }
             const ret = retailers[parseInt(idx)];
+            // দেখানোর ঠিক আগে আরেকবার তাজা করে হিসাব করা হচ্ছে — showCollectionDue()-এর
+            // মতোই, যাতে মাঝে অন্য কোনো লাইভ পরিবর্তন হলেও পুরোনো/stale বাকি না বসে।
+            if (ret) recalculateRetailerDue(ret);
             const due = Number(ret?.currentDue || 0);
             if (due <= 0) { alert('এই রিটেইলারের কোনো বাকি নেই।'); return; }
             document.getElementById('collectionAmount').value = due;
@@ -7643,7 +7646,7 @@ function renderStockMultiProductList() {
             const ret=retailers[parseInt(idx)];
             recalculateRetailerDue(ret);
             const due=Number(ret.currentDue||0);
-            if(amount<=0){alert('সঠিক কালেকশন টাকার অংক দিন।');return;}
+            if(!Number.isFinite(amount) || amount<=0){alert('সঠিক কালেকশন টাকার অংক দিন।');return;}
             if(amount>due){alert(`কালেকশন ${amount.toLocaleString('en-US')} টাকা বর্তমান বাকি ${due.toLocaleString('en-US')} টাকার বেশি হতে পারবে না।`);return;}
             const newEntry = {
                 id: 'RCOL_' + Date.now(),
