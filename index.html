@@ -560,16 +560,16 @@
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%) rotate(-35deg);
-            font-size: 80px;
+            font-size: 52px;
             font-weight: 900;
-            color: rgba(0, 0, 0, 0.22);
-            letter-spacing: 6px;
+            color: rgba(0, 0, 0, 0.32);
+            letter-spacing: 5px;
             white-space: nowrap;
             pointer-events: none;
             z-index: 1;
-            border: 6px solid rgba(0, 0, 0, 0.22);
-            padding: 4px 28px;
-            border-radius: 10px;
+            border: 5px solid rgba(0, 0, 0, 0.32);
+            padding: 3px 20px;
+            border-radius: 8px;
         }
         .memo-header-top {
             border-bottom: 2px solid #000;
@@ -912,7 +912,8 @@ body.edit-modal-open { overflow: hidden !important; }
             </div>
             <a href="#" class="signout" onclick="doLogout(); return false;">সাইন আউট</a>
             <div class="welcome-text">দি গ্রেট শপিং সেন্টার, শেরপুর রোড, ধুনট বাজার বগুড়া</div>
-            <div class="system-date">সিস্টেম তারিখ : <span id="currentDate">লোড হচ্ছে...</span></div>
+            <div class="system-date">সিস্টেম তারিখ : <span id="currentDate">লোড হচ্ছে...</span> (<span id="currentDayName"></span>)</div>
+            <div class="system-date" style="margin-top:2px;">ব্যবহারকারী : <span id="operatorNameDisplay">সেট করা হয়নি</span> <a href="#" onclick="editOperatorName(); return false;" style="font-size:12px;">✎ বদলান</a></div>
         </div>
     </div>
 
@@ -1224,6 +1225,10 @@ body.edit-modal-open { overflow: hidden !important; }
                     <div class="form-group">
                         <label>ক্যাশ জমা (Cash Deposit) : <span style="color:#c0392b;">*</span></label>
                         <input type="number" id="salesCashDeposit" placeholder="ক্যাশ ইনভয়েসে বাধ্যতামূলক">
+                    </div>
+                    <div class="form-group" id="salesCreditDepositGroup" style="display:none;">
+                        <label>এখনই কত টাকা জমা দিলো (ঐচ্ছিক) :</label>
+                        <input type="number" id="salesCreditDeposit" placeholder="যেমন: মাল দেওয়ার সাথে সাথেই কিছু টাকা দিলে">
                     </div>
                     <div class="form-group">
                         <label>বাকি নিতে পারবে (Available For Purchase) :</label>
@@ -1764,6 +1769,30 @@ body.edit-modal-open { overflow: hidden !important; }
             return `${toBanglaDigits(date.getDate())}-${months[date.getMonth()]}-${toBanglaDigits(date.getFullYear())}`;
         }
 
+        // আজকে কী বার তা বাংলায় দেখানোর জন্য
+        function getBanglaDayName() {
+            const days = ["রবিবার", "সোমবার", "মঙ্গলবার", "বুধবার", "বৃহস্পতিবার", "শুক্রবার", "শনিবার"];
+            return days[new Date().getDay()];
+        }
+
+        // এই ডিভাইসে/ব্রাউজারে কে অ্যাডমিন প্যানেল চালাচ্ছেন তার নাম --
+        // localStorage-এ সেভ থাকে (SPO অ্যাপে যেমন SPO_NAME সেভ থাকে,
+        // ঠিক একই পদ্ধতিতে)। এই নামটাই ইনভয়েসের "বিক্রেতার স্বাক্ষর/সিল"
+        // ঘরে আর এই এডমিন থেকে করা কালেকশনের নোটে ব্যবহৃত হয়।
+        let OPERATOR_NAME = localStorage.getItem('operator_name') || '';
+        function initOperatorNameDisplay() {
+            const el = document.getElementById('operatorNameDisplay');
+            if (el) el.innerText = OPERATOR_NAME || 'সেট করা হয়নি';
+        }
+        function editOperatorName() {
+            const name = prompt('আপনার নাম লিখুন (এই নামটি ইনভয়েসের স্বাক্ষরের ঘরে ও কালেকশনে ব্যবহারকারী হিসেবে দেখাবে):', OPERATOR_NAME);
+            if (name !== null && name.trim()) {
+                OPERATOR_NAME = name.trim();
+                localStorage.setItem('operator_name', OPERATOR_NAME);
+                initOperatorNameDisplay();
+            }
+        }
+
         const defaultProducts = [
             {name: "CALARIS XTRA 20X500ML", price: "11000"},
             {name: "FUSILADE MAX 20X100ML", price: "5000"},
@@ -1895,6 +1924,12 @@ body.edit-modal-open { overflow: hidden !important; }
         // হারিয়ে যাওয়ার মতো গুরুতর ক্ষতি হতে পারে (এটাই আগে একবার হয়েছিল)।
         // তাই প্রথম লোড সম্পূর্ণ না হওয়া পর্যন্ত সব সেভ-অ্যাকশন আটকে রাখা হচ্ছে।
         let initialDataLoaded = false;
+        // রিটেইলার (appData), ইনভয়েস, আর কালেকশন -- এই তিনটে উৎস থেকেই
+        // অন্তত একবার ডেটা না আসা পর্যন্ত ড্যাশবোর্ডের "মোট বাকি"/স্টক
+        // ইত্যাদি না দেখানোই ভালো -- নাহলে আংশিক ডেটা দিয়ে ভুল সংখ্যা
+        // মুহূর্তের জন্য দেখা যায়, তারপর ঠিক সংখ্যায় নেমে আসে (flash)।
+        let invoicesFirstLoadDone = false;
+        let collectionsFirstLoadDone = false;
         let onlineCollectionsUnsubscribe = null;
         let onlineCollections = []; // এসপিও-এর পাঠানো কালেকশন (বাকি জমার) রিকোয়েস্টের তালিকা
 
@@ -1909,6 +1944,8 @@ body.edit-modal-open { overflow: hidden !important; }
         function initAppData() {
             const systemDate = getCurrentBanglaDate();
             document.getElementById('currentDate').innerText = systemDate;
+            document.getElementById('currentDayName').innerText = getBanglaDayName();
+            initOperatorNameDisplay();
             document.getElementById('todayDateHeading').innerText = systemDate;
 
             badge = document.getElementById("statusBadge");
@@ -2015,6 +2052,7 @@ body.edit-modal-open { overflow: hidden !important; }
             invoicesUnsubscribe = db.collection("sales_invoices")
                 .onSnapshot((snapshot) => {
                     invoices = snapshot.docs.map(d => d.data());
+                    invoicesFirstLoadDone = true;
                     renderTodayInvoices();
                     renderSavedInvoices();
                     renderCustomerDueReport();
@@ -2051,6 +2089,7 @@ body.edit-modal-open { overflow: hidden !important; }
             retailerCollectionsUnsubscribe = db.collection("retailer_collections")
                 .onSnapshot((snapshot) => {
                     retailerCollectionsLive = snapshot.docs.map(d => d.data());
+                    collectionsFirstLoadDone = true;
                     retailers.forEach(r => recalculateRetailerDue(r));
                     renderCustomerDueReport();
                     updateDashboardStats();
@@ -2224,7 +2263,7 @@ body.edit-modal-open { overflow: hidden !important; }
         // আপডেট হয়নি)। এখন একটামাত্র Firestore batch দিয়ে দুটো লেখাই
         // একসাথে পাঠানো হয় — batch হয় সম্পূর্ণ সফল হবে, নয়তো সম্পূর্ণ
         // ব্যর্থ হবে (আংশিক অবস্থায় কখনো থাকবে না)।
-        function saveInvoiceAndSyncAtomic(invoiceObj) {
+        function saveInvoiceAndSyncAtomic(invoiceObj, linkedCollectionEntry) {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
             if (!initialDataLoaded) {
                 alert('তথ্য এখনো সম্পূর্ণ লোড হয়নি — একটু অপেক্ষা করে আবার চেষ্টা করুন।');
@@ -2242,6 +2281,12 @@ body.edit-modal-open { overflow: hidden !important; }
                 retailers: retailers,
                 updatedAt: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
+            // ক্রেডিট ইনভয়েসের সাথে সাথে জমা নেওয়া টাকা থাকলে, সেই
+            // কালেকশন এন্ট্রিটাও একই batch-এ একসাথে সেভ হয় -- ইনভয়েস আর
+            // এই জমা কখনো আলাদা-আলাদাভাবে সফল/ব্যর্থ হবে না, একসাথেই হবে।
+            if (linkedCollectionEntry) {
+                batch.set(db.collection("retailer_collections").doc(linkedCollectionEntry.id), linkedCollectionEntry);
+            }
             return batch.commit().then(() => true).catch((error) => {
                 console.error("Atomic invoice save error:", error);
                 isConnectedToDB = false;
@@ -2255,7 +2300,7 @@ body.edit-modal-open { overflow: hidden !important; }
         // ইনভয়েস ডিলিট + স্টক ফেরত (appData) — একই কারণে এটাও একটামাত্র
         // batch দিয়ে একসাথে করা হয়, যাতে "ইনভয়েস ডিলিট হয়ে গেছে কিন্তু
         // স্টক ফেরত আসেনি" এই ধরনের অসামঞ্জস্য কখনো তৈরি না হয়।
-        function deleteInvoiceAndSyncAtomic(id) {
+        function deleteInvoiceAndSyncAtomic(id, linkedCollectionIdToDelete) {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
             if (!initialDataLoaded) {
                 alert('তথ্য এখনো সম্পূর্ণ লোড হয়নি — একটু অপেক্ষা করে আবার চেষ্টা করুন।');
@@ -2264,6 +2309,13 @@ body.edit-modal-open { overflow: hidden !important; }
             updateDashboardStats();
             const batch = db.batch();
             batch.delete(db.collection("sales_invoices").doc(id));
+            // ইনভয়েসের সাথে সাথে জমা নেওয়া কোনো কালেকশন এন্ট্রি থাকলে,
+            // ইনভয়েস ডিলিট করার সময় সেটাও একই batch-এ একসাথে ডিলিট করা
+            // হচ্ছে -- নাহলে সেই কালেকশন এন্ট্রিটা "ভুতুড়ে" হয়ে থেকে যেত
+            // (কোনো ইনভয়েসের সাথে সম্পর্ক না থাকা সত্ত্বেও বাকি কমিয়ে রাখত)।
+            if (linkedCollectionIdToDelete) {
+                batch.delete(db.collection("retailer_collections").doc(linkedCollectionIdToDelete));
+            }
             batch.set(db.collection("sales_system").doc("appData"), {
                 routes: routes,
                 routeCodes: routeCodes,
@@ -2299,6 +2351,12 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         function updateDashboardStats() {
+            // তিনটে উৎসই (রিটেইলার/appData, ইনভয়েস, কালেকশন) অন্তত একবার
+            // লোড না হওয়া পর্যন্ত রেন্ডার না করাই ভালো -- না হলে আংশিক
+            // ডেটার ভুল সংখ্যা মুহূর্তের জন্য ফ্ল্যাশ করে, পরে ঠিক হয়।
+            // যে উৎসটাই পরে লোড হবে, সেটাই আবার সঠিক ডেটা দিয়ে রেন্ডার
+            // করে দেবে।
+            if (!(initialDataLoaded && invoicesFirstLoadDone && collectionsFirstLoadDone)) return;
             const today = getLocalISODate();
             const todayInvoices = (invoices || []).filter(inv => {
                 const parsed = parseBanglaOrISODate(inv.date || '');
@@ -2771,6 +2829,16 @@ body.edit-modal-open { overflow: hidden !important; }
                     document.getElementById('salesDueAmount').value = inv.dueAmount || '';
                     document.getElementById('salesCashDeposit').value = inv.cashDeposit || '';
                     updateInvoiceFinancialFields();
+                    // এডিট করার সময় "এখনই জমা" ঘরটা শুধু তথ্যের জন্য দেখানো
+                    // হয় (ফাঁকা রাখলে বোঝা যাবে ওই সময় কিছু জমা নেওয়া
+                    // হয়নি) -- এডিট করে আবার নতুন করে এটা প্রসেস হয় না, তাই
+                    // ঘরটা disabled রাখা হচ্ছে, যাতে ভুলবশত দ্বিতীয়বার কালেকশন
+                    // তৈরি না হয়ে যায়।
+                    const creditDepositField = document.getElementById('salesCreditDeposit');
+                    if (creditDepositField) {
+                        creditDepositField.value = inv.creditInitialDeposit || '';
+                        creditDepositField.disabled = true;
+                    }
                     document.getElementById('salesAvailable').value = inv.available || '';
                     selectedInvoiceItems = (inv.items || []).map(it => {
                         // এডিট করার সময় এই ইনভয়েসের পুরোনো পরিমাণ এখনও স্টক থেকে বাদ দেওয়া আছে,
@@ -2814,6 +2882,8 @@ body.edit-modal-open { overflow: hidden !important; }
                 document.getElementById('salesCreditLimit').value = "";
                 document.getElementById('salesDueAmount').value = "";
                 document.getElementById('salesCashDeposit').value = "";
+                const creditDepositFieldNew = document.getElementById('salesCreditDeposit');
+                if (creditDepositFieldNew) { creditDepositFieldNew.value = ""; creditDepositFieldNew.disabled = false; }
                 document.getElementById('salesAvailable').value = "";
                 selectedInvoiceItems = [];
                 renderInvoiceItemTable();
@@ -2857,6 +2927,14 @@ body.edit-modal-open { overflow: hidden !important; }
             cash.disabled = type !== 'Cash';
             cash.style.backgroundColor = type === 'Cash' ? '' : '#eee';
             if (type !== 'Cash') cash.value = '';
+
+            // ক্রেডিট ইনভয়েসের সাথে সাথে কিছু টাকা জমা নেওয়ার (ঐচ্ছিক) ঘরটা
+            // শুধু ইনভয়েস টাইপ "Credit" হলেই দেখানো হয়।
+            const creditDepositGroup = document.getElementById('salesCreditDepositGroup');
+            if (creditDepositGroup) {
+                creditDepositGroup.style.display = type === 'Credit' ? 'block' : 'none';
+                if (type !== 'Credit') document.getElementById('salesCreditDeposit').value = '';
+            }
 
             // "তালিকায় নেই — হাতে লিখুন" চেকবক্সটা শুধু ক্যাশ ইনভয়েসে দেখানো
             // হয়। ক্যাশ থেকে সরে গেলে ওয়াক-ইন মোড স্বয়ংক্রিয়ভাবে বন্ধ করে
@@ -3405,6 +3483,8 @@ body.edit-modal-open { overflow: hidden !important; }
                 // নম্বর-সংঘর্ষের ঝুঁকিটা আগের মতোই থেকে যায়।
             }
             const cashDeposit = parseFloat(document.getElementById('salesCashDeposit').value || 0) || 0;
+            const creditDepositEl = document.getElementById('salesCreditDeposit');
+            const creditDeposit = (creditDepositEl && !creditDepositEl.disabled) ? (parseFloat(creditDepositEl.value || 0) || 0) : 0;
 
             if(selectedInvoiceItems.length === 0) { alert("কমপক্ষে একটি পণ্য যুক্ত করুন।"); return; }
 
@@ -3455,6 +3535,11 @@ body.edit-modal-open { overflow: hidden !important; }
                     alert(`ইনভয়েস সেভ করা সম্ভব নয়!\nক্রেডিট লিমিট: ${maxLimit} টাকা\nবর্তমান বাকি: ${existingDueForLimit} টাকা\nআর নিতে পারবে: ${available} টাকা\nনতুন ইনভয়েস: ${currentInvoiceTotal} টাকা`);
                     return;
                 }
+                if (creditDeposit > currentInvoiceTotal) {
+                    alert(`জমার টাকা (${creditDeposit.toLocaleString('en-US')} ৳) ইনভয়েসের মোট টাকার (${currentInvoiceTotal.toLocaleString('en-US')} ৳) চেয়ে বেশি হতে পারবে না।`);
+                    document.getElementById('salesCreditDeposit').focus();
+                    return;
+                }
             } else {
                 // ক্যাশ ইনভয়েসে ইনভয়েসের পুরো টাকাটাই "ক্যাশ জমা" ঘরে বসাতে
                 // হবে — কম-বেশি হলে ইনভয়েস সেভ হবে না, কারণ এটা যেহেতু ক্যাশ
@@ -3466,6 +3551,11 @@ body.edit-modal-open { overflow: hidden !important; }
                 }
             }
 
+            // ক্রেডিট ইনভয়েসের সাথে সাথে জমা থাকলে তার জন্য একটা আইডি এখানেই
+            // একবার তৈরি করে রাখা হচ্ছে -- এই একই আইডি নিচে ইনভয়েসের ভেতরে
+            // (রেফারেন্স হিসেবে) আর কালেকশন এন্ট্রিতে (আসল ডকুমেন্ট আইডি
+            // হিসেবে) দুই জায়গাতেই ব্যবহার হবে, যাতে দুটো নিশ্চিতভাবে মিলে।
+            const newDepositId = (!editId && invoiceType === 'Credit' && creditDeposit > 0) ? ('RCOL_' + Date.now() + '_dep') : null;
             const invoiceObj = {
                 id: editId ? editId : 'INV_' + Date.now(),
                 invoiceNo,
@@ -3481,6 +3571,16 @@ body.edit-modal-open { overflow: hidden !important; }
                 creditLimit: parseFloat(selectedRetailerData.creditLimit || 0) || 0,
                 dueAmount: invoiceType === 'Credit' ? existingDueForLimit : 0,
                 cashDeposit: invoiceType === 'Cash' ? cashDeposit : 0,
+                // ক্রেডিট ইনভয়েসের সাথে সাথে (থাকলে) যে টাকাটা তখনই জমা
+                // নেওয়া হয়েছে -- এডিট করলে আগের এন্ট্রির মানই অক্ষত থাকে,
+                // এডিট করে নতুন করে এটা বদলানো/আবার প্রসেস করা হয় না।
+                creditInitialDeposit: (!editId && invoiceType === 'Credit') ? creditDeposit : (oldInvoice?.creditInitialDeposit || 0),
+                // এই ইনভয়েসের সাথে সাথে যদি একটা কালেকশন এন্ট্রি তৈরি হয়ে
+                // থাকে, তার আইডিটাও এখানে রেখে দেওয়া হচ্ছে -- ইনভয়েসটা পরে
+                // ডিলিট করলে এই লিংক ধরেই সেই কালেকশন এন্ট্রিটাও একসাথে
+                // মুছে ফেলা যাবে, নাহলে সেটা "ভুতুড়ে" কালেকশন হয়ে বাকির
+                // হিসাব স্থায়ীভাবে ভুল করে রেখে দিত।
+                linkedCollectionId: newDepositId || (oldInvoice?.linkedCollectionId || null),
                 available: invoiceType === 'Credit' ? Math.max(0, (parseFloat(selectedRetailerData.creditLimit || 0)||0) - existingDueForLimit - currentInvoiceTotal) : 0,
                 // ক্রেতার নাম/ঠিকানা/মোবাইল সরাসরি ইনভয়েসের সাথেই সেভ করে
                 // রাখা হচ্ছে (রিটেইলার তালিকার ওপর নির্ভর না করে) — বিশেষ
@@ -3548,7 +3648,24 @@ body.edit-modal-open { overflow: hidden !important; }
             }
             recalculateRetailerDue(selectedRetailerData);
 
-            if (!(await saveInvoiceAndSyncAtomic(invoiceObj))) { stocks = stocksBackupForRollback; invoices = invoicesBackupForRollback; return; }
+            // ক্রেডিট ইনভয়েসের সাথে সাথে জমা নেওয়া টাকা থাকলে (নতুন
+            // ইনভয়েসেই শুধু, এডিটে না), সেটার জন্য একটা কালেকশন এন্ট্রি
+            // তৈরি করে ইনভয়েসের সাথেই একই batch-এ পাঠানো হচ্ছে।
+            let linkedCollectionEntry = null;
+            if (!editId && invoiceType === 'Credit' && creditDeposit > 0) {
+                linkedCollectionEntry = {
+                    id: newDepositId,
+                    retailerId: selectedRetailerData.id || '',
+                    route: route,
+                    retailerTrader: retailer,
+                    retailerName: selectedRetailerData.name || '',
+                    date: invoiceObj.date,
+                    amount: creditDeposit,
+                    note: `ইনভয়েস ${invoiceNo}-এর সাথে সাথে জমা`,
+                    createdAt: Date.now()
+                };
+            }
+            if (!(await saveInvoiceAndSyncAtomic(invoiceObj, linkedCollectionEntry))) { stocks = stocksBackupForRollback; invoices = invoicesBackupForRollback; return; }
 
             // এই ইনভয়েসটা কোনো এসপিও-এর পাঠানো অনলাইন অর্ডার থেকে রূপান্তরিত
             // হলে, এখানেই সেই অর্ডারটাকে স্বয়ংক্রিয়ভাবে 'invoiced' হিসেবে
@@ -3754,8 +3871,10 @@ body.edit-modal-open { overflow: hidden !important; }
                     ? Math.max(0, currentDueVal - (Number(inv.totalAmount || 0) || 0))
                     : currentDueVal;
                 if (previousDueVal > 0 || currentDueVal > 0) {
+                    const depositVal = Number(inv.creditInitialDeposit || 0) || 0;
                     dueHTML = `<div style="display:inline-block; font-size: 11px; margin-top: 5px; font-weight: bold; color: #000; border:1.5px solid #000; padding:6px 10px; border-radius:4px;">
                         ${previousDueVal > 0 ? `<div>পূর্বের বাকি : <b>${toBanglaNumber(previousDueVal.toLocaleString('en-US'))} ৳</b></div>` : ''}
+                        ${depositVal > 0 ? `<div>জমা (এখনই) : <b>${toBanglaNumber(depositVal.toLocaleString('en-US'))} ৳</b></div>` : ''}
                         <div>সর্বমোট বাকি : <b>${toBanglaNumber(currentDueVal.toLocaleString('en-US'))} ৳</b></div>
                     </div>`;
                 }
@@ -3831,6 +3950,11 @@ body.edit-modal-open { overflow: hidden !important; }
                     ${discountSummaryHTML}
 
                     <table style="width:100%; margin-top:28px; border-collapse:collapse;">
+                        <tr>
+                            <td style="width:45%; text-align:center; border:none;"></td>
+                            <td style="width:10%; border:none;"></td>
+                            <td style="width:45%; text-align:center; border:none; font-size:11px; font-weight:bold;">${escapeHtml(OPERATOR_NAME || '')}</td>
+                        </tr>
                         <tr>
                             <td style="width:45%; text-align:center; border:none; border-top:1px solid #000; padding-top:4px; font-size:12px; font-weight:bold;">ক্রেতার স্বাক্ষর/টিপসই</td>
                             <td style="width:10%; border:none;"></td>
@@ -3910,8 +4034,8 @@ body.edit-modal-open { overflow: hidden !important; }
             const buyerCopyHTML = buildMemoCopyHTML(inv, retObj, 'ক্রেতার কপি', false);
             const sellerCopyHTML = buildMemoCopyHTML(inv, retObj, 'বিক্রেতার কপি', true);
 
-            document.getElementById('printableMemoArea').innerHTML =
-                buyerCopyHTML + `<div class="memo-copy-break"></div>` + sellerCopyHTML;
+            const printArea = document.getElementById('printableMemoArea');
+            printArea.innerHTML = buyerCopyHTML + `<div class="memo-copy-break"></div>` + sellerCopyHTML;
 
             const onAfterPrint = () => {
                 markInvoicePrinted(id);
@@ -3923,7 +4047,26 @@ body.edit-modal-open { overflow: hidden !important; }
                 window.removeEventListener('afterprint', onAfterPrint);
             };
             window.addEventListener('afterprint', onAfterPrint);
-            window.print();
+
+            // লোগোর ছবি HTML-এ বসানোর সাথে সাথেই প্রিন্ট করলে কখনো কখনো
+            // ব্রাউজার ছবিটা সম্পূর্ণ ডিকোড/আঁকার আগেই প্রিন্ট শুরু করে দিত,
+            // ফলে লোগো মাঝেমধ্যে অনুপস্থিত থাকত বা দেরিতে আসত। তাই এখন
+            // প্রিন্ট করার আগে ছবি প্রস্তুত হওয়া পর্যন্ত (সর্বোচ্চ ৫০০ মিলিসেকেন্ড)
+            // অপেক্ষা করা হচ্ছে, যাতে লোগো সবসময় ঠিক সময়ে দেখা যায়।
+            const images = Array.from(printArea.querySelectorAll('img'));
+            const waitForImages = images.map(img => {
+                if (img.complete) {
+                    return img.decode ? img.decode().catch(() => {}) : Promise.resolve();
+                }
+                return new Promise(resolve => {
+                    img.addEventListener('load', resolve, { once: true });
+                    img.addEventListener('error', resolve, { once: true });
+                });
+            });
+            Promise.race([
+                Promise.all(waitForImages),
+                new Promise(resolve => setTimeout(resolve, 500))
+            ]).then(() => window.print());
         }
 
         async function deleteInvoice(id) {
@@ -3954,9 +4097,10 @@ body.edit-modal-open { overflow: hidden !important; }
                         recalculateRetailerDue(retObj);
                     }
                 }
-                // ইনভয়েস ডিলিট আর স্টক ফেরত -- দুটোই এখন একটামাত্র atomic
-                // batch দিয়ে একসাথে সেভ হয় (হয় দুটোই হবে, নয়তো কিছুই হবে না)।
-                if (!(await deleteInvoiceAndSyncAtomic(id))) {
+                // ইনভয়েস ডিলিট, স্টক ফেরত, আর (থাকলে) সাথে-সাথে-জমা-নেওয়া
+                // কালেকশন এন্ট্রি ডিলিট -- তিনটাই এখন একটামাত্র atomic batch
+                // দিয়ে একসাথে সেভ হয় (হয় সবগুলোই হবে, নয়তো কিছুই হবে না)।
+                if (!(await deleteInvoiceAndSyncAtomic(id, inv ? inv.linkedCollectionId : null))) {
                     stocks = stocksBackupForDelete;
                     invoices = invoicesBackupForDelete;
                     return;
@@ -4524,6 +4668,12 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
 let stockSelectedIndexes = new Set();
+// প্রতিটা পণ্যের পাশে টাইপ করা পিস সংখ্যা এখানে সাথে সাথে সেভ থাকে
+// (প্রোডাক্ট ইনডেক্স অনুযায়ী) -- আগে এটা না থাকায় "নির্বাচন পরিবর্তন
+// করুন" চেপে আরেকটা পণ্য যোগ করে ফিরে এলে আগে টাইপ করা সব সংখ্যা মুছে
+// শূন্য হয়ে যেত। এখন ফিরে এলেও আগের লেখা সংখ্যাগুলো ঠিক আগের মতোই
+// থেকে যাবে।
+let stockQtyValues = {};
 let stockMultiPhase = 'select'; // 'select' → checkbox দিয়ে পণ্য বাছা, 'qty' → শুধু বাছাই করা পণ্যে পিস সংখ্যা লেখা
 let stockInfoConfirmed = false; // তারিখ+রেফারেন্স নম্বর কনফার্ম করার আগে পণ্যের তালিকা দেখানো হয় না
 let stockProductSearchFilter = '';
@@ -4611,14 +4761,28 @@ function renderStockMultiProductList() {
             const rowsHtml = indexes.map(index => `
                     <div class="stock-multi-row" style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid #eee;">
                         <span style="flex:1;">${escapeHtml(products[index].name)}</span>
-                        <input type="number" class="stockMultiQty" data-index="${index}" placeholder="পিস সংখ্যা লিখুন" min="1" step="1" style="width:150px;">
+                        <input type="number" class="stockMultiQty" data-index="${index}" value="${stockQtyValues[index] !== undefined ? stockQtyValues[index] : ''}" oninput="stockQtyValues[${index}] = this.value;" placeholder="পিস সংখ্যা লিখুন" min="1" step="1" style="width:150px;">
+                        <button type="button" onclick="removeStockQtyItem(${index})" title="এই পণ্যটি বাদ দিন" style="background:none; border:none; color:#c0392b; font-size:20px; font-weight:bold; cursor:pointer; padding:0 4px; line-height:1;">✕</button>
                     </div>`).join('');
             container.innerHTML = `
-                <div style="font-size:12px; color:#666; margin-bottom:8px;">${toBanglaNumber(indexes.length)}টি পণ্য নির্বাচিত হয়েছে — প্রতিটির পাশে মোট পিস সংখ্যা লিখুন, তারপর সবচেয়ে নিচের সবুজ "সেভ করুন" বাটনে চাপুন।</div>
+                <div style="font-size:12px; color:#666; margin-bottom:8px;">${toBanglaNumber(indexes.length)}টি পণ্য নির্বাচিত হয়েছে — প্রতিটির পাশে মোট পিস সংখ্যা লিখুন, তারপর সবচেয়ে নিচের সবুজ "সেভ করুন" বাটনে চাপুন। ভুল করে সিলেক্ট হয়ে গেলে পাশের ✕ চেপে বাদ দিন।</div>
                 <div>${rowsHtml}</div>`;
             if (actionBar) {
-                actionBar.innerHTML = `<button type="button" class="btn-action btn-edit" style="width:100%; padding:10px;" onclick="backToStockSelection()">← নির্বাচন পরিবর্তন করুন</button>`;
+                actionBar.innerHTML = `<button type="button" class="btn-action btn-edit" style="width:100%; padding:10px;" onclick="backToStockSelection()">← আরও পণ্য যোগ করুন</button>`;
             }
+        }
+
+        // পিস-সংখ্যা লেখার ধাপ থেকেই সরাসরি একটা পণ্য বাদ দেওয়ার জন্য --
+        // এতে বাকি পণ্যগুলোর টাইপ করা সংখ্যা অক্ষত থেকে যায়, শুধু এই
+        // একটা পণ্যই তালিকা থেকে সরে যায়।
+        function removeStockQtyItem(index) {
+            stockSelectedIndexes.delete(index);
+            delete stockQtyValues[index];
+            if (stockSelectedIndexes.size === 0) {
+                // সব পণ্যই বাদ দিয়ে দিলে সিলেকশন ধাপে ফিরে যাওয়াই স্বাভাবিক
+                stockMultiPhase = 'select';
+            }
+            renderStockMultiProductList();
         }
 
         function backToStockSelection() {
@@ -4641,6 +4805,7 @@ function renderStockMultiProductList() {
             stockInfoConfirmed = false;
             stockProductSearchFilter = '';
             stockSelectedIndexes = new Set();
+            stockQtyValues = {};
             stockMultiPhase = 'select';
         }
 
@@ -7660,7 +7825,15 @@ function renderStockMultiProductList() {
             const date=document.getElementById('collectionDate').value;
             const idx=document.getElementById('collectionRetailerSelect').value;
             const amount=Math.round(Number(document.getElementById('collectionAmount').value||0));
-            const note=document.getElementById('collectionNote').value.trim();
+            let note=document.getElementById('collectionNote').value.trim();
+            // এসপিও-এর রিকোয়েস্ট অ্যাপ্রুভ করার সময় নোটে আগে থেকেই এসপিও-র
+            // নাম বসানো থাকে (অপরিবর্তিত রাখা হয়) -- কিন্তু সরাসরি এই
+            // এডমিন থেকে ম্যানুয়ালি কালেকশন করলে, "ব্যবহারকারী" হিসেবে সেট
+            // করা নামটা এখানে স্বয়ংক্রিয়ভাবে বসিয়ে দেওয়া হচ্ছে (এসপিও-র
+            // নামের মতোই), যাতে পরে বোঝা যায় কে এই কালেকশনটা করেছিলেন।
+            if (!pendingApprovalReqId && OPERATOR_NAME) {
+                note = note ? `${OPERATOR_NAME} — ${note}` : OPERATOR_NAME;
+            }
             if(!date||idx===''){alert('তারিখ ও রিটেইলার নির্বাচন করুন।');return;}
             const ret=retailers[parseInt(idx)];
             recalculateRetailerDue(ret);
