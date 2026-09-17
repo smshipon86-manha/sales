@@ -3124,8 +3124,17 @@ body.edit-modal-open { overflow: hidden !important; }
             const ret = retailers[retailerIndex];
             if (!ret) return null;
             const retTrader = displayTraderName(ret.trader || '');
+            // আগে শুধু রুট + ট্রেডার্সের নাম মিলিয়ে পুরোনো ইনভয়েস খোঁজা
+            // হতো -- রিটেইলারের নাম/রুট পরে এডিট করে ঠিক করলে (যেমন বানান
+            // সংশোধন) পুরোনো ইনভয়েসের সাথে আর না মেলায় ছাড়% খুঁজে
+            // পাওয়া "মিস" হয়ে যেত। এখন প্রথমে স্থায়ী retailerId দিয়ে
+            // মেলানো হয় (এটা কখনো বদলায় না) -- retailerId না থাকা পুরোনো
+            // ইনভয়েসের জন্যই শুধু রুট+নাম মেলানো হয় (ফলব্যাক হিসেবে)।
             const matchingInvoices = (invoices || [])
-                .filter(inv => inv.route === ret.route && displayTraderName(inv.retailer || '') === retTrader)
+                .filter(inv => {
+                    if (ret.id && inv.retailerId) return inv.retailerId === ret.id;
+                    return inv.route === ret.route && displayTraderName(inv.retailer || '') === retTrader;
+                })
                 .sort((a, b) => getInvoiceCreationOrder(b) - getInvoiceCreationOrder(a));
             for (const inv of matchingInvoices) {
                 const item = (inv.items || []).find(it => it.name === productName);
