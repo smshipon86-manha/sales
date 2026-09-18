@@ -1113,6 +1113,7 @@ body.edit-modal-open { overflow: hidden !important; }
             <button class="quick-btn" onclick="openRetailerModal()">＋ রিটেইলার</button>
             <button class="quick-btn" onclick="openCustomerDueReportModal()">▤ বাকি রিপোর্ট</button>
             <button class="quick-btn" onclick="openCustomerLedgerModal()">≡ কাস্টমার লেজার</button>
+            <button class="quick-btn" onclick="openSalesAnalysisModal()">📊 বিক্রয় বিশ্লেষণ</button>
         </div>
 
         <div class="sales-card">
@@ -1737,6 +1738,7 @@ body.edit-modal-open { overflow: hidden !important; }
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
     <!-- ExcelJS: "দৈনিক বিক্রয় হিসাব" রিপোর্ট আসল .xlsx ফাইল (একাধিক শিটসহ, সঠিক ফন্ট/A4 প্রিন্ট সেটআপ) হিসেবে ডাউনলোড করার জন্য -->
     <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 
     <script>
         const firebaseConfig = {
@@ -2424,6 +2426,232 @@ body.edit-modal-open { overflow: hidden !important; }
             setText('dashboardTodayCollection', money(todayCollectionTotal));
             setText('dashboardCollectionCount', toBanglaNumber(todayCollectionCount) + 'টি এন্ট্রি');
             setText('dashboardDue', money(totalDue));
+        }
+
+        // "বিক্রয় বিশ্লেষণ" পপ-আপ খোলার সময়ই চার্টগুলো তৈরি হয় (ড্যাশবোর্ড
+        // লোড হওয়ার সাথে সাথে ব্যাকগ্রাউন্ডে না) -- কারণ পপ-আপ বন্ধ (hidden)
+        // থাকা অবস্থায় ক্যানভাসের আসল সাইজ বোঝা যায় না, তাতে চার্ট ভুল
+        // মাপে/অস্পষ্ট আঁকা হতে পারে। পপ-আপ দৃশ্যমান হওয়ার পরই আঁকা হলে এই
+        // সমস্যা হয় না।
+        function openSalesAnalysisModal() {
+            if (!checkConnectionOrAlert()) return;
+            document.getElementById('salesAnalysisModal').style.display = 'flex';
+            // ডিফল্টভাবে রিটেইলার চার্টটা "এই মাস" দেখিয়ে শুরু হয় --
+            // চাইলে থেকে/পর্যন্ত ঘর বদলে একাধিক মাস বা পুরো বছরও দেখা যাবে।
+            const thisMonth = getLocalISODate().slice(0, 7);
+            const fromEl = document.getElementById('retailerSalesFromMonth');
+            const toEl = document.getElementById('retailerSalesToMonth');
+            if (fromEl && !fromEl.value) fromEl.value = thisMonth;
+            if (toEl && !toEl.value) toEl.value = thisMonth;
+            renderAllDashboardCharts();
+        }
+
+        // ========== ড্যাশবোর্ড চার্ট (Chart.js) ==========
+        let purchaseSalesChartInstance = null;
+        let retailerSalesChartInstance = null;
+        let salesCollectionChartInstance = null;
+
+        function getMonthlyLabelsBn() {
+            return ["জানু","ফেব্রু","মার্চ","এপ্রিল","মে","জুন","জুলাই","আগস্ট","সেপ্টে","অক্টো","নভে","ডিসে"];
+        }
+
+        // স্টক-লগ এন্ট্রির MRP মূল্য -- "স্টক যোগের ইতিহাস" রিপোর্টে যেভাবে
+        // হিসাব হয় ঠিক একই পদ্ধতিতে (পিস সংখ্যা ÷ পিস-পার-কার্টুন × কার্টুন
+        // মূল্য) -- এটাই এখানে "ক্রয়ের মূল্য" হিসেবে ব্যবহার হচ্ছে।
+        function getStockLogMrpValue(log) {
+            const qtyPieces = Number(log.qtyPieces || 0) || 0;
+            const product = products.find(p => p.name === log.productName);
+            const ppc = getPiecesPerCarton(product);
+            const cartonPrice = parseFloat(product?.price || product?.cartonPrice || 0) || 0;
+            return ppc > 0 ? (qtyPieces / ppc) * cartonPrice : 0;
+        }
+
+        function renderPurchaseVsSalesChart() {
+            const canvas = document.getElementById('purchaseSalesChart');
+            const toggleEl = document.getElementById('purchaseSalesRangeToggle');
+            if (!canvas || !toggleEl || typeof Chart === 'undefined') return;
+            const mode = toggleEl.value;
+            let labels = [], purchaseData = [], salesData = [];
+
+            if (mode === 'daily') {
+                const days = [];
+                for (let i = 29; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    days.push(toLocalISODate(d));
+                }
+                labels = days.map(iso => toBanglaNumber(iso.slice(5)));
+                const purchaseByDay = {};
+                (stockLogs || []).forEach(log => {
+                    const d = parseBanglaOrISODate(log.date);
+                    const iso = d ? toLocalISODate(d) : null;
+                    if (iso) purchaseByDay[iso] = (purchaseByDay[iso] || 0) + getStockLogMrpValue(log);
+                });
+                const salesByDay = {};
+                (invoices || []).forEach(inv => {
+                    const d = parseBanglaOrISODate(inv.date);
+                    const iso = d ? toLocalISODate(d) : null;
+                    if (iso) salesByDay[iso] = (salesByDay[iso] || 0) + (Number(inv.totalAmount || 0) || 0);
+                });
+                purchaseData = days.map(iso => Math.round(purchaseByDay[iso] || 0));
+                salesData = days.map(iso => Math.round(salesByDay[iso] || 0));
+            } else {
+                const year = new Date().getFullYear();
+                labels = getMonthlyLabelsBn();
+                const purchaseByMonth = new Array(12).fill(0);
+                const salesByMonth = new Array(12).fill(0);
+                (stockLogs || []).forEach(log => {
+                    const d = parseBanglaOrISODate(log.date);
+                    if (d && d.getFullYear() === year) purchaseByMonth[d.getMonth()] += getStockLogMrpValue(log);
+                });
+                (invoices || []).forEach(inv => {
+                    const d = parseBanglaOrISODate(inv.date);
+                    if (d && d.getFullYear() === year) salesByMonth[d.getMonth()] += (Number(inv.totalAmount || 0) || 0);
+                });
+                purchaseData = purchaseByMonth.map(v => Math.round(v));
+                salesData = salesByMonth.map(v => Math.round(v));
+            }
+
+            if (purchaseSalesChartInstance) purchaseSalesChartInstance.destroy();
+            purchaseSalesChartInstance = new Chart(canvas.getContext('2d'), {
+                type: mode === 'daily' ? 'line' : 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        { label: 'ক্রয় (স্টক)', data: purchaseData, borderColor: '#e67e22', backgroundColor: mode === 'daily' ? 'rgba(230,126,34,0.15)' : '#e67e22', tension: 0.3, fill: mode === 'daily' },
+                        { label: 'বিক্রয়', data: salesData, borderColor: '#2e7d32', backgroundColor: mode === 'daily' ? 'rgba(46,125,50,0.15)' : '#2e7d32', tension: 0.3, fill: mode === 'daily' }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            });
+        }
+
+        function renderRetailerSalesChart() {
+            const canvas = document.getElementById('retailerSalesChart');
+            if (!canvas || typeof Chart === 'undefined') return;
+            const fromEl = document.getElementById('retailerSalesFromMonth');
+            const toEl = document.getElementById('retailerSalesToMonth');
+            // fromEl.value / toEl.value ফরম্যাট "YYYY-MM" -- সরাসরি স্ট্রিং
+            // তুলনা করলেই তারিখ অনুযায়ী ঠিক ক্রম মেলে, তাই আলাদা পার্স করার
+            // দরকার নেই।
+            const fromYM = fromEl && fromEl.value ? fromEl.value : null;
+            const toYM = toEl && toEl.value ? toEl.value : null;
+            const totals = new Map();
+            (invoices || []).forEach(inv => {
+                if (fromYM || toYM) {
+                    const d = parseBanglaOrISODate(inv.date);
+                    if (!d) return;
+                    const ym = toLocalISODate(d).slice(0, 7);
+                    if (fromYM && ym < fromYM) return;
+                    if (toYM && ym > toYM) return;
+                }
+                const ret = resolveRetailerForInvoice(inv);
+                const label = ret ? (displayTraderName(ret.trader) || ret.name || 'অজানা') : displayTraderName(inv.retailer || 'অজানা');
+                totals.set(label, (totals.get(label) || 0) + (Number(inv.totalAmount || 0) || 0));
+            });
+            const sorted = Array.from(totals.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            const labels = sorted.map(x => x[0]);
+            const data = sorted.map(x => Math.round(x[1]));
+
+            if (retailerSalesChartInstance) retailerSalesChartInstance.destroy();
+            retailerSalesChartInstance = new Chart(canvas.getContext('2d'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'মোট বিক্রয় (৳)', data, backgroundColor: '#4a6c82' }] },
+                options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false, scales: { x: { beginAtZero: true } } }
+            });
+        }
+
+        function renderSalesCollectionChart() {
+            const canvas = document.getElementById('salesCollectionChart');
+            const toggleEl = document.getElementById('salesCollectionRangeToggle');
+            if (!canvas || !toggleEl || typeof Chart === 'undefined') return;
+            const mode = toggleEl.value;
+
+            // সব কালেকশন (পুরোনো + নতুন উৎস) একটা সাধারণ তালিকায় মিলিয়ে
+            // নেওয়া হচ্ছে, যাতে দিন/মাস/বছর -- তিন ধরনের হিসাবেই একই
+            // তালিকা থেকে সহজে যোগফল বের করা যায়।
+            const allCollections = [];
+            (retailers || []).forEach(ret => {
+                (ret.collections || []).forEach(c => allCollections.push(c));
+            });
+            (retailerCollectionsLive || []).forEach(c => allCollections.push(c));
+
+            let labels = [], salesData = [], collectionData = [], chartType = 'line';
+
+            if (mode === 'daily') {
+                const days = [];
+                for (let i = 29; i >= 0; i--) {
+                    const d = new Date();
+                    d.setDate(d.getDate() - i);
+                    days.push(toLocalISODate(d));
+                }
+                labels = days.map(iso => toBanglaNumber(iso.slice(5)));
+                const salesByDay = {}, collectionByDay = {};
+                (invoices || []).forEach(inv => {
+                    const d = parseBanglaOrISODate(inv.date);
+                    const iso = d ? toLocalISODate(d) : null;
+                    if (iso) salesByDay[iso] = (salesByDay[iso] || 0) + (Number(inv.totalAmount || 0) || 0);
+                });
+                allCollections.forEach(c => {
+                    const d = parseBanglaOrISODate(c.date);
+                    const iso = d ? toLocalISODate(d) : null;
+                    if (iso) collectionByDay[iso] = (collectionByDay[iso] || 0) + (Number(c.amount || 0) || 0);
+                });
+                salesData = days.map(iso => Math.round(salesByDay[iso] || 0));
+                collectionData = days.map(iso => Math.round(collectionByDay[iso] || 0));
+            } else if (mode === 'yearly') {
+                chartType = 'bar';
+                const thisYear = new Date().getFullYear();
+                const years = [];
+                for (let y = thisYear - 4; y <= thisYear; y++) years.push(y);
+                labels = years.map(y => toBanglaNumber(y));
+                const salesByYear = {}, collectionByYear = {};
+                (invoices || []).forEach(inv => {
+                    const d = parseBanglaOrISODate(inv.date);
+                    if (d) salesByYear[d.getFullYear()] = (salesByYear[d.getFullYear()] || 0) + (Number(inv.totalAmount || 0) || 0);
+                });
+                allCollections.forEach(c => {
+                    const d = parseBanglaOrISODate(c.date);
+                    if (d) collectionByYear[d.getFullYear()] = (collectionByYear[d.getFullYear()] || 0) + (Number(c.amount || 0) || 0);
+                });
+                salesData = years.map(y => Math.round(salesByYear[y] || 0));
+                collectionData = years.map(y => Math.round(collectionByYear[y] || 0));
+            } else {
+                const year = new Date().getFullYear();
+                labels = getMonthlyLabelsBn();
+                const salesByMonth = new Array(12).fill(0);
+                const collectionByMonth = new Array(12).fill(0);
+                (invoices || []).forEach(inv => {
+                    const d = parseBanglaOrISODate(inv.date);
+                    if (d && d.getFullYear() === year) salesByMonth[d.getMonth()] += (Number(inv.totalAmount || 0) || 0);
+                });
+                allCollections.forEach(c => {
+                    const d = parseBanglaOrISODate(c.date);
+                    if (d && d.getFullYear() === year) collectionByMonth[d.getMonth()] += (Number(c.amount || 0) || 0);
+                });
+                salesData = salesByMonth.map(v => Math.round(v));
+                collectionData = collectionByMonth.map(v => Math.round(v));
+            }
+
+            if (salesCollectionChartInstance) salesCollectionChartInstance.destroy();
+            salesCollectionChartInstance = new Chart(canvas.getContext('2d'), {
+                type: chartType,
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'বিক্রয়', data: salesData, borderColor: '#2e7d32', backgroundColor: chartType === 'line' ? 'rgba(46,125,50,0.15)' : '#2e7d32', tension: 0.3, fill: chartType === 'line' },
+                        { label: 'কালেকশন', data: collectionData, borderColor: '#c0392b', backgroundColor: chartType === 'line' ? 'rgba(192,57,43,0.15)' : '#c0392b', tension: 0.3, fill: chartType === 'line' }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+            });
+        }
+
+        function renderAllDashboardCharts() {
+            if (typeof Chart === 'undefined') return;
+            renderPurchaseVsSalesChart();
+            renderRetailerSalesChart();
+            renderSalesCollectionChart();
         }
 
         function toggleMobileMenu(button) {
@@ -7965,6 +8193,52 @@ function renderStockMultiProductList() {
 </script>
 
     <!-- কাস্টমারের লেজার -->
+    <!-- বিক্রয় বিশ্লেষণ (চার্ট) পপ-আপ -->
+    <div class="modal-overlay" id="salesAnalysisModal">
+        <div class="modal-box" style="width: 900px; max-width: 96vw;">
+            <div class="modal-header">
+                <h3>বিক্রয় বিশ্লেষণ</h3>
+                <span class="close-btn" onclick="closeModal('salesAnalysisModal')">&times;</span>
+            </div>
+            <div style="margin-bottom:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                    <b style="font-size:14px;">ক্রয় (স্টক) বনাম বিক্রয়</b>
+                    <select id="purchaseSalesRangeToggle" onchange="renderPurchaseVsSalesChart()" style="padding:5px 8px; border-radius:6px; border:1px solid #ccc;">
+                        <option value="daily">দিন অনুযায়ী (গত ৩০ দিন)</option>
+                        <option value="monthly">মাস অনুযায়ী (এই বছর)</option>
+                    </select>
+                </div>
+                <div style="position:relative; height:260px;"><canvas id="purchaseSalesChart"></canvas></div>
+            </div>
+            <hr style="margin:20px 0; border:none; border-top:1px solid #eee;">
+            <div style="margin-bottom:14px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                    <b style="font-size:14px;">রিটেইলার অনুযায়ী বিক্রয় (টপ ১০)</b>
+                    <div style="display:flex; align-items:center; gap:6px; font-size:12px;">
+                        <span>মাস:</span>
+                        <input type="month" id="retailerSalesFromMonth" onchange="renderRetailerSalesChart()" style="padding:4px 6px; border-radius:6px; border:1px solid #ccc;">
+                        <span>থেকে</span>
+                        <input type="month" id="retailerSalesToMonth" onchange="renderRetailerSalesChart()" style="padding:4px 6px; border-radius:6px; border:1px solid #ccc;">
+                    </div>
+                </div>
+                <div style="font-size:11px; color:#777; margin-bottom:6px;">একই মাস দুই ঘরেই দিলে শুধু ওই এক মাস দেখাবে — শুরু ও শেষ আলাদা দিলে সেই পুরো সময়ের যোগফল দেখাবে (যেমন জানুয়ারি থেকে ডিসেম্বর দিলে সারা বছর)।</div>
+                <div style="position:relative; height:320px;"><canvas id="retailerSalesChart"></canvas></div>
+            </div>
+            <hr style="margin:20px 0; border:none; border-top:1px solid #eee;">
+            <div>
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+                    <b style="font-size:14px;">বিক্রয় ও কালেকশন</b>
+                    <select id="salesCollectionRangeToggle" onchange="renderSalesCollectionChart()" style="padding:5px 8px; border-radius:6px; border:1px solid #ccc;">
+                        <option value="daily">দিন অনুযায়ী (গত ৩০ দিন)</option>
+                        <option value="monthly" selected>মাস অনুযায়ী (এই বছর)</option>
+                        <option value="yearly">বছর অনুযায়ী (সর্বশেষ কয়েক বছর)</option>
+                    </select>
+                </div>
+                <div style="position:relative; height:260px;"><canvas id="salesCollectionChart"></canvas></div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="customerLedgerModal">
       <div class="modal-box" style="width:1400px;max-width:96vw;">
         <div class="modal-header"><h3>কাস্টমারের লেজার</h3><span class="close-btn" onclick="closeModal('customerLedgerModal')">×</span></div>
