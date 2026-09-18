@@ -4107,12 +4107,49 @@ body.edit-modal-open { overflow: hidden !important; }
                 const previousDueVal = inv.invoiceType === 'Credit'
                     ? Math.max(0, currentDueVal - (Number(inv.totalAmount || 0) || 0))
                     : currentDueVal;
-                if (previousDueVal > 0 || currentDueVal > 0) {
-                    const depositVal = Number(inv.creditInitialDeposit || 0) || 0;
-                    dueHTML = `<div style="display:inline-block; font-size: 11px; margin-top: 5px; font-weight: bold; color: #000; border:1.5px solid #000; padding:6px 10px; border-radius:4px;">
-                        ${previousDueVal > 0 ? `<div>পূর্বের বাকি : <b>${toBanglaNumber(previousDueVal.toLocaleString('en-US'))} ৳</b></div>` : ''}
-                        ${depositVal > 0 ? `<div>জমা (এখনই) : <b>${toBanglaNumber(depositVal.toLocaleString('en-US'))} ৳</b></div>` : ''}
-                        <div>সর্বমোট বাকি : <b>${toBanglaNumber(currentDueVal.toLocaleString('en-US'))} ৳</b></div>
+                const depositVal = Number(inv.creditInitialDeposit || 0) || 0;
+
+                if (currentDueVal === 0) {
+                    dueHTML = `<div style="font-size: 11px; margin-top: 5px; font-weight: bold; color: #000;">আপনার কোনো বাকি নেই।</div>`;
+                } else {
+                    // এই ইনভয়েসের ঠিক আগে এই রিটেইলারের সবচেয়ে সাম্প্রতিক
+                    // লেনদেনটা (ক্রেডিট ইনভয়েস/ক্যাশ ইনভয়েস/কালেকশন যেকোনো
+                    // একটা) খুঁজে বের করা হচ্ছে — মিনি "আপনার হিসাব" টেবিলের
+                    // মাঝের সারিতে দেখানোর জন্য। "পূর্বের বাকি" সারির তারিখ
+                    // হিসেবে তার ঠিক আগের লেনদেনটার তারিখ ব্যবহার হয় (অর্থাৎ
+                    // মাঝের লেনদেনটার আগে সর্বমোট বাকি কত ছিল, সেটাই বোঝায়)।
+                    const allTxnRows = getRetailerAllLedgerTransactions(retObj)
+                        .filter(r => !(r.transactionType === 'invoice' && r.id === inv.id));
+                    allTxnRows.sort((a, b) => (parseBanglaOrISODate(b.date) || 0) - (parseBanglaOrISODate(a.date) || 0));
+                    const prevTxn = allTxnRows.length > 0 ? allTxnRows[0] : null;
+                    const prevPrevTxn = allTxnRows.length > 1 ? allTxnRows[1] : null;
+                    const getRowAmount = (r) => {
+                        if (!r) return 0;
+                        if (r.transactionType === 'openingDue') return r.credit;
+                        if (r.transactionType === 'collection' || r.transactionType === 'collection_v2') return r.collection;
+                        return r.sales;
+                    };
+
+                    const tableRows = [];
+                    if (previousDueVal > 0) {
+                        tableRows.push({ date: (prevPrevTxn && prevPrevTxn.date) ? prevPrevTxn.date : '—', label: 'পূর্বের বাকি', amount: previousDueVal });
+                    }
+                    if (prevTxn) {
+                        tableRows.push({ date: prevTxn.date || '', label: prevTxn.type, amount: getRowAmount(prevTxn) });
+                    }
+                    tableRows.push({ date: inv.date || '', label: inv.invoiceType === 'Credit' ? 'ক্রেডিট ইনভয়েস' : 'ক্যাশ ইনভয়েস', amount: Number(inv.totalAmount || 0) || 0 });
+
+                    const rowsHtml = tableRows.map(r => `<tr><td style="border:1px solid #000; padding:1px 5px;">${escapeHtml(r.date)}</td><td style="border:1px solid #000; padding:1px 5px;">${escapeHtml(r.label)}</td><td style="border:1px solid #000; padding:1px 5px; text-align:right;">${toBanglaNumber(Math.round(r.amount).toLocaleString('en-US'))} ৳</td></tr>`).join('');
+                    const totalDueRowHtml = `<tr style="font-weight:bold; background:#f7f7f7;"><td colspan="2" style="border:1px solid #000; padding:1px 5px;">সর্বমোট বাকি</td><td style="border:1px solid #000; padding:1px 5px; text-align:right;">${toBanglaNumber(Math.round(currentDueVal).toLocaleString('en-US'))} ৳</td></tr>`;
+
+                    dueHTML = `<div style="margin-top:4px; display:inline-block;">
+                        <table style="border-collapse:collapse; font-size:8px;">
+                            <tr><td colspan="3" style="border:1px solid #000; padding:1px 5px; text-align:center; font-weight:bold; background:#f0f0f0;">আপনার হিসাব</td></tr>
+                            <tr style="font-weight:bold; background:#f7f7f7;"><td style="border:1px solid #000; padding:1px 5px;">তারিখ</td><td style="border:1px solid #000; padding:1px 5px;">লেনদেন</td><td style="border:1px solid #000; padding:1px 5px;">টাকা</td></tr>
+                            ${rowsHtml}
+                            ${totalDueRowHtml}
+                        </table>
+                        ${depositVal > 0 ? `<div style="font-size:8px; margin-top:2px;">জমা (এখনই) : <b>${toBanglaNumber(depositVal.toLocaleString('en-US'))} ৳</b></div>` : ''}
                     </div>`;
                 }
             }
@@ -4186,7 +4223,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     ${dueHTML}
                     ${discountSummaryHTML}
 
-                    <table style="width:100%; margin-top:28px; border-collapse:collapse;">
+                    <table style="width:100%; margin-top:18px; border-collapse:collapse;">
                         <tr>
                             <td style="width:45%; text-align:center; border:none;"></td>
                             <td style="width:10%; border:none;"></td>
