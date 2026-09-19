@@ -2466,12 +2466,27 @@ body.edit-modal-open { overflow: hidden !important; }
             return ppc > 0 ? (qtyPieces / ppc) * cartonPrice : 0;
         }
 
+        // নির্দিষ্ট একটা তারিখ পর্যন্ত মোট স্টকের (আনুমানিক) MRP মূল্য —
+        // "স্টক রিপোর্ট"-এর computeStockAsOf() পুনর্ব্যবহার করে হিসাব করা
+        // হয় (ইনভয়েস/স্টক-লগ দিয়ে পিছনের দিকে হিসাব করে সেদিনের স্টক
+        // বের করা)।
+        function getStockValueAsOf(asOfISO) {
+            const stockList = computeStockAsOf(asOfISO);
+            let total = 0;
+            stockList.forEach(s => {
+                const product = products.find(p => p.name === s.productName);
+                const cartonPrice = parseFloat(product?.price || product?.cartonPrice || 0) || 0;
+                total += (s.qty || 0) * cartonPrice;
+            });
+            return total;
+        }
+
         function renderPurchaseVsSalesChart() {
             const canvas = document.getElementById('purchaseSalesChart');
             const toggleEl = document.getElementById('purchaseSalesRangeToggle');
             if (!canvas || !toggleEl || typeof Chart === 'undefined') return;
             const mode = toggleEl.value;
-            let labels = [], purchaseData = [], salesData = [];
+            let labels = [], purchaseData = [], salesData = [], stockData = [];
 
             if (mode === 'daily') {
                 const days = [];
@@ -2495,6 +2510,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 });
                 purchaseData = days.map(iso => Math.round(purchaseByDay[iso] || 0));
                 salesData = days.map(iso => Math.round(salesByDay[iso] || 0));
+                stockData = days.map(iso => Math.round(getStockValueAsOf(iso)));
             } else {
                 const year = new Date().getFullYear();
                 labels = getMonthlyLabelsBn();
@@ -2510,6 +2526,15 @@ body.edit-modal-open { overflow: hidden !important; }
                 });
                 purchaseData = purchaseByMonth.map(v => Math.round(v));
                 salesData = salesByMonth.map(v => Math.round(v));
+                // প্রতি মাসের শেষ দিন পর্যন্ত স্টকের মূল্য -- ভবিষ্যতের মাস
+                // এখনো আসেনি, তাই সেগুলোর জন্য কোনো তথ্য দেখানো হয় না (ফাঁকা)।
+                const todayD = new Date();
+                stockData = [];
+                for (let m = 0; m < 12; m++) {
+                    const endOfMonth = new Date(year, m + 1, 0);
+                    if (endOfMonth > todayD) { stockData.push(null); continue; }
+                    stockData.push(Math.round(getStockValueAsOf(toLocalISODate(endOfMonth))));
+                }
             }
 
             if (purchaseSalesChartInstance) purchaseSalesChartInstance.destroy();
@@ -2519,7 +2544,8 @@ body.edit-modal-open { overflow: hidden !important; }
                     labels: labels,
                     datasets: [
                         { label: 'ক্রয় (স্টক)', data: purchaseData, borderColor: '#e67e22', backgroundColor: mode === 'daily' ? 'rgba(230,126,34,0.15)' : '#e67e22', tension: 0.3, fill: mode === 'daily' },
-                        { label: 'বিক্রয়', data: salesData, borderColor: '#2e7d32', backgroundColor: mode === 'daily' ? 'rgba(46,125,50,0.15)' : '#2e7d32', tension: 0.3, fill: mode === 'daily' }
+                        { label: 'বিক্রয়', data: salesData, borderColor: '#2e7d32', backgroundColor: mode === 'daily' ? 'rgba(46,125,50,0.15)' : '#2e7d32', tension: 0.3, fill: mode === 'daily' },
+                        { label: 'স্টক (মজুদ মূল্য)', data: stockData, borderColor: '#4a6c82', backgroundColor: mode === 'daily' ? 'rgba(74,108,130,0.15)' : '#4a6c82', tension: 0.3, fill: mode === 'daily' }
                     ]
                 },
                 options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
@@ -4097,7 +4123,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     <td colspan="2" style="text-align: right; font-weight: bold;">সর্বমোট =</td>
                     <td style="font-weight: bold;">${totalQtyText}</td>
                     <td style="font-weight: bold;">${toBanglaNumber(Math.round(totalPriceColumnSum).toLocaleString('en-US'))}</td>
-                    <td><b>${toBanglaNumber(Math.round(grandTotal).toLocaleString('en-US'))} /-</b></td>
+                    <td><b>${toBanglaNumber(Math.round(Number(inv.totalAmount || 0)).toLocaleString('en-US'))} /-</b></td>
                 </tr>`;
 
             // পূর্বের বাকি ও সর্বমোট বাকি
@@ -4120,7 +4146,11 @@ body.edit-modal-open { overflow: hidden !important; }
                     // মাঝের লেনদেনটার আগে সর্বমোট বাকি কত ছিল, সেটাই বোঝায়)।
                     const allTxnRows = getRetailerAllLedgerTransactions(retObj)
                         .filter(r => !(r.transactionType === 'invoice' && r.id === inv.id));
-                    allTxnRows.sort((a, b) => (parseBanglaOrISODate(b.date) || 0) - (parseBanglaOrISODate(a.date) || 0));
+                    allTxnRows.sort((a, b) => {
+                        const dateDiff = (parseBanglaOrISODate(b.date) || 0) - (parseBanglaOrISODate(a.date) || 0);
+                        if (dateDiff !== 0) return dateDiff;
+                        return getTransactionSortKey(b) - getTransactionSortKey(a);
+                    });
                     const prevTxn = allTxnRows.length > 0 ? allTxnRows[0] : null;
                     const prevPrevTxn = allTxnRows.length > 1 ? allTxnRows[1] : null;
                     const getRowAmount = (r) => {
@@ -4207,9 +4237,9 @@ body.edit-modal-open { overflow: hidden !important; }
                         <thead>
                             <tr>
                                 <th style="width: 50px;">ক্রমিক নং</th>
-                                <th class="text-left">পণ্যের নাম</th>
-                                <th style="width: 80px;">পরিমাণ</th>
-                                <th style="width: 100px;">মূল্য/প্যাকেট/কার্টুন</th>
+                                <th class="text-left" style="width: 200px;">পণ্যের নাম</th>
+                                <th style="width: 105px;">পরিমাণ</th>
+                                <th style="width: 140px;">মূল্য/পিস/কার্টুন</th>
                                 <th style="width: 110px;">মোট টাকা</th>
                             </tr>
                         </thead>
@@ -4217,7 +4247,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     </table>
 
                     <div style="font-size: 11px; margin-top: 6px;">
-                        <b>টাকা কথায় :</b> ${escapeHtml(numberToWords(Math.round(grandTotal)))}
+                        <b>টাকা কথায় :</b> ${escapeHtml(numberToWords(Math.round(Number(inv.totalAmount || 0))))}
                     </div>
 
                     ${dueHTML}
@@ -7446,6 +7476,25 @@ function renderStockMultiProductList() {
             document.body.removeChild(link);
         }
 
+        // একই তারিখে একাধিক লেনদেন (যেমন একই দিনে একটা ইনভয়েস আর একটা
+        // কালেকশন) হলে, শুধু তারিখ দিয়ে তাদের মধ্যে ক্রম ঠিক করা যায় না
+        // (কোনটা আগে, কোনটা পরে হয়েছিল বোঝা যায় না)। এই ফাংশনটা প্রতিটা
+        // লেনদেনের প্রকৃত তৈরির সময় (millisecond timestamp) বের করে দেয়,
+        // যাতে একই দিনের লেনদেনগুলোও সঠিক ক্রমে (কোনটা আগে ঘটেছিল) সাজানো
+        // যায়। ইনভয়েসের আইডিতে টাইমস্ট্যাম্প লুকানো থাকে (INV_<millis>),
+        // আর নতুন কালেকশনে createdAt ফিল্ড সরাসরি আছে। পুরনো (মাইগ্রেশনের
+        // আগের) কালেকশনে এই তথ্য নেই বলে সেগুলোকে "সবচেয়ে পুরনো" ধরা হয়।
+        function getTransactionSortKey(row) {
+            if (row.transactionType === 'invoice') {
+                return getInvoiceCreationOrder({ id: row.id });
+            }
+            if (row.transactionType === 'collection_v2') {
+                const c = (retailerCollectionsLive || []).find(x => x.id === row.id);
+                return (c && c.createdAt) ? c.createdAt : 0;
+            }
+            return 0;
+        }
+
         function getRetailerAllLedgerTransactions(ret) {
             const rows = [];
             if (ret && ret.openingDue && Number(ret.openingDue.amount || 0) > 0) {
@@ -7829,7 +7878,11 @@ function renderStockMultiProductList() {
                 const d=parseBanglaOrISODate(r.date);
                 return !!d;
             });
-            all.sort((a,b)=>(parseBanglaOrISODate(a.date)||0)-(parseBanglaOrISODate(b.date)||0));
+            all.sort((a,b)=>{
+                const dateDiff = (parseBanglaOrISODate(a.date)||0)-(parseBanglaOrISODate(b.date)||0);
+                if (dateDiff !== 0) return dateDiff;
+                return getTransactionSortKey(a) - getTransactionSortKey(b);
+            });
 
             const openingBase=getRetailerOpeningBase(ret);
             let openingBalance=openingBase;
