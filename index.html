@@ -1844,28 +1844,7 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         async function restoreEmbeddedInvoicesIfNeeded() {
-            if (embeddedInvoiceRestoreStarted) return;
-            if (!Array.isArray(EMBEDDED_BACKUP.invoices) || EMBEDDED_BACKUP.invoices.length === 0) return;
-            if (invoices.length > 0) return;
-
-            embeddedInvoiceRestoreStarted = true;
-            const CHUNK_SIZE = 450;
-            try {
-                for (let i = 0; i < EMBEDDED_BACKUP.invoices.length; i += CHUNK_SIZE) {
-                    const chunk = EMBEDDED_BACKUP.invoices.slice(i, i + CHUNK_SIZE);
-                    const batch = db.batch();
-                    chunk.forEach(inv => {
-                        if (inv && inv.id) {
-                            batch.set(db.collection("sales_invoices").doc(inv.id), inv);
-                        }
-                    });
-                    await batch.commit();
-                }
-                console.log('Embedded invoice backup restored to Firebase successfully.');
-            } catch (e) {
-                embeddedInvoiceRestoreStarted = false;
-                console.error('Embedded invoice backup restore error:', e);
-            }
+            return false;
         }
 
         const defaultProducts = [
@@ -2051,30 +2030,37 @@ body.edit-modal-open { overflow: hidden !important; }
                         const data = doc.data();
                         lastServerCoreHash = getCoreDataHash(data);
                         serverDataWasLoaded = true;
-                        // An explicitly saved empty array is valid. Defaults are used only
-                        // when the field has never existed in the database.
-                        routes = Array.isArray(data.routes) ? data.routes : defaultRoutes;
-                        routeCodes = (data.routeCodes && typeof data.routeCodes === 'object') ? data.routeCodes : {};
-                        retailers = Array.isArray(data.retailers) ? data.retailers : defaultRetailers;
-                        stocks = data.stocks || [];
-                        stockLogs = Array.isArray(data.stockLogs) ? data.stockLogs : [];
-                        products = Array.isArray(data.products) ? data.products : defaultProducts;
+                        // DATA-SAFETY: বিদ্যমান appData-তে core field অনুপস্থিত/ভুল type হলে
+                        // কখনোই default/empty data দিয়ে লোকাল state পূরণ করা যাবে না।
+                        // তা করলে পরের Save-এ আসল ডাটা overwrite হয়ে যেতে পারে।
+                        const requiredCoreFields = ['routes','routeCodes','products','stocks','stockLogs','retailers'];
+                        const invalidCoreFields = requiredCoreFields.filter(k => {
+                            if (!(k in data)) return true;
+                            if (k === 'routeCodes') return !data.routeCodes || typeof data.routeCodes !== 'object' || Array.isArray(data.routeCodes);
+                            return !Array.isArray(data[k]);
+                        });
+                        if (invalidCoreFields.length) {
+                            initialDataLoaded = false;
+                            serverDataWasLoaded = false;
+                            lastServerCoreHash = null;
+                            isConnectedToDB = false;
+                            badge.classList.add('offline');
+                            text.innerText = 'ডাটা যাচাই প্রয়োজন';
+                            alert('⚠️ Firebase-এর মূল ডাটার কিছু অংশ অনুপস্থিত/ভুল অবস্থায় আছে (' + invalidCoreFields.join(', ') + ')। নিরাপত্তার জন্য কোনো Save করা হবে না। পুরোনো/Embedded Backup নিজে থেকে Restore করা হবে না।');
+                            return;
+                        }
+                        routes = data.routes;
+                        routeCodes = data.routeCodes;
+                        retailers = data.retailers;
+                        stocks = data.stocks;
+                        stockLogs = data.stockLogs;
+                        products = data.products;
                         // আসল ডেটা সফলভাবে লোড হয়ে গেছে — এখন থেকে সেভ/সিঙ্ক
                         // করা নিরাপদ, কারণ লোকাল মেমোরি আর ফায়ারবেজের ডেটা
                         // একই অবস্থায় আছে।
                         initialDataLoaded = true;
-                        // ডিলিট/খালি হয়ে যাওয়া মূল ডেটা থাকলে ব্যবহারকারীর 2026-09-19 JSON ব্যাকআপ থেকে ফিরিয়ে দাও।
-                        restoreEmbeddedBackupIfNeeded(data).then(() => {
-                            // restoreEmbeddedBackupIfNeeded নিজেই sync করে; সফল হলে UI আবারও রিফ্রেশ করি।
-                            renderRoutes();
-                            renderProducts();
-                            renderStocks();
-                            renderRetailerDropdowns();
-                            filterRetailersByRoute();
-                            renderRetailerReport();
-                            renderCustomerDueReport();
-                            updateDashboardStats();
-                        });
+                        // DATA-SAFETY: কোনো Embedded Backup স্বয়ংক্রিয়ভাবে Restore করা হবে না।
+                        // Firebase-এর বর্তমান data-ই একমাত্র source of truth।
                         const productPricingChanged = normalizeProductPiecePrices();
 
                         // এক-বারের মাইগ্রেশন: আগে তৈরি হওয়া রিটেইলারদের আইডি
@@ -2130,7 +2116,7 @@ body.edit-modal-open { overflow: hidden !important; }
                             });
                             migrationChain.then(() => {
                                 return db.collection("sales_system").doc("appData")
-                                    .update({ invoices: firebase.firestore.FieldValue.delete() });
+                                    .update({ invoices: firebase.firestore.FieldValue.serverTimestamp() });
                             }).catch(err => console.error("Invoice migration error:", err));
                         }
                     } else {
@@ -2266,22 +2252,52 @@ body.edit-modal-open { overflow: hidden !important; }
             return true;
         }
 
+        // ===== FIRESTORE NO-DELETE SAFETY =====
+        // এই অ্যাপ কোনো বিদ্যমান Firestore রেকর্ড স্থায়ীভাবে ডিলিট করবে না।
+        function blockPermanentDelete(label = 'এই ডাটা') {
+            alert(`🔒 ডাটা সুরক্ষার জন্য ${label} ডিলিট বন্ধ রাখা হয়েছে।\n\nএই অ্যাপ কোনো বিদ্যমান রেকর্ড Firestore থেকে মুছবে না।`);
+            return false;
+        }
+        function identityOfRecord(x, kind) {
+            if (kind === 'product') return String(x?.code || x?.name || '').trim();
+            if (kind === 'retailer') return String(x?.id || x?.code || ((x?.trader || '') + '|' + (x?.mobile || ''))).trim();
+            if (kind === 'stock') return String(x?.productName || '').trim();
+            if (kind === 'stockLog') return String(x?.id || x?.logId || ((x?.createdAt || '') + '|' + (x?.productName || '') + '|' + (x?.type || ''))).trim();
+            return String(x || '').trim();
+        }
+        function arrayHasDeletion(serverArr, localArr, kind) {
+            const serverSet = new Set((Array.isArray(serverArr) ? serverArr : []).map(x => identityOfRecord(x, kind)).filter(Boolean));
+            const localSet = new Set((Array.isArray(localArr) ? localArr : []).map(x => identityOfRecord(x, kind)).filter(Boolean));
+            for (const id of serverSet) if (!localSet.has(id)) return true;
+            return false;
+        }
+        function checkNoCoreDeletion(serverData, payload) {
+            const s = serverData || {}, p = payload || {};
+            return !arrayHasDeletion(s.routes,p.routes,'route') && !arrayHasDeletion(s.products,p.products,'product') && !arrayHasDeletion(s.retailers,p.retailers,'retailer') && !arrayHasDeletion(s.stocks,p.stocks,'stock') && !arrayHasDeletion(s.stockLogs,p.stockLogs,'stockLog');
+        }
+
         function syncToFirebase() {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
             if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি। ডাটা হারানোর ঝুঁকি এড়াতে Save বন্ধ রাখা হয়েছে। পেজটি রিফ্রেশ করে আবার চেষ্টা করুন।'); return Promise.resolve(false); }
             updateDashboardStats();
             const ref = db.collection('sales_system').doc('appData');
             const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            if (!Array.isArray(routes) || !routes || !Array.isArray(products) || !Array.isArray(stocks) || !Array.isArray(stockLogs) || !Array.isArray(retailers) || !routeCodes || typeof routeCodes !== 'object' || Array.isArray(routeCodes)) {
+                alert('⚠️ নিরাপত্তার কারণে Save বন্ধ করা হয়েছে: মূল ডাটার structure সঠিক নেই।');
+                return Promise.resolve(false);
+            }
             const expectedHash = lastServerCoreHash;
             return db.runTransaction(async transaction => {
                 const snap = await transaction.get(ref);
                 if (!snap.exists) throw new Error('__APPDATA_MISSING__');
                 if (getCoreDataHash(snap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
+                if (!checkNoCoreDeletion(snap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
                 transaction.set(ref, payload, { merge: true });
             }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
             }).catch(error => {
                 console.error('Firestore safe save error:', error);
-                if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                if (error && error.message === '__DATA_DELETE_BLOCKED__') blockPermanentDelete('কোনো বিদ্যমান রেকর্ড');
+                else if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
                 else if (error && error.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData ডকুমেন্ট পাওয়া যাচ্ছে না। নিরাপত্তার জন্য কোনো নতুন/খালি ডাটা লেখা হয়নি।');
                 else { isConnectedToDB = false; badge.classList.add('offline'); text.innerText = 'সংরক্ষণে সমস্যা'; alert('তথ্য ডাটাবেজে সংরক্ষণ হয়নি। ইন্টারনেট ও Firebase অনুমতি পরীক্ষা করে আবার চেষ্টা করুন।'); }
                 return false;
@@ -2339,7 +2355,7 @@ body.edit-modal-open { overflow: hidden !important; }
         // "sales_invoices" কালেকশন থেকে নির্দিষ্ট ইনভয়েস ডিলিট করা
         function deleteInvoiceDoc(id) {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
-            return db.collection("sales_invoices").doc(id).delete()
+            return Promise.resolve(blockPermanentDelete('ইনভয়েস'))
                 .then(() => true)
                 .catch((error) => {
                     console.error("Invoice delete error:", error);
@@ -2364,6 +2380,10 @@ body.edit-modal-open { overflow: hidden !important; }
             const collectionRef = linkedCollectionEntry ? db.collection('retailer_collections').doc(linkedCollectionEntry.id) : null;
             const expectedHash = lastServerCoreHash;
             const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            if (!Array.isArray(routes) || !Array.isArray(products) || !Array.isArray(stocks) || !Array.isArray(stockLogs) || !Array.isArray(retailers) || !routeCodes || typeof routeCodes !== 'object' || Array.isArray(routeCodes)) {
+                alert('⚠️ নিরাপত্তার কারণে ইনভয়েস Save বন্ধ করা হয়েছে: মূল ডাটার structure সঠিক নেই।');
+                return Promise.resolve(false);
+            }
             return db.runTransaction(async transaction => {
                 const appSnap = await transaction.get(appDataRef);
                 if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
@@ -2395,8 +2415,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const appSnap = await transaction.get(appDataRef);
                 if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
                 if (getCoreDataHash(appSnap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
-                transaction.delete(invoiceRef);
-                if (collectionRef) transaction.delete(collectionRef);
+                throw new Error('__DATA_DELETE_BLOCKED__');
                 transaction.set(appDataRef, payload, { merge: true });
             }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
             }).catch(error => {
@@ -4463,6 +4482,7 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         async function deleteInvoice(id) {
+            return blockPermanentDelete('ইনভয়েস');
             if (!checkConnectionOrAlert()) return;
             if(confirm("এই ইনভয়েসটি ডিলিট করতে চান?")) {
                 let inv = invoices.find(i => i.id === id);
@@ -4615,6 +4635,7 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         async function deleteProduct(index) {
+            return blockPermanentDelete('পণ্য');
             if (!checkConnectionOrAlert()) return;
             const product = products[index];
             if (!product) return;
@@ -4759,10 +4780,11 @@ body.edit-modal-open { overflow: hidden !important; }
         // পুরোনো/টেস্ট অনলাইন অর্ডার এন্ট্রি একদম মুছে ফেলা (এটা শুধু
         // ইতিহাস থেকে মুছবে, ইনভয়েস/স্টক/বাকির হিসাবে কোনো প্রভাব ফেলবে না)
         async function deleteOnlineOrderEntry(orderId) {
+            return blockPermanentDelete('অনলাইন অর্ডার');
             if (!checkConnectionOrAlert()) return;
             if (!confirm('এই অর্ডার এন্ট্রিটা স্থায়ীভাবে মুছে ফেলতে চান? এটা শুধু ইতিহাস থেকে মুছবে।')) return;
             try {
-                await db.collection('online_orders').doc(orderId).delete();
+                return blockPermanentDelete('অনলাইন অর্ডার');
             } catch (e) {
                 alert('মুছতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');
             }
@@ -4892,10 +4914,11 @@ body.edit-modal-open { overflow: hidden !important; }
         // রিকোয়েস্টের ইতিহাস মুছবে; আগে অ্যাপ্রুভ করা থাকলে রিটেইলারের
         // বাকি/কালেকশনের হিসাবে কোনো প্রভাব ফেলবে না — সেটা আলাদাভাবেই থেকে যাবে)
         async function deleteOnlineCollectionEntry(reqId) {
+            return blockPermanentDelete('অনলাইন কালেকশন রিকোয়েস্ট');
             if (!checkConnectionOrAlert()) return;
             if (!confirm('এই কালেকশন রিকোয়েস্ট এন্ট্রিটা স্থায়ীভাবে মুছে ফেলতে চান? এটা শুধু ইতিহাস থেকে মুছবে, আগে অ্যাপ্রুভ হওয়া কালেকশনের হিসাব বদলাবে না।')) return;
             try {
-                await db.collection('online_collections').doc(reqId).delete();
+                return blockPermanentDelete('অনলাইন কালেকশন রিকোয়েস্ট');
             } catch (e) {
                 alert('মুছতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');
             }
@@ -5316,6 +5339,7 @@ function renderStockMultiProductList() {
         }
 
         async function deleteStock(index) {
+            return blockPermanentDelete('স্টক');
             if (!checkConnectionOrAlert()) return;
             if(confirm("স্টক এন্ট্রি মুছে ফেলতে চান?")) {
                 stocks.splice(index, 1);
@@ -5400,6 +5424,7 @@ function renderStockMultiProductList() {
         }
 
         function deleteRoute(index) {
+            return blockPermanentDelete('রুট');
             if (!checkConnectionOrAlert()) return;
             const route = routes[index];
             const linked = retailers.filter(r => r.route === route).length;
@@ -5669,6 +5694,7 @@ function renderStockMultiProductList() {
         }
 
         async function deleteRetailer(index) {
+            return blockPermanentDelete('রিটেইলার');
             if (!checkConnectionOrAlert()) return;
             const ret = retailers[index];
             if (!ret) return;
@@ -5768,6 +5794,7 @@ function renderStockMultiProductList() {
         }
 
         function deleteRetailerByTrader(trader) {
+            return blockPermanentDelete('রিটেইলার');
             if (!checkConnectionOrAlert()) return;
             const ret = retailers.find(r => r.trader === trader);
             if (!ret) return;
@@ -6198,6 +6225,7 @@ function renderStockMultiProductList() {
         }
 
         async function deleteOrphanInvoice(id) {
+            return blockPermanentDelete('ইনভয়েস');
             if (!confirm('এই এতিম ইনভয়েসটি স্থায়ীভাবে মুছে ফেলতে চান?')) return;
             if (!checkConnectionOrAlert()) return;
             if (!(await deleteInvoiceDoc(id))) return;
@@ -6207,6 +6235,7 @@ function renderStockMultiProductList() {
         }
 
         async function deleteAllOrphanInvoices() {
+            return blockPermanentDelete('ইনভয়েস');
             const orphans = findOrphanInvoices();
             if (orphans.length === 0) return;
             if (!confirm(`${orphans.length}টি এতিম ইনভয়েসই স্থায়ীভাবে মুছে ফেলতে চান? এটা ফিরিয়ে আনা যাবে না।`)) return;
@@ -6320,6 +6349,7 @@ function renderStockMultiProductList() {
         }
 
         async function deleteOpeningDue(index) {
+            return blockPermanentDelete('আগের বাকি');
             if (!checkConnectionOrAlert()) return;
             const ret = retailers[index];
             if (!ret) return;
@@ -6952,70 +6982,10 @@ function renderStockMultiProductList() {
         // ডাটা (routes/products/stocks/retailers/invoices) মুছে ব্যাকআপের
         // ডাটা দিয়ে প্রতিস্থাপন করে, তাই দুইবার নিশ্চিত হওয়া হয়।
         async function restoreFromBackupJSON(file) {
-            if (!file) return;
-            if (!checkConnectionOrAlert()) return;
-            if (!confirm('⚠️ এই ব্যাকআপ ফাইল থেকে রিস্টোর করলে আপনার বর্তমান সব ডাটা (রুট, প্রোডাক্ট, স্টক, রিটেইলার, ইনভয়েস) মুছে ব্যাকআপের ডাটা দিয়ে প্রতিস্থাপন হয়ে যাবে। এটা ফিরিয়ে আনা যাবে না। আপনি কি নিশ্চিত?')) {
-                document.getElementById('restoreBackupInput').value = '';
-                return;
-            }
-            if (!confirm('একদম শেষবারের মতো নিশ্চিত হচ্ছি — সত্যিই বর্তমান সব ডাটা মুছে ব্যাকআপ থেকে রিস্টোর করতে চান?')) {
-                document.getElementById('restoreBackupInput').value = '';
-                return;
-            }
-            try {
-                const text = await file.text();
-                const data = JSON.parse(text);
-                if (!data || typeof data !== 'object') throw new Error('ফাইলটা সঠিক ব্যাকআপ ফরম্যাটে নেই।');
-
-                routes = Array.isArray(data.routes) ? data.routes : [];
-                products = Array.isArray(data.products) ? data.products : [];
-                stocks = Array.isArray(data.stocks) ? data.stocks : [];
-                retailers = Array.isArray(data.retailers) ? data.retailers : [];
-                const backupInvoices = Array.isArray(data.invoices) ? data.invoices : [];
-
-                if (!(await syncToFirebase())) { alert('মূল ডাটা (রুট/প্রোডাক্ট/স্টক/রিটেইলার) সিঙ্ক করতে সমস্যা হয়েছে।'); return; }
-
-                // পুরোনো সব ইনভয়েস মুছে ব্যাকআপের ইনভয়েসগুলো নতুন করে লেখা হচ্ছে
-                const existingSnap = await db.collection('sales_invoices').get();
-                const deleteBatchArr = [];
-                let batch = db.batch();
-                let opCount = 0;
-                existingSnap.forEach(doc => {
-                    batch.delete(doc.ref);
-                    opCount++;
-                    if (opCount >= 400) { deleteBatchArr.push(batch); batch = db.batch(); opCount = 0; }
-                });
-                if (opCount > 0) deleteBatchArr.push(batch);
-                for (const b of deleteBatchArr) await b.commit();
-
-                let writeBatch = db.batch();
-                opCount = 0;
-                const writeBatchArr = [];
-                backupInvoices.forEach(inv => {
-                    if (inv && inv.id) {
-                        writeBatch.set(db.collection('sales_invoices').doc(inv.id), inv);
-                        opCount++;
-                        if (opCount >= 400) { writeBatchArr.push(writeBatch); writeBatch = db.batch(); opCount = 0; }
-                    }
-                });
-                if (opCount > 0) writeBatchArr.push(writeBatch);
-                for (const b of writeBatchArr) await b.commit();
-
-                document.getElementById('restoreBackupInput').value = '';
-                alert('ব্যাকআপ থেকে সফলভাবে রিস্টোর হয়েছে। পাতাটা এখন রিফ্রেশ হবে।');
-                location.reload();
-            } catch (err) {
-                console.error('Restore error:', err);
-                alert('রিস্টোর করতে সমস্যা হয়েছে: ' + (err && err.message ? err.message : err));
-                document.getElementById('restoreBackupInput').value = '';
-            }
+            if (file) document.getElementById('restoreBackupInput').value = '';
+            return blockPermanentDelete('ব্যাকআপ রিস্টোর');
         }
 
-
-        // পুরো সিস্টেমের সব ডাটা (routes, products, stocks, retailers — তাদের
-        // ভেতরের due/collections/ledger তথ্যসহ — এবং সব ইনভয়েস) একটা JSON
-        // ফাইলে ডাউনলোড করে। ফোন হারিয়ে গেলে, বা ভুলে কিছু ডিলিট হয়ে গেলে,
-        // এই ফাইলটা রেফারেন্স/রেকর্ড হিসেবে কাজে লাগবে।
         function downloadFullDataBackup() {
             if (!checkConnectionOrAlert()) return;
             const backup = {
@@ -7765,6 +7735,7 @@ function renderStockMultiProductList() {
         }
 
         async function deleteLedgerTransaction(type, id) {
+            return blockPermanentDelete('লেজার/লেনদেন');
             if (!checkConnectionOrAlert()) return;
             const confirmMsg = type === 'openingDue'
                 ? 'এই শুরুর বাকি ডিলিট করলে রিটেইলারের আগের বাকি হিসাব থেকে সম্পূর্ণ বাদ যাবে। ডিলিট করবেন?'
@@ -7796,7 +7767,7 @@ function renderStockMultiProductList() {
                     if (getRetailerCollectionsV2(r).some(x => x.id === id)) { ret = r; break; }
                 }
                 try {
-                    await db.collection('retailer_collections').doc(id).delete();
+                    return blockPermanentDelete('কালেকশন');
                 } catch (e) {
                     alert('মুছতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');
                     return;
@@ -8389,6 +8360,13 @@ function renderStockMultiProductList() {
         rejectOnlineCollection = guardAgainstDoubleSubmit(rejectOnlineCollection, 'rejectOnlineCollection');
         restoreFromBackupJSON = guardAgainstDoubleSubmit(restoreFromBackupJSON, 'restoreFromBackupJSON');
         saveCreditLimit = guardAgainstDoubleSubmit(saveCreditLimit, 'saveCreditLimit');
+        // যেসব Edit/Delete action-এর ভেতরে সরাসরি Firestore write আছে,
+        // সেগুলোকেও একই loading + double-submit protection-এর আওতায় আনা হলো।
+        deleteOnlineOrderEntry = guardAgainstDoubleSubmit(deleteOnlineOrderEntry, 'deleteOnlineOrderEntry');
+        deleteOnlineCollectionEntry = guardAgainstDoubleSubmit(deleteOnlineCollectionEntry, 'deleteOnlineCollectionEntry');
+        editLedgerTransaction = guardAgainstDoubleSubmit(editLedgerTransaction, 'editLedgerTransaction');
+        deleteLedgerTransaction = guardAgainstDoubleSubmit(deleteLedgerTransaction, 'deleteLedgerTransaction');
+
 
         // syncToFirebase() সরাসরি যেখান থেকেই ডাকা হোক, সেখানেও একই Loading Overlay
         // ও double-submit protection থাকবে। ফলে কোনো নতুন Save/Edit ফাংশন পরে যোগ হলেও
