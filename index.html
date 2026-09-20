@@ -868,8 +868,35 @@ body.edit-modal-open { overflow: hidden !important; }
 .ledger-row-opening{background:#ffe1a3!important;}
 .universal-edit-modal{position:fixed!important;inset:0!important;display:flex;align-items:center;justify-content:center;z-index:99999;}
 </style>
+<style id="save-busy-overlay-style">
+#saveBusyOverlay{
+    position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:rgba(12,20,10,.48);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);
+    z-index:2147483647;opacity:0;visibility:hidden;pointer-events:none;
+    transition:opacity .18s ease,visibility .18s ease;
+    user-select:none;-webkit-user-select:none;
+}
+#saveBusyOverlay.show{opacity:1;visibility:visible;pointer-events:all;}
+#saveBusyBox{min-width:230px;max-width:calc(100vw - 40px);padding:28px 30px 25px;background:rgba(255,255,255,.98);
+    border-radius:18px;box-shadow:0 18px 55px rgba(0,0,0,.28);text-align:center;
+    font-family:'Noto Sans Bengali','Hind Siliguri','Segoe UI',Arial,sans-serif;}
+#saveBusySpinner{width:48px;height:48px;margin:0 auto 16px;border:5px solid #dfe8d8;border-top-color:#4f7d35;
+    border-radius:50%;animation:saveBusySpin .78s linear infinite;}
+#saveBusyText{font-size:21px;font-weight:800;color:#355526;line-height:1.35;}
+#saveBusySubText{margin-top:5px;font-size:13px;color:#6b7567;line-height:1.5;}
+@keyframes saveBusySpin{to{transform:rotate(360deg);}}
+@media(max-width:480px){#saveBusyBox{min-width:205px;padding:24px 22px 21px;}#saveBusySpinner{width:42px;height:42px;}#saveBusyText{font-size:19px;}}
+</style>
 </head>
 <body>
+    <!-- Firebase-এ ইনভয়েস/কালেকশন/অন্যান্য সেভ চলাকালীন ডাবল-ক্লিক ও অন্য বাটন চাপা বন্ধ রাখে -->
+    <div id="saveBusyOverlay" aria-live="polite" aria-busy="true">
+        <div id="saveBusyBox">
+            <div id="saveBusySpinner"></div>
+            <div id="saveBusyText">অপেক্ষা করুন</div>
+            <div id="saveBusySubText">তথ্য সংরক্ষণ করা হচ্ছে...</div>
+        </div>
+    </div>
 
     <!-- লগইন স্ক্রিন: Firebase Authentication দিয়ে সুরক্ষিত। লগইন না করা পর্যন্ত
          নিচের মূল অ্যাপ (#appMainWrapper) লুকানো থাকবে। -->
@@ -1808,40 +1835,12 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         async function restoreEmbeddedBackupIfNeeded(firebaseAppData) {
-            if (embeddedBackupRestoreStarted) return false;
-
-            const hasRoutes = Array.isArray(firebaseAppData?.routes) && firebaseAppData.routes.length > 0;
-            const hasProducts = Array.isArray(firebaseAppData?.products) && firebaseAppData.products.length > 0;
-            const hasStocks = Array.isArray(firebaseAppData?.stocks) && firebaseAppData.stocks.length > 0;
-            const hasRetailers = Array.isArray(firebaseAppData?.retailers) && firebaseAppData.retailers.length > 0;
-
-            // চারটি মূল ডেটার যেকোনোটি মুছে/খালি হয়ে গেলে ব্যাকআপ পুনরুদ্ধার করা হবে।
-            if (hasRoutes && hasProducts && hasStocks && hasRetailers) return false;
-
-            embeddedBackupRestoreStarted = true;
-            routes = JSON.parse(JSON.stringify(EMBEDDED_BACKUP.routes || []));
-            routeCodes = getEmbeddedBackupRouteCodes();
-            products = JSON.parse(JSON.stringify(EMBEDDED_BACKUP.products || []));
-            stocks = JSON.parse(JSON.stringify(EMBEDDED_BACKUP.stocks || []));
-            retailers = JSON.parse(JSON.stringify(EMBEDDED_BACKUP.retailers || []));
-            // ব্যাকআপে stockLogs ছিল না, তাই পুরোনো stockLogs থাকলে সেটি অক্ষত থাকবে।
-            if (!Array.isArray(stockLogs)) stockLogs = [];
-
-            initialDataLoaded = true;
-            renderRoutes();
-            renderProducts();
-            renderStocks();
-            renderRetailerDropdowns();
-            filterRetailersByRoute();
-            renderRetailerReport();
-            renderCustomerDueReport();
-            updateDashboardStats();
-
-            const saved = await syncToFirebase();
-            if (saved) {
-                console.log('Embedded backup restored to Firebase successfully.');
-            }
-            return saved;
+            // নিরাপত্তা: Firebase-এ কোনো মূল ডেটা খালি/অনুপস্থিত দেখালেই
+            // HTML-এর পুরোনো EMBEDDED_BACKUP দিয়ে বর্তমান ডেটা overwrite করা
+            // যাবে না। JSON backup restore এখন ব্যবহারকারীর ইচ্ছাকৃত action-ই।
+            // আগে এই ফাংশনটি স্বয়ংক্রিয়ভাবে routes/products/stocks/retailers
+            // প্রতিস্থাপন করে Firebase-এ save করত—এটাই ডেটা হারানোর বড় ঝুঁকি ছিল।
+            return false;
         }
 
         async function restoreEmbeddedInvoicesIfNeeded() {
@@ -2017,6 +2016,21 @@ body.edit-modal-open { overflow: hidden !important; }
         let retailerCollectionsUnsubscribe = null;
         let retailerCollectionsLive = [];
 
+        // ===== Firebase data-loss protection =====
+        let lastServerCoreHash = null;
+        let serverDataWasLoaded = false;
+        function getCoreDataForHash(source) {
+            const d = source || {};
+            return { routes: Array.isArray(d.routes) ? d.routes : [], routeCodes: (d.routeCodes && typeof d.routeCodes === 'object') ? d.routeCodes : {}, products: Array.isArray(d.products) ? d.products : [], stocks: Array.isArray(d.stocks) ? d.stocks : [], stockLogs: Array.isArray(d.stockLogs) ? d.stockLogs : [], retailers: Array.isArray(d.retailers) ? d.retailers : [] };
+        }
+        function stableObject(value) {
+            if (Array.isArray(value)) return value.map(stableObject);
+            if (value && typeof value === 'object') { const out = {}; Object.keys(value).sort().forEach(k => { out[k] = stableObject(value[k]); }); return out; }
+            return value;
+        }
+        function getCoreDataHash(source) { return JSON.stringify(stableObject(getCoreDataForHash(source))); }
+        function showExternalChangeProtection() { alert('⚠️ অন্য ডিভাইস/ব্রাউজার থেকে ডাটা পরিবর্তন হয়েছে। নিরাপত্তার জন্য এই ডিভাইসের পুরোনো ডাটা Firebase-এর ওপর লেখা হয়নি। পেজটি রিফ্রেশ করে সর্বশেষ ডাটা লোড করুন, তারপর আপনার পরিবর্তন আবার করুন।'); }
+
         function initAppData() {
             const systemDate = getCurrentBanglaDate();
             document.getElementById('currentDate').innerText = systemDate;
@@ -2035,6 +2049,8 @@ body.edit-modal-open { overflow: hidden !important; }
                     isConnectedToDB = true; // ডাটাবেজ কানেক্টেড হলে স্ট্যাটাস ট্রু হবে
                     if (doc.exists) {
                         const data = doc.data();
+                        lastServerCoreHash = getCoreDataHash(data);
+                        serverDataWasLoaded = true;
                         // An explicitly saved empty array is valid. Defaults are used only
                         // when the field has never existed in the database.
                         routes = Array.isArray(data.routes) ? data.routes : defaultRoutes;
@@ -2118,13 +2134,10 @@ body.edit-modal-open { overflow: hidden !important; }
                             }).catch(err => console.error("Invoice migration error:", err));
                         }
                     } else {
-                        products = defaultProducts;
-                        routes = defaultRoutes;
-                        stocks = [];
-                        retailers = defaultRetailers;
-                        normalizeProductPiecePrices();
-                        initialDataLoaded = true;
-                        syncToFirebase();
+                        serverDataWasLoaded = false;
+                        lastServerCoreHash = null;
+                        initialDataLoaded = false;
+                        alert('⚠️ Firebase-এর মূল appData ডকুমেন্ট পাওয়া যাচ্ছে না। নিরাপত্তার জন্য কোনো default/খালি ডাটা Firebase-এ লেখা হয়নি।');
                     }
                     badge.classList.remove("offline");
                     text.innerText = "অনলাইনে সংযুক্ত";
@@ -2255,33 +2268,22 @@ body.edit-modal-open { overflow: hidden !important; }
 
         function syncToFirebase() {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
-            // সবচেয়ে জরুরি সুরক্ষা: ফায়ারবেজ থেকে আসল ডেটা (routes/products/
-            // stocks/retailers) একবার সম্পূর্ণ লোড না হওয়া পর্যন্ত কোনো সেভ
-            // এখানে যেতে দেওয়া হবে না। নাহলে লোকাল মেমোরির অসম্পূর্ণ/খালি
-            // অবস্থা আসল ডেটার ওপর লিখে ফেলে ডেটা স্থায়ীভাবে হারিয়ে যেতে পারে।
-            if (!initialDataLoaded) {
-                alert('তথ্য এখনো সম্পূর্ণ লোড হয়নি — একটু অপেক্ষা করে (ইন্টারনেট সংযোগ চেক করে) আবার চেষ্টা করুন। এই মুহূর্তে সেভ করলে ডেটা হারিয়ে যাওয়ার ঝুঁকি আছে, তাই সেটা আটকে দেওয়া হলো। প্রয়োজনে পেজ রিলোড করুন।');
-                return Promise.resolve(false);
-            }
+            if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি। ডাটা হারানোর ঝুঁকি এড়াতে Save বন্ধ রাখা হয়েছে। পেজটি রিফ্রেশ করে আবার চেষ্টা করুন।'); return Promise.resolve(false); }
             updateDashboardStats();
-            // লক্ষ্য করুন: ইনভয়েস এখন এখানে সেভ হয় না। প্রতিটা ইনভয়েস আলাদাভাবে
-            // "sales_invoices" কালেকশনে saveInvoiceDoc()/deleteInvoiceDoc() দিয়ে
-            // সেভ/ডিলিট হয়, যাতে এই একটা ডকুমেন্ট কখনো ১MB সীমায় না ঠেকে এবং
-            // দুইজন ইউজার একসাথে কাজ করলে একজনের ইনভয়েস আরেকজনের সেভে চাপা না পড়ে।
-            return db.collection("sales_system").doc("appData").set({
-                routes: routes,
-                routeCodes: routeCodes,
-                products: products,
-                stocks: stocks,
-                stockLogs: stockLogs,
-                retailers: retailers,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true }).then(() => true).catch((error) => {
-                console.error("Firestore save error:", error);
-                isConnectedToDB = false;
-                badge.classList.add("offline");
-                text.innerText = "সংরক্ষণে সমস্যা";
-                alert("তথ্য ডাটাবেজে সংরক্ষণ হয়নি। ইন্টারনেট ও Firebase অনুমতি পরীক্ষা করে আবার চেষ্টা করুন।");
+            const ref = db.collection('sales_system').doc('appData');
+            const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            const expectedHash = lastServerCoreHash;
+            return db.runTransaction(async transaction => {
+                const snap = await transaction.get(ref);
+                if (!snap.exists) throw new Error('__APPDATA_MISSING__');
+                if (getCoreDataHash(snap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
+                transaction.set(ref, payload, { merge: true });
+            }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
+            }).catch(error => {
+                console.error('Firestore safe save error:', error);
+                if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                else if (error && error.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData ডকুমেন্ট পাওয়া যাচ্ছে না। নিরাপত্তার জন্য কোনো নতুন/খালি ডাটা লেখা হয়নি।');
+                else { isConnectedToDB = false; badge.classList.add('offline'); text.innerText = 'সংরক্ষণে সমস্যা'; alert('তথ্য ডাটাবেজে সংরক্ষণ হয়নি। ইন্টারনেট ও Firebase অনুমতি পরীক্ষা করে আবার চেষ্টা করুন।'); }
                 return false;
             });
         }
@@ -2355,69 +2357,53 @@ body.edit-modal-open { overflow: hidden !important; }
         // ব্যর্থ হবে (আংশিক অবস্থায় কখনো থাকবে না)।
         function saveInvoiceAndSyncAtomic(invoiceObj, linkedCollectionEntry) {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
-            if (!initialDataLoaded) {
-                alert('তথ্য এখনো সম্পূর্ণ লোড হয়নি — একটু অপেক্ষা করে আবার চেষ্টা করুন।');
-                return Promise.resolve(false);
-            }
+            if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি — ডাটা হারানোর ঝুঁকি এড়াতে ইনভয়েস Save বন্ধ রাখা হয়েছে।'); return Promise.resolve(false); }
             updateDashboardStats();
-            const batch = db.batch();
-            batch.set(db.collection("sales_invoices").doc(invoiceObj.id), invoiceObj);
-            batch.set(db.collection("sales_system").doc("appData"), {
-                routes: routes,
-                routeCodes: routeCodes,
-                products: products,
-                stocks: stocks,
-                stockLogs: stockLogs,
-                retailers: retailers,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-            // ক্রেডিট ইনভয়েসের সাথে সাথে জমা নেওয়া টাকা থাকলে, সেই
-            // কালেকশন এন্ট্রিটাও একই batch-এ একসাথে সেভ হয় -- ইনভয়েস আর
-            // এই জমা কখনো আলাদা-আলাদাভাবে সফল/ব্যর্থ হবে না, একসাথেই হবে।
-            if (linkedCollectionEntry) {
-                batch.set(db.collection("retailer_collections").doc(linkedCollectionEntry.id), linkedCollectionEntry);
-            }
-            return batch.commit().then(() => true).catch((error) => {
-                console.error("Atomic invoice save error:", error);
-                isConnectedToDB = false;
-                badge.classList.add("offline");
-                text.innerText = "সংরক্ষণে সমস্যা";
-                alert("ইনভয়েস ও স্টক/বাকির পরিবর্তন একসাথে সংরক্ষণ করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন — কোনো আংশিক পরিবর্তনই ডাটাবেজে যায়নি, তাই ডেটা এখনো আগের মতোই সামঞ্জস্যপূর্ণ আছে।");
+            const appDataRef = db.collection('sales_system').doc('appData');
+            const invoiceRef = db.collection('sales_invoices').doc(invoiceObj.id);
+            const collectionRef = linkedCollectionEntry ? db.collection('retailer_collections').doc(linkedCollectionEntry.id) : null;
+            const expectedHash = lastServerCoreHash;
+            const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            return db.runTransaction(async transaction => {
+                const appSnap = await transaction.get(appDataRef);
+                if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
+                if (getCoreDataHash(appSnap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
+                transaction.set(invoiceRef, invoiceObj);
+                transaction.set(appDataRef, payload, { merge: true });
+                if (collectionRef) transaction.set(collectionRef, linkedCollectionEntry);
+            }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
+            }).catch(error => {
+                console.error('Atomic invoice safe save error:', error);
+                if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                else if (error && error.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData ডকুমেন্ট পাওয়া যাচ্ছে না। ইনভয়েস Save করা হয়নি।');
+                else alert('ইনভয়েস ও স্টক/বাকির পরিবর্তন একসাথে সংরক্ষণ করা যায়নি।');
                 return false;
             });
         }
 
-        // ইনভয়েস ডিলিট + স্টক ফেরত (appData) — একই কারণে এটাও একটামাত্র
-        // batch দিয়ে একসাথে করা হয়, যাতে "ইনভয়েস ডিলিট হয়ে গেছে কিন্তু
-        // স্টক ফেরত আসেনি" এই ধরনের অসামঞ্জস্য কখনো তৈরি না হয়।
+        // ইনভয়েস ডিলিট + স্টক ফেরত
         function deleteInvoiceAndSyncAtomic(id, linkedCollectionIdToDelete) {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
-            if (!initialDataLoaded) {
-                alert('তথ্য এখনো সম্পূর্ণ লোড হয়নি — একটু অপেক্ষা করে আবার চেষ্টা করুন।');
-                return Promise.resolve(false);
-            }
+            if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি — ডাটা হারানোর ঝুঁকি এড়াতে ডিলিট বন্ধ রাখা হয়েছে।'); return Promise.resolve(false); }
             updateDashboardStats();
-            const batch = db.batch();
-            batch.delete(db.collection("sales_invoices").doc(id));
-            // ইনভয়েসের সাথে সাথে জমা নেওয়া কোনো কালেকশন এন্ট্রি থাকলে,
-            // ইনভয়েস ডিলিট করার সময় সেটাও একই batch-এ একসাথে ডিলিট করা
-            // হচ্ছে -- নাহলে সেই কালেকশন এন্ট্রিটা "ভুতুড়ে" হয়ে থেকে যেত
-            // (কোনো ইনভয়েসের সাথে সম্পর্ক না থাকা সত্ত্বেও বাকি কমিয়ে রাখত)।
-            if (linkedCollectionIdToDelete) {
-                batch.delete(db.collection("retailer_collections").doc(linkedCollectionIdToDelete));
-            }
-            batch.set(db.collection("sales_system").doc("appData"), {
-                routes: routes,
-                routeCodes: routeCodes,
-                products: products,
-                stocks: stocks,
-                stockLogs: stockLogs,
-                retailers: retailers,
-                updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-            return batch.commit().then(() => true).catch((error) => {
-                console.error("Atomic invoice delete error:", error);
-                alert("ইনভয়েস ডিলিট ও স্টক ফেরত একসাথে সংরক্ষণ করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন — কিছুই ডিলিট/পরিবর্তন হয়নি, ডেটাবেজ আগের মতোই আছে।");
+            const appDataRef = db.collection('sales_system').doc('appData');
+            const invoiceRef = db.collection('sales_invoices').doc(id);
+            const collectionRef = linkedCollectionIdToDelete ? db.collection('retailer_collections').doc(linkedCollectionIdToDelete) : null;
+            const expectedHash = lastServerCoreHash;
+            const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            return db.runTransaction(async transaction => {
+                const appSnap = await transaction.get(appDataRef);
+                if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
+                if (getCoreDataHash(appSnap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
+                transaction.delete(invoiceRef);
+                if (collectionRef) transaction.delete(collectionRef);
+                transaction.set(appDataRef, payload, { merge: true });
+            }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
+            }).catch(error => {
+                console.error('Atomic invoice safe delete error:', error);
+                if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                else if (error && error.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData ডকুমেন্ট পাওয়া যাচ্ছে না। ডিলিট করা হয়নি।');
+                else alert('ইনভয়েস/স্টক পরিবর্তন সংরক্ষণ করা যায়নি।');
                 return false;
             });
         }
@@ -2857,10 +2843,25 @@ body.edit-modal-open { overflow: hidden !important; }
             document.querySelectorAll('#universalEditFields [data-edit-field]').forEach(input => values[input.dataset.editField] = input.value.trim());
             const missing = (universalEditContext.fields || []).find(field => field.required && !values[field.name]);
             if (missing) { showUniversalEditError(`${missing.label} লিখুন।`); return; }
-            const result = context.onSave ? await context.onSave(values) : true;
-            if (result === false) return;
-            closeUniversalEditModal();
-            showSaveToast(context.successMessage || 'তথ্য সফলভাবে আপডেট হয়েছে');
+            const busyKey = 'saveUniversalEdit';
+            if (typeof __busyGuardKeys !== 'undefined' && __busyGuardKeys.has(busyKey)) return;
+            if (typeof __busyGuardKeys !== 'undefined') __busyGuardKeys.add(busyKey);
+            if (typeof __saveBusyCount !== 'undefined') {
+                __saveBusyCount++;
+                setSaveBusyOverlay(true, 'তথ্য সংরক্ষণ করা হচ্ছে...');
+            }
+            try {
+                const result = context.onSave ? await context.onSave(values) : true;
+                if (result === false) return;
+                closeUniversalEditModal();
+                showSaveToast(context.successMessage || 'তথ্য সফলভাবে আপডেট হয়েছে');
+            } finally {
+                if (typeof __busyGuardKeys !== 'undefined') __busyGuardKeys.delete(busyKey);
+                if (typeof __saveBusyCount !== 'undefined') {
+                    __saveBusyCount = Math.max(0, __saveBusyCount - 1);
+                    if (__saveBusyCount === 0) setSaveBusyOverlay(false);
+                }
+            }
         }
 
         function showSaveToast(message) {
@@ -8340,14 +8341,34 @@ function renderStockMultiProductList() {
         // হওয়া পর্যন্ত সেই একই ফাংশনের দ্বিতীয় কল সম্পূর্ণ উপেক্ষা করা হয় —
         // তাই বাটনে যতবারই চাপ পড়ুক, আসল সেভ-এর কাজ একবারের বেশি হবে না।
         const __busyGuardKeys = new Set();
+        let __saveBusyCount = 0;
+
+        function setSaveBusyOverlay(show, message = 'তথ্য সংরক্ষণ করা হচ্ছে...') {
+            const overlay = document.getElementById('saveBusyOverlay');
+            const subText = document.getElementById('saveBusySubText');
+            if (!overlay) return;
+            if (show) {
+                if (subText) subText.textContent = message;
+                overlay.classList.add('show');
+                document.body.style.cursor = 'wait';
+            } else {
+                overlay.classList.remove('show');
+                document.body.style.cursor = '';
+            }
+        }
+
         function guardAgainstDoubleSubmit(fn, key) {
             return async function (...args) {
                 if (__busyGuardKeys.has(key)) return; // আগের কল এখনো চলছে — এই কলটা উপেক্ষা করা হলো
                 __busyGuardKeys.add(key);
+                __saveBusyCount++;
+                setSaveBusyOverlay(true, 'তথ্য সংরক্ষণ করা হচ্ছে...');
                 try {
                     return await fn.apply(this, args);
                 } finally {
                     __busyGuardKeys.delete(key);
+                    __saveBusyCount = Math.max(0, __saveBusyCount - 1);
+                    if (__saveBusyCount === 0) setSaveBusyOverlay(false);
                 }
             };
         }
@@ -8367,6 +8388,13 @@ function renderStockMultiProductList() {
         // দরকার নেই। আসল সেভটা saveCollection-এর গার্ডেই সুরক্ষিত।)
         rejectOnlineCollection = guardAgainstDoubleSubmit(rejectOnlineCollection, 'rejectOnlineCollection');
         restoreFromBackupJSON = guardAgainstDoubleSubmit(restoreFromBackupJSON, 'restoreFromBackupJSON');
+        saveCreditLimit = guardAgainstDoubleSubmit(saveCreditLimit, 'saveCreditLimit');
+
+        // syncToFirebase() সরাসরি যেখান থেকেই ডাকা হোক, সেখানেও একই Loading Overlay
+        // ও double-submit protection থাকবে। ফলে কোনো নতুন Save/Edit ফাংশন পরে যোগ হলেও
+        // যদি সেটি syncToFirebase() ব্যবহার করে, স্বয়ংক্রিয়ভাবে 'অপেক্ষা করুন' দেখাবে।
+        const __originalSyncToFirebase = syncToFirebase;
+        syncToFirebase = guardAgainstDoubleSubmit(__originalSyncToFirebase, 'syncToFirebase');
 
 </script>
 
