@@ -860,6 +860,15 @@ body.edit-modal-open { overflow: hidden !important; }
     .popup-btn { width:100%; }
     .save-toast { left:12px; right:12px; bottom:12px; max-width:none; }
   }
+
+/* Colorful dashboard cards + Recent Activity */
+.stats-grid .stat-card:nth-child(1){background:linear-gradient(135deg,#fff,#eef7ff);border-color:#cfe3f7}.stats-grid .stat-card:nth-child(1) .stat-icon{background:linear-gradient(135deg,#2f80ed,#56ccf2);color:#fff}.stats-grid .stat-card:nth-child(1) .stat-value{color:#1769aa}
+.stats-grid .stat-card:nth-child(2){background:linear-gradient(135deg,#fff,#f4efff);border-color:#ded2f5}.stats-grid .stat-card:nth-child(2) .stat-icon{background:linear-gradient(135deg,#7b61ff,#9b8cff);color:#fff}.stats-grid .stat-card:nth-child(2) .stat-value{color:#5a43c7}
+.stats-grid .stat-card:nth-child(3){background:linear-gradient(135deg,#fff,#edfbf4);border-color:#cbead9}.stats-grid .stat-card:nth-child(3) .stat-icon{background:linear-gradient(135deg,#19a463,#55c98a);color:#fff}.stats-grid .stat-card:nth-child(3) .stat-value{color:#087a48}
+.stats-grid .stat-card:nth-child(4){background:linear-gradient(135deg,#fff,#fff5e8);border-color:#f2dfbd}.stats-grid .stat-card:nth-child(4) .stat-icon{background:linear-gradient(135deg,#f2994a,#f2c94c);color:#fff}.stats-grid .stat-card:nth-child(4) .stat-value{color:#b86a0a}
+.stat-card{transition:transform .2s ease,box-shadow .2s ease}.stat-card:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(20,52,42,.11)}
+.recent-activity-btn{border:1px solid #cfe1f5!important;background:linear-gradient(135deg,#f4f9ff,#eaf3ff)!important;color:#245f9e!important}
+.activity-list{display:flex;flex-direction:column;gap:10px;max-height:58vh;overflow:auto}.activity-item{display:flex;gap:12px;padding:13px 14px;border:1px solid #e4ebe7;border-radius:12px;background:#fff}.activity-icon{width:38px;height:38px;flex:0 0 38px;display:grid;place-items:center;border-radius:11px;font-size:18px}.activity-item.invoice .activity-icon{background:#e8f2ff}.activity-item.collection .activity-icon{background:#e9f8ef}.activity-item.stock .activity-icon{background:#f1ecff}.activity-item.retailer .activity-icon{background:#fff2df}.activity-title{font-weight:700;color:#24352d;font-size:14px}.activity-meta{margin-top:3px;color:#7b8781;font-size:12px}.activity-empty{padding:30px;text-align:center;color:#7b8781;border:1px dashed #cfdad4;border-radius:12px}
 </style>
 <style id="v8-ledger-colors">
 .ledger-row-credit{background:#ffcccc!important;}
@@ -1062,7 +1071,7 @@ body.edit-modal-open { overflow: hidden !important; }
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
                 <button class="btn-submit" style="width:auto;" onclick="renderStockLogReport()">রিপোর্ট দেখুন</button>
-                <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadStockLogReportCSV()">CSV ডাউনলোড করুন</button>
+                <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadStockLogReportCSV()">Excel ডাউনলোড করুন</button>
             </div>
             <div id="stockLogReportResult" style="margin-top:15px;"></div>
         </div>
@@ -1082,7 +1091,7 @@ body.edit-modal-open { overflow: hidden !important; }
             </div>
             <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px;">
                 <button class="btn-submit" style="width:auto;" onclick="renderCollectionReport()">রিপোর্ট দেখুন</button>
-                <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadCollectionReportCSV()">CSV ডাউনলোড করুন</button>
+                <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadCollectionReportCSV()">Excel ডাউনলোড করুন</button>
             </div>
             <div id="collectionReportResult" style="margin-top:15px;"></div>
         </div>
@@ -1140,7 +1149,7 @@ body.edit-modal-open { overflow: hidden !important; }
             <button class="quick-btn" onclick="openRetailerModal()">＋ রিটেইলার</button>
             <button class="quick-btn" onclick="openCustomerDueReportModal()">▤ বাকি রিপোর্ট</button>
             <button class="quick-btn" onclick="openCustomerLedgerModal()">≡ কাস্টমার লেজার</button>
-            <button class="quick-btn" onclick="openSalesAnalysisModal()">📊 বিক্রয় বিশ্লেষণ</button>
+            <button class="quick-btn" onclick="openSalesAnalysisModal()">📊 বিক্রয় বিশ্লেষণ</button><button class="quick-btn recent-activity-btn" onclick="openRecentActivityModal()">🕘 সাম্প্রতিক কার্যক্রম</button>
         </div>
 
         <div class="sales-card">
@@ -1175,6 +1184,7 @@ body.edit-modal-open { overflow: hidden !important; }
         </div>
     </div>
 
+    <div class="modal-overlay" id="recentActivityModal"><div class="modal-box" style="width:760px;max-width:96vw;"><div class="modal-header"><div><h3>🕘 সাম্প্রতিক কার্যক্রম</h3><div id="recentActivityDate" style="font-size:12px;color:#7b8781;margin-top:3px;"></div></div><span class="close-btn" onclick="closeModal('recentActivityModal')">&times;</span></div><div id="recentActivityList" class="activity-list"></div></div></div>
     <!-- নতুন ইনভয়েস / সেলস ম্যানেজার পপ-আপ -->
     <div class="modal-overlay" id="salesModal">
         <div class="modal-box" style="width: 1400px; max-width: 96vw;">
@@ -1253,10 +1263,6 @@ body.edit-modal-open { overflow: hidden !important; }
                     <div class="form-group">
                         <label>ক্যাশ জমা (Cash Deposit) : <span style="color:#c0392b;">*</span></label>
                         <input type="number" id="salesCashDeposit" placeholder="ক্যাশ ইনভয়েসে বাধ্যতামূলক">
-                    </div>
-                    <div class="form-group" id="salesCreditDepositGroup" style="display:none;">
-                        <label>এখনই কত টাকা জমা দিলো (ঐচ্ছিক) :</label>
-                        <input type="number" id="salesCreditDeposit" placeholder="যেমন: মাল দেওয়ার সাথে সাথেই কিছু টাকা দিলে">
                     </div>
                     <div class="form-group">
                         <label>বাকি নিতে পারবে (Available For Purchase) :</label>
@@ -1973,6 +1979,7 @@ body.edit-modal-open { overflow: hidden !important; }
         // ===== Firebase data-loss protection =====
         let lastServerCoreHash = null;
         let serverDataWasLoaded = false;
+        let appDataMissingOnServer = false;
         function getCoreDataForHash(source) {
             const d = source || {};
             return { routes: Array.isArray(d.routes) ? d.routes : [], routeCodes: (d.routeCodes && typeof d.routeCodes === 'object') ? d.routeCodes : {}, products: Array.isArray(d.products) ? d.products : [], stocks: Array.isArray(d.stocks) ? d.stocks : [], stockLogs: Array.isArray(d.stockLogs) ? d.stockLogs : [], retailers: Array.isArray(d.retailers) ? d.retailers : [] };
@@ -2002,6 +2009,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 .onSnapshot((doc) => {
                     isConnectedToDB = true; // ডাটাবেজ কানেক্টেড হলে স্ট্যাটাস ট্রু হবে
                     if (doc.exists) {
+                        appDataMissingOnServer = false;
                         const data = doc.data();
                         lastServerCoreHash = getCoreDataHash(data);
                         serverDataWasLoaded = true;
@@ -2043,39 +2051,107 @@ body.edit-modal-open { overflow: hidden !important; }
                         // existing products that were previously carton-price only.
                         if (productPricingChanged || retailerIdsAdded) syncToFirebase();
 
-                        // এক-বারের মাইগ্রেশন: পুরোনো সিস্টেমে ইনভয়েসগুলো এই একই
-                        // ডকুমেন্টের ভেতরে "invoices" নামের একটা array হিসেবে জমা
-                        // থাকত। এখন থেকে প্রতিটা ইনভয়েস "sales_invoices" নামের
-                        // আলাদা কালেকশনে নিজের ডকুমেন্টে থাকবে। যদি পুরোনো array-তে
-                        // কোনো ডাটা থেকে থাকে, সেগুলো একবার নতুন জায়গায় কপি করে
-                        // পুরোনো ফিল্ডটা মুছে দেওয়া হচ্ছে।
-                        if (Array.isArray(data.invoices) && data.invoices.length > 0) {
-                            const oldInvoices = data.invoices.filter(inv => inv && inv.id);
-                            // Firestore batch-এ একসাথে সর্বোচ্চ ৫০০টা write করা যায় --
-                            // পুরোনো invoice সংখ্যা ৫০০-র বেশি হলে আগে একটামাত্র batch দিয়ে
-                            // migration করলে পুরোটাই ব্যর্থ হয়ে যেত। তাই এখন ৪৫০টা করে
-                            // ছোট ছোট ভাগে (chunk) ভাগ করে একে একে commit করা হচ্ছে।
-                            const CHUNK_SIZE = 450;
-                            const chunks = [];
-                            for (let i = 0; i < oldInvoices.length; i += CHUNK_SIZE) {
-                                chunks.push(oldInvoices.slice(i, i + CHUNK_SIZE));
+                        // নিরাপদ Legacy Invoice Migration:
+                        // পুরোনো appData.invoices থেকে নতুন sales_invoices collection-এ
+                        // যাওয়ার সময় কোনো invoice বাদ দেওয়া, অজান্তে overwrite করা,
+                        // অথবা migration অসম্পূর্ণ অবস্থায় legacy field পরিবর্তন করা যাবে না।
+                        // তাই আগে সব record-এর বৈধ unique id যাচাই করা হয় এবং নতুন
+                        // collection-এ আগে থেকে থাকা record-এর সঙ্গে conflict আছে কি না
+                        // যাচাই করা হয়। সব যাচাই/commit সফল না হওয়া পর্যন্ত appData.invoices
+                        // field একদমই পরিবর্তন করা হয় না।
+                        async function migrateLegacyInvoicesSafely(legacyInvoices) {
+                            if (!Array.isArray(legacyInvoices) || legacyInvoices.length === 0) return;
+
+                            const seenIds = new Set();
+                            for (const inv of legacyInvoices) {
+                                if (!inv || !String(inv.id || '').trim()) {
+                                    throw new Error('__LEGACY_INVOICE_ID_MISSING__');
+                                }
+                                const id = String(inv.id).trim();
+                                if (seenIds.has(id)) throw new Error('__LEGACY_INVOICE_DUPLICATE_ID__');
+                                seenIds.add(id);
                             }
-                            let migrationChain = Promise.resolve();
-                            chunks.forEach(chunk => {
-                                migrationChain = migrationChain.then(() => {
-                                    const batch = db.batch();
-                                    chunk.forEach(inv => {
-                                        batch.set(db.collection("sales_invoices").doc(inv.id), inv);
+
+                            const CHUNK_SIZE = 400;
+                            const appDataRef = db.collection('sales_system').doc('appData');
+                            const invoiceCollection = db.collection('sales_invoices');
+
+                            for (let i = 0; i < legacyInvoices.length; i += CHUNK_SIZE) {
+                                const chunk = legacyInvoices.slice(i, i + CHUNK_SIZE);
+                                await db.runTransaction(async transaction => {
+                                    const appSnap = await transaction.get(appDataRef);
+                                    if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
+
+                                    // Migration চলাকালীন অন্য কেউ appData/core data বদলালে
+                                    // এই chunk commit হবে না।
+                                    if (getCoreDataHash(appSnap.data()) !== lastServerCoreHash) {
+                                        throw new Error('__EXTERNAL_CHANGE__');
+                                    }
+
+                                    const existingDocs = await Promise.all(
+                                        chunk.map(inv => transaction.get(invoiceCollection.doc(String(inv.id).trim())))
+                                    );
+
+                                    existingDocs.forEach((docSnap, idx) => {
+                                        if (docSnap.exists) {
+                                            const existing = docSnap.data();
+                                            // একই ID-তে আলাদা invoice থাকলে overwrite নয়—migration বন্ধ।
+                                            if (JSON.stringify(stableObject(existing)) !== JSON.stringify(stableObject(chunk[idx]))) {
+                                                throw new Error('__INVOICE_MIGRATION_CONFLICT__');
+                                            }
+                                        }
                                     });
-                                    return batch.commit();
+
+                                    chunk.forEach(inv => {
+                                        const ref = invoiceCollection.doc(String(inv.id).trim());
+                                        // একই data আগে থেকেই থাকলে harmless merge; আলাদা data হলে
+                                        // উপরের conflict check-এর কারণে এখানে পৌঁছাবে না।
+                                        transaction.set(ref, inv);
+                                    });
                                 });
+                            }
+
+                            // সব invoice সফলভাবে destination collection-এ পৌঁছেছে কি না আবার যাচাই।
+                            // কোনো invoice missing হলে legacy field কখনোই পরিবর্তন করা হবে না।
+                            for (let i = 0; i < legacyInvoices.length; i += CHUNK_SIZE) {
+                                const chunk = legacyInvoices.slice(i, i + CHUNK_SIZE);
+                                const checks = await Promise.all(
+                                    chunk.map(inv => invoiceCollection.doc(String(inv.id).trim()).get())
+                                );
+                                if (checks.some((snap, idx) => !snap.exists ||
+                                    JSON.stringify(stableObject(snap.data())) !== JSON.stringify(stableObject(chunk[idx])))) {
+                                    throw new Error('__INVOICE_MIGRATION_VERIFY_FAILED__');
+                                }
+                            }
+
+                            // শেষবার appData আবার পড়া হয়। অন্য পরিবর্তন হয়ে গেলে legacy field
+                            // সরানো হবে না। এই ধাপটি সফল হওয়ার পরেই migration সম্পূর্ণ ধরা হবে।
+                            const finalSnap = await appDataRef.get();
+                            if (!finalSnap.exists) throw new Error('__APPDATA_MISSING__');
+                            if (getCoreDataHash(finalSnap.data()) !== lastServerCoreHash) {
+                                throw new Error('__EXTERNAL_CHANGE__');
+                            }
+                            await appDataRef.update({
+                                invoices: firebase.firestore.FieldValue.serverTimestamp()
                             });
-                            migrationChain.then(() => {
-                                return db.collection("sales_system").doc("appData")
-                                    .update({ invoices: firebase.firestore.FieldValue.serverTimestamp() });
-                            }).catch(err => console.error("Invoice migration error:", err));
+                        }
+
+                        if (Array.isArray(data.invoices) && data.invoices.length > 0) {
+                            migrateLegacyInvoicesSafely(data.invoices).catch(err => {
+                                console.error('Safe invoice migration stopped:', err);
+                                if (err?.message === '__LEGACY_INVOICE_ID_MISSING__') {
+                                    alert('⚠️ পুরোনো ইনভয়েসের একটি বা একাধিক রেকর্ডে নিরাপদ ID নেই। কোনো migration/ডাটা মুছে ফেলা হয়নি।');
+                                } else if (err?.message === '__LEGACY_INVOICE_DUPLICATE_ID__') {
+                                    alert('⚠️ পুরোনো ইনভয়েসে duplicate ID পাওয়া গেছে। নিরাপত্তার জন্য migration বন্ধ রাখা হয়েছে। কোনো ডাটা মুছে ফেলা হয়নি।');
+                                } else if (err?.message === '__INVOICE_MIGRATION_CONFLICT__') {
+                                    alert('⚠️ একই Invoice ID-তে ভিন্ন ডাটা পাওয়া গেছে। নিরাপত্তার জন্য overwrite/migration বন্ধ রাখা হয়েছে।');
+                                } else if (err?.message === '__INVOICE_MIGRATION_VERIFY_FAILED__') {
+                                    alert('⚠️ Invoice migration verification ব্যর্থ হয়েছে। legacy data পরিবর্তন করা হয়নি।');
+                                }
+                            });
                         }
                     } else {
+                        appDataMissingOnServer = true;
                         serverDataWasLoaded = false;
                         lastServerCoreHash = null;
                         initialDataLoaded = false;
@@ -2335,13 +2411,15 @@ body.edit-modal-open { overflow: hidden !important; }
                 const appSnap = await transaction.get(appDataRef);
                 if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
                 if (getCoreDataHash(appSnap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
+                if (!checkNoCoreDeletion(appSnap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
                 transaction.set(invoiceRef, invoiceObj);
                 transaction.set(appDataRef, payload, { merge: true });
                 if (collectionRef) transaction.set(collectionRef, linkedCollectionEntry);
             }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
             }).catch(error => {
                 console.error('Atomic invoice safe save error:', error);
-                if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                if (error && error.message === '__DATA_DELETE_BLOCKED__') blockPermanentDelete('কোনো বিদ্যমান রেকর্ড');
+                else if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
                 else if (error && error.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData ডকুমেন্ট পাওয়া যাচ্ছে না। ইনভয়েস Save করা হয়নি।');
                 else alert('ইনভয়েস ও স্টক/বাকির পরিবর্তন একসাথে সংরক্ষণ করা যায়নি।');
                 return false;
@@ -2362,6 +2440,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const appSnap = await transaction.get(appDataRef);
                 if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
                 if (getCoreDataHash(appSnap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
+                if (!checkNoCoreDeletion(appSnap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
                 transaction.delete(invoiceRef);
                 if (collectionRef) transaction.delete(collectionRef);
                 transaction.set(appDataRef, payload, { merge: true });
@@ -2475,6 +2554,8 @@ body.edit-modal-open { overflow: hidden !important; }
         // থাকা অবস্থায় ক্যানভাসের আসল সাইজ বোঝা যায় না, তাতে চার্ট ভুল
         // মাপে/অস্পষ্ট আঁকা হতে পারে। পপ-আপ দৃশ্যমান হওয়ার পরই আঁকা হলে এই
         // সমস্যা হয় না।
+        function recentActivityDateKey(v){if(!v)return '';if(typeof v==='number'){const d=new Date(v);return isNaN(d)?'':d.toISOString().slice(0,10)}const s=String(v).trim();let m=s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);if(m)return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;m=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);return m?`${m[3]}-${String(m[2]).padStart(2,'0')}-${String(m[1]).padStart(2,'0')}`:''}
+        function openRecentActivityModal(){const modal=document.getElementById('recentActivityModal'),list=document.getElementById('recentActivityList');if(!modal||!list)return;const todayKey=new Date().toISOString().slice(0,10),a=[];(Array.isArray(invoices)?invoices:[]).forEach(x=>{if(recentActivityDateKey(x.date||x.createdAt)===todayKey)a.push({t:'invoice',i:'🧾',tm:+(x.createdAt||0),x:`Invoice ${x.invoiceNo||x.id||''} তৈরি হয়েছে`,m:x.retailer||x.customerName||'ক্রেতা'})});(Array.isArray(retailerCollectionsLive)?retailerCollectionsLive:[]).forEach(x=>{if(recentActivityDateKey(x.date)===todayKey||recentActivityDateKey(x.createdAt)===todayKey)a.push({t:'collection',i:'💵',tm:+(x.createdAt||0),x:`${x.retailerTrader||x.retailerName||'Retailer'} থেকে ৳${Number(x.amount||0).toLocaleString('en-US')} Collection`,m:x.note||'Collection'})});(Array.isArray(stockLogs)?stockLogs:[]).forEach(x=>{if(recentActivityDateKey(x.date)===todayKey||recentActivityDateKey(x.createdAt)===todayKey)a.push({t:'stock',i:'📦',tm:+(x.createdAt||0),x:`${x.productName||'Product'} Stock যোগ হয়েছে`,m:`${Number(x.qtyPieces||0).toLocaleString('en-US')} পিস`})});(Array.isArray(retailers)?retailers:[]).forEach(x=>{if(recentActivityDateKey(x.createdAt)===todayKey)a.push({t:'retailer',i:'👤',tm:+(x.createdAt||0),x:'নতুন Retailer যোগ হয়েছে',m:x.trader||x.name||'Retailer'})});a.sort((p,q)=>q.tm-p.tm);list.innerHTML=a.length?a.map(x=>`<div class="activity-item ${x.t}"><div class="activity-icon">${x.i}</div><div><div class="activity-title">${escapeHtml(x.x)}</div><div class="activity-meta">${escapeHtml(x.m||'')}</div></div></div>`).join(''):'<div class="activity-empty">আজ এখনো কোনো সাম্প্রতিক কার্যক্রম পাওয়া যায়নি।</div>';modal.style.display='flex'}
         function openSalesAnalysisModal() {
             if (!checkConnectionOrAlert()) return;
             document.getElementById('salesAnalysisModal').style.display = 'flex';
@@ -3145,11 +3226,6 @@ body.edit-modal-open { overflow: hidden !important; }
                     // হয়নি) -- এডিট করে আবার নতুন করে এটা প্রসেস হয় না, তাই
                     // ঘরটা disabled রাখা হচ্ছে, যাতে ভুলবশত দ্বিতীয়বার কালেকশন
                     // তৈরি না হয়ে যায়।
-                    const creditDepositField = document.getElementById('salesCreditDeposit');
-                    if (creditDepositField) {
-                        creditDepositField.value = inv.creditInitialDeposit || '';
-                        creditDepositField.disabled = true;
-                    }
                     document.getElementById('salesAvailable').value = inv.available || '';
                     selectedInvoiceItems = (inv.items || []).map(it => {
                         // এডিট করার সময় এই ইনভয়েসের পুরোনো পরিমাণ এখনও স্টক থেকে বাদ দেওয়া আছে,
@@ -3193,8 +3269,6 @@ body.edit-modal-open { overflow: hidden !important; }
                 document.getElementById('salesCreditLimit').value = "";
                 document.getElementById('salesDueAmount').value = "";
                 document.getElementById('salesCashDeposit').value = "";
-                const creditDepositFieldNew = document.getElementById('salesCreditDeposit');
-                if (creditDepositFieldNew) { creditDepositFieldNew.value = ""; creditDepositFieldNew.disabled = false; }
                 document.getElementById('salesAvailable').value = "";
                 selectedInvoiceItems = [];
                 renderInvoiceItemTable();
@@ -3228,7 +3302,8 @@ body.edit-modal-open { overflow: hidden !important; }
             const retData = selectedIndex !== '' ? retailers[parseInt(selectedIndex)] : null;
             const creditLimit = retData ? (parseFloat(retData.creditLimit || 0) || 0) : 0;
             const currentDue = retData ? (parseFloat(retData.currentDue || 0) || 0) : 0;
-            const available = Math.max(0, creditLimit - currentDue);
+            // Negative currentDue হলে সেটি retailer-এর advance; তাই পরবর্তী credit purchase-এর available limit বাড়বে।
+            const available = creditLimit - currentDue;
 
             document.getElementById('salesCreditLimit').value = retData ? creditLimit : "";
             document.getElementById('salesDueAmount').value = type === 'Credit' && retData ? currentDue : "";
@@ -3238,14 +3313,6 @@ body.edit-modal-open { overflow: hidden !important; }
             cash.disabled = type !== 'Cash';
             cash.style.backgroundColor = type === 'Cash' ? '' : '#eee';
             if (type !== 'Cash') cash.value = '';
-
-            // ক্রেডিট ইনভয়েসের সাথে সাথে কিছু টাকা জমা নেওয়ার (ঐচ্ছিক) ঘরটা
-            // শুধু ইনভয়েস টাইপ "Credit" হলেই দেখানো হয়।
-            const creditDepositGroup = document.getElementById('salesCreditDepositGroup');
-            if (creditDepositGroup) {
-                creditDepositGroup.style.display = type === 'Credit' ? 'block' : 'none';
-                if (type !== 'Credit') document.getElementById('salesCreditDeposit').value = '';
-            }
 
             // "তালিকায় নেই — হাতে লিখুন" চেকবক্সটা শুধু ক্যাশ ইনভয়েসে দেখানো
             // হয়। ক্যাশ থেকে সরে গেলে ওয়াক-ইন মোড স্বয়ংক্রিয়ভাবে বন্ধ করে
@@ -3803,8 +3870,6 @@ body.edit-modal-open { overflow: hidden !important; }
                 // নম্বর-সংঘর্ষের ঝুঁকিটা আগের মতোই থেকে যায়।
             }
             const cashDeposit = parseFloat(document.getElementById('salesCashDeposit').value || 0) || 0;
-            const creditDepositEl = document.getElementById('salesCreditDeposit');
-            const creditDeposit = (creditDepositEl && !creditDepositEl.disabled) ? (parseFloat(creditDepositEl.value || 0) || 0) : 0;
 
             if(selectedInvoiceItems.length === 0) { alert("কমপক্ষে একটি পণ্য যুক্ত করুন।"); return; }
 
@@ -3841,7 +3906,7 @@ body.edit-modal-open { overflow: hidden !important; }
 
             // Edit করলে পুরোনো একই Credit invoice-এর টাকা আগে বাদ দিয়ে limit হিসাব
             if (oldInvoice && oldInvoice.invoiceType === "Credit" && oldInvoice.retailer === retailer) {
-                existingDueForLimit = Math.max(0, existingDueForLimit - (parseFloat(oldInvoice.totalAmount || 0) || 0));
+                existingDueForLimit = existingDueForLimit - (parseFloat(oldInvoice.totalAmount || 0) || 0);
             }
 
             if(invoiceType === "Credit") {
@@ -3853,11 +3918,6 @@ body.edit-modal-open { overflow: hidden !important; }
                 if(existingDueForLimit + currentInvoiceTotal > maxLimit) {
                     const available = Math.max(0, maxLimit - existingDueForLimit);
                     alert(`ইনভয়েস সেভ করা সম্ভব নয়!\nক্রেডিট লিমিট: ${maxLimit} টাকা\nবর্তমান বাকি: ${existingDueForLimit} টাকা\nআর নিতে পারবে: ${available} টাকা\nনতুন ইনভয়েস: ${currentInvoiceTotal} টাকা`);
-                    return;
-                }
-                if (creditDeposit > currentInvoiceTotal) {
-                    alert(`জমার টাকা (${creditDeposit.toLocaleString('en-US')} ৳) ইনভয়েসের মোট টাকার (${currentInvoiceTotal.toLocaleString('en-US')} ৳) চেয়ে বেশি হতে পারবে না।`);
-                    document.getElementById('salesCreditDeposit').focus();
                     return;
                 }
             } else {
@@ -3875,7 +3935,6 @@ body.edit-modal-open { overflow: hidden !important; }
             // একবার তৈরি করে রাখা হচ্ছে -- এই একই আইডি নিচে ইনভয়েসের ভেতরে
             // (রেফারেন্স হিসেবে) আর কালেকশন এন্ট্রিতে (আসল ডকুমেন্ট আইডি
             // হিসেবে) দুই জায়গাতেই ব্যবহার হবে, যাতে দুটো নিশ্চিতভাবে মিলে।
-            const newDepositId = (!editId && invoiceType === 'Credit' && creditDeposit > 0) ? ('RCOL_' + Date.now() + '_dep') : null;
             const invoiceObj = {
                 id: editId ? editId : 'INV_' + Date.now(),
                 invoiceNo,
@@ -3894,7 +3953,9 @@ body.edit-modal-open { overflow: hidden !important; }
                 // ক্রেডিট ইনভয়েসের সাথে সাথে (থাকলে) যে টাকাটা তখনই জমা
                 // নেওয়া হয়েছে -- এডিট করলে আগের এন্ট্রির মানই অক্ষত থাকে,
                 // এডিট করে নতুন করে এটা বদলানো/আবার প্রসেস করা হয় না।
-                creditInitialDeposit: (!editId && invoiceType === 'Credit') ? creditDeposit : (oldInvoice?.creditInitialDeposit || 0),
+                // নতুন ক্রেডিট ইনভয়েসে আর কোনো তাৎক্ষণিক জমার ইনপুট নেই।
+                // পুরোনো ইনভয়েসের ঐতিহাসিক মান থাকলে শুধু ইতিহাস হিসেবে অক্ষত রাখা হয়।
+                creditInitialDeposit: oldInvoice?.creditInitialDeposit || 0,
                 // এই ইনভয়েসের সাথে সাথে যদি একটা কালেকশন এন্ট্রি তৈরি হয়ে
                 // থাকে, তার আইডিটাও এখানে রেখে দেওয়া হচ্ছে -- ইনভয়েসটা পরে
                 // ডিলিট করলে এই লিংক ধরেই সেই কালেকশন এন্ট্রিটাও একসাথে
@@ -3968,24 +4029,9 @@ body.edit-modal-open { overflow: hidden !important; }
             }
             recalculateRetailerDue(selectedRetailerData);
 
-            // ক্রেডিট ইনভয়েসের সাথে সাথে জমা নেওয়া টাকা থাকলে (নতুন
-            // ইনভয়েসেই শুধু, এডিটে না), সেটার জন্য একটা কালেকশন এন্ট্রি
-            // তৈরি করে ইনভয়েসের সাথেই একই batch-এ পাঠানো হচ্ছে।
-            let linkedCollectionEntry = null;
-            if (!editId && invoiceType === 'Credit' && creditDeposit > 0) {
-                linkedCollectionEntry = {
-                    id: newDepositId,
-                    retailerId: selectedRetailerData.id || '',
-                    route: route,
-                    retailerTrader: retailer,
-                    retailerName: selectedRetailerData.name || '',
-                    date: invoiceObj.date,
-                    amount: creditDeposit,
-                    note: `ইনভয়েস ${invoiceNo}-এর সাথে সাথে জমা`,
-                    createdAt: Date.now()
-                };
-            }
-            if (!(await saveInvoiceAndSyncAtomic(invoiceObj, linkedCollectionEntry))) { stocks = stocksBackupForRollback; invoices = invoicesBackupForRollback; return; }
+            // ইনভয়েসের সঙ্গে আলাদা Collection আর তৈরি করা হয় না।
+            // Retailer টাকা দিলে সেটি Collection মেনু থেকেই রেকর্ড হবে।
+            if (!(await saveInvoiceAndSyncAtomic(invoiceObj, null))) { stocks = stocksBackupForRollback; invoices = invoicesBackupForRollback; return; }
 
             // এই ইনভয়েসটা কোনো এসপিও-এর পাঠানো অনলাইন অর্ডার থেকে রূপান্তরিত
             // হলে, এখানেই সেই অর্ডারটাকে স্বয়ংক্রিয়ভাবে 'invoiced' হিসেবে
@@ -4011,7 +4057,7 @@ body.edit-modal-open { overflow: hidden !important; }
         function showInvoiceSuccessPopup(inv, wasEdited = false) {
             const ret = resolveRetailerForInvoice(inv);
             const totalDue = ret ? (parseFloat(ret.currentDue || 0) || 0) : 0;
-            const totalHtml = inv.invoiceType === 'Cash' ? '' : `<div><b>ইনভয়েজের মোট টাকা:</b> ${Number(inv.totalAmount||0).toLocaleString('en-US')} ৳</div><div><b>মোট বাকি:</b> ${totalDue.toLocaleString('en-US')} ৳</div>`;
+            const totalHtml = inv.invoiceType === 'Cash' ? '' : `<div><b>ইনভয়েজের মোট টাকা:</b> ${Number(inv.totalAmount||0).toLocaleString('en-US')} ৳</div><div><b>মোট বাকি/অ্যাডভান্স:</b> ${totalDue.toLocaleString('en-US')} ৳</div>`;
             let popup = document.getElementById('invoiceSuccessModal');
             if (!popup) {
                 popup = document.createElement('div');
@@ -4186,9 +4232,9 @@ body.edit-modal-open { overflow: hidden !important; }
             // পূর্বের বাকি ও সর্বমোট বাকি
             let dueHTML = '';
             if (retObj) {
-                const currentDueVal = Math.max(0, Number(recalculateRetailerDue(retObj) || 0));
+                const currentDueVal = Number(recalculateRetailerDue(retObj) || 0);
                 const previousDueVal = inv.invoiceType === 'Credit'
-                    ? Math.max(0, currentDueVal - (Number(inv.totalAmount || 0) || 0))
+                    ? currentDueVal - (Number(inv.totalAmount || 0) || 0)
                     : currentDueVal;
                 const depositVal = Number(inv.creditInitialDeposit || 0) || 0;
 
@@ -4218,8 +4264,8 @@ body.edit-modal-open { overflow: hidden !important; }
                     };
 
                     const tableRows = [];
-                    if (previousDueVal > 0) {
-                        tableRows.push({ date: (prevPrevTxn && prevPrevTxn.date) ? prevPrevTxn.date : '—', label: 'পূর্বের বাকি', amount: previousDueVal });
+                    if (previousDueVal !== 0) {
+                        tableRows.push({ date: (prevPrevTxn && prevPrevTxn.date) ? prevPrevTxn.date : '—', label: previousDueVal < 0 ? 'পূর্বের অগ্রিম' : 'পূর্বের বাকি', amount: previousDueVal });
                     }
                     if (prevTxn) {
                         tableRows.push({ date: prevTxn.date || '', label: prevTxn.type, amount: getRowAmount(prevTxn) });
@@ -5005,12 +5051,17 @@ body.edit-modal-open { overflow: hidden !important; }
         async function deleteStockLogEntry(logId) {
             if (!confirm('এই ইতিহাস এন্ট্রিটা মুছে ফেলতে চান? এটা শুধু ইতিহাস থেকে মুছবে, বর্তমান স্টকের পরিমাণ পরিবর্তন হবে না।')) return;
             if (!checkConnectionOrAlert()) return;
+            const stockLogsBackup = JSON.parse(JSON.stringify(stockLogs || []));
             stockLogs = stockLogs.filter(log => log.id !== logId);
-            if (!(await syncToFirebase())) return;
+            if (!(await syncToFirebase())) {
+                stockLogs = stockLogsBackup;
+                renderStockLogReport();
+                return;
+            }
             renderStockLogReport();
         }
 
-        function downloadStockLogReportCSV() {
+        async function downloadStockLogReportCSV() {
             const result = getFilteredStockLogs();
             if (!result) return;
             const { from, to, filtered } = result;
@@ -5027,9 +5078,15 @@ body.edit-modal-open { overflow: hidden !important; }
                 totalMrp += mrp; totalAfterDiscount += afterDiscount;
                 rows.push([i + 1, log.date || '', log.productName || '', qtyPieces, Math.round(mrp), Math.round(afterDiscount), log.invoiceRef || '']);
             });
-            rows.push([]);
-            rows.push(['সর্বমোট', '', '', '', Math.round(totalMrp), Math.round(totalAfterDiscount), '']);
-            downloadCSVFile(rows, `stock_log_${from}_to_${to}.csv`, 'স্টক যোগের ইতিহাস');
+            const dataRows = filtered.map(log => {
+                const qtyPieces = Number(log.qtyPieces || 0) || 0;
+                const product = products.find(p => p.name === log.productName);
+                const ppc = getPiecesPerCarton(product);
+                const cartonPrice = parseFloat(product?.price || product?.cartonPrice || 0) || 0;
+                const mrp = ppc > 0 ? (qtyPieces / ppc) * cartonPrice : 0;
+                return [log.date || '', log.productName || '', qtyPieces, Math.round(mrp), Math.round(mrp * 0.85), log.invoiceRef || ''];
+            });
+            await downloadPivotReadyExcel('স্টক যোগের ইতিহাস', `stock_log_${from}_to_${to}.xlsx`, ['তারিখ','পণ্যের নাম','পিস সংখ্যা','MRP দাম','১৫% বাদে দাম','রেফারেন্স/ইনভয়েস নং'], dataRows, dataRows);
         }
 
 let stockSelectedIndexes = new Set();
@@ -5776,7 +5833,8 @@ function renderStockMultiProductList() {
             // Always calculate the headline from every customer, independent of
             // search/filter state, and refresh each due from ledger data first.
             const dueByRetailer = new Map();
-            retailers.forEach(ret => dueByRetailer.set(ret, Math.max(0, Number(recalculateRetailerDue(ret) || 0))));
+            retailers.forEach(ret => dueByRetailer.set(ret, Number(recalculateRetailerDue(ret) || 0)));
+            // Negative balance/advance-ও মোট হিসাবে থাকবে; তাই net due সঠিক থাকবে।
             const totalSystemDue = [...dueByRetailer.values()].reduce((sum, due) => sum + due, 0);
             let count = 0;
             // রুট অনুযায়ী গ্রুপ করে সাজানো হচ্ছে (routes array-এর ক্রম
@@ -5950,7 +6008,7 @@ function renderStockMultiProductList() {
                 </div>`;
         }
 
-        function downloadCollectionReportCSV() {
+        async function downloadCollectionReportCSV() {
             const from = document.getElementById('collectionReportFromDate').value;
             const to = document.getElementById('collectionReportToDate').value;
             const routeFilter = document.getElementById('collectionReportRouteFilter').value;
@@ -5964,9 +6022,8 @@ function renderStockMultiProductList() {
                 total += r.amount;
                 csvRows.push([i + 1, r.date, r.route, displayTraderName(r.trader), r.name || '', r.amount, r.note]);
             });
-            csvRows.push([]);
-            csvRows.push(['সর্বমোট', '', '', '', '', total, '']);
-            downloadCSVFile(csvRows, `collection_report_${from}_to_${to}.csv`, 'কালেকশন রিপোর্ট');
+            const dataRows = rows.map(r => [r.date, r.route, displayTraderName(r.trader), r.name || '', Number(r.amount || 0) || 0, r.note || '']);
+            await downloadPivotReadyExcel('কালেকশন রিপোর্ট', `collection_report_${from}_to_${to}.xlsx`, ['তারিখ','রুট','রিটেইলার (ট্রেডার্স)','ব্যক্তির নাম','টাকা','নোট'], dataRows, dataRows);
         }
 
         function recalculateRetailerDue(ret) {
@@ -5978,7 +6035,8 @@ function renderStockMultiProductList() {
             const newCollections = getRetailerCollectionsV2(ret).reduce((sum, c) => sum + (Number(c.amount || 0) || 0), 0);
             // Always rebuild the balance from source transactions. Never use previous currentDue.
             // দশমিক যেন কোথাও থেকে না যায়, তাই শেষ ফলাফল রাউন্ড করা হচ্ছে।
-            ret.currentDue = Math.round(Math.max(0, opening + credit - oldCollections - newCollections));
+            // Negative balance অনুমোদিত: retailer-এর অতিরিক্ত Collection পরবর্তী বিক্রিতে advance হিসেবে সমন্বয় হবে।
+            ret.currentDue = Math.round(opening + credit - oldCollections - newCollections);
             return ret.currentDue;
         }
 
@@ -6310,7 +6368,7 @@ function renderStockMultiProductList() {
             if (ridx !== undefined && ridx !== '') showCustomerLedger();
         }
 
-        function downloadDueReportCSV() {
+        async function downloadDueReportCSV() {
             const q = document.getElementById('dueReportSearchInput').value.toLowerCase();
             const rows = [['ক্রমিক','রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','মোবাইল','আগের বাকি','বর্তমান মোট বাকি']];
             let n=0;
@@ -6326,10 +6384,17 @@ function renderStockMultiProductList() {
                 if(q && !searchStr.includes(q)) return;
                 n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',ret.mobile||'',getExplicitOpeningDue(ret),Number(ret.currentDue||0)||0]);
             });
-            downloadCSVFile(rows,'customer_due_report.csv','রিটেইলার বাকি');
+            const dataRows = [];
+            n = 0;
+            sorted.forEach(ret=>{
+                const searchStr=`${ret.route} ${ret.trader} ${ret.name}`.toLowerCase();
+                if(q && !searchStr.includes(q)) return;
+                n++; dataRows.push([ret.route||'',displayTraderName(ret.trader),ret.name||'',ret.mobile||'',Number(getExplicitOpeningDue(ret)||0)||0,Number(ret.currentDue||0)||0]);
+            });
+            await downloadPivotReadyExcel('রিটেইলার বাকি', 'customer_due_report.xlsx', ['রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','মোবাইল','আগের বাকি','বর্তমান মোট বাকি'], dataRows, dataRows);
         }
 
-        function downloadRetailerReportCSV() {
+        async function downloadRetailerReportCSV() {
             const q = document.getElementById('reportSearchInput').value.toLowerCase();
             const rows = [['ক্রমিক','রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','ঠিকানা / বাজার','মোবাইল নম্বর']];
             let n=0;
@@ -6343,7 +6408,14 @@ function renderStockMultiProductList() {
                 if(q && !searchStr.includes(q)) return;
                 n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',addressWithBazar(ret.address)||'',ret.mobile||'']);
             });
-            downloadCSVFile(rows,'retailer_list.csv','রিটেইলার তালিকা');
+            const dataRows = [];
+            n = 0;
+            sorted.forEach(ret=>{
+                const searchStr=`${ret.route} ${ret.trader} ${ret.name} ${ret.address} ${ret.mobile}`.toLowerCase();
+                if(q && !searchStr.includes(q)) return;
+                n++; dataRows.push([ret.route||'',displayTraderName(ret.trader),ret.name||'',addressWithBazar(ret.address)||'',ret.mobile||'']);
+            });
+            await downloadPivotReadyExcel('রিটেইলার তালিকা', 'retailer_list.xlsx', ['রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','ঠিকানা / বাজার','মোবাইল নম্বর'], dataRows, dataRows);
         }
 
         // যেকোনো CSV ডাউনলোডের উপরে "বিসমিল্লাহির রহমানির রাহিম" +
@@ -6424,6 +6496,22 @@ function renderStockMultiProductList() {
             buildStockReportWindow(stockList, asOfISO, isToday);
         }
 
+        async function downloadStockReportExcel(asOfISO) {
+            const stockList = computeStockAsOf(asOfISO);
+            const inStock = stockList.filter(st => (parseFloat(st.qty || 0) || 0) > 0.001).slice().sort((a,b)=>String(a.productName||'').localeCompare(String(b.productName||'')));
+            if (!inStock.length) { alert('এই তারিখে কোনো স্টক নেই।'); return; }
+            const dataRows = inStock.map(st => {
+                const product = products.find(p => p.name === st.productName);
+                const cartonPrice = parseFloat(product?.cartonPrice || product?.price || 0) || 0;
+                const qtyCarton = parseFloat(st.qty || 0) || 0;
+                const ppc = getPiecesPerCarton(product);
+                const qtyPiece = Math.round(qtyCarton * ppc);
+                const amount = qtyCarton * cartonPrice;
+                return [st.productName, cartonPrice, qtyCarton, qtyPiece, amount, Math.round(amount * 0.85)];
+            });
+            await downloadPivotReadyExcel('স্টক রিপোর্ট', `stock_report_${asOfISO}.xlsx`, ['পণ্যের নাম','কার্টুন মূল্য','স্টক (কার্টুন)','স্টক (পিস)','মোট দাম','১৫% বাদে দাম'], dataRows, dataRows);
+        }
+
         function buildStockReportWindow(stockList, asOfISO, isToday) {
             const dateLabel = isToday ? getSystemDateString() : isoToSystemDate(asOfISO);
             const titleSuffix = isToday ? '' : ' (আনুমানিক, তারিখ পর্যন্ত)';
@@ -6472,7 +6560,7 @@ function renderStockMultiProductList() {
             <body>
             <div class="report-actions">
                 <button id="printBtn">প্রিন্ট করুন</button>
-                <button id="downloadStockCsvBtn">CSV ডাউনলোড করুন</button>
+                <button id="downloadStockCsvBtn">Excel ডাউনলোড করুন</button>
             </div>
             <h2>স্টক রিপোর্ট${titleSuffix}</h2><p style="text-align:center">তারিখ: ${dateLabel}</p>
             ${!isToday ? '<p style="text-align:center;color:#c0392b;font-size:13px;">⚠️ এটি আনুমানিক হিসাব — ম্যানুয়াল স্টক এডিট (তারিখহীন) এতে ধরা পড়ে না।</p>' : ''}
@@ -6481,14 +6569,7 @@ function renderStockMultiProductList() {
             <div class="total">সকল পণ্যের ১৫% বাদে মোট মূল্য: ${Math.round(totalAfterDiscount).toLocaleString('en-US')} ৳</div>
             <script>
                 document.getElementById('printBtn').addEventListener('click', function(){ window.print(); });
-                document.getElementById('downloadStockCsvBtn').addEventListener('click', function(){
-                    const csv = decodeURIComponent(escape(atob('${csvBase64}')));
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8;'}));
-                    a.download = 'stock_report_${asOfISO}.csv';
-                    a.click();
-                    URL.revokeObjectURL(a.href);
-                });
+                document.getElementById('downloadStockCsvBtn').addEventListener('click', function(){ if (window.opener && typeof window.opener.downloadStockReportExcel === 'function') window.opener.downloadStockReportExcel('${asOfISO}'); else alert('মূল উইন্ডোটি খোলা নেই। আবার রিপোর্ট খুলুন।'); });
             <\/script>
             </body></html>`);
             w.document.close();
@@ -6925,23 +7006,262 @@ function renderStockMultiProductList() {
         }
 
 
-        // ব্যাকআপ JSON ফাইল থেকে সম্পূর্ণ ডাটা রিস্টোর করা — এটা বর্তমান সব
-        // ডাটা (routes/products/stocks/retailers/invoices) মুছে ব্যাকআপের
-        // ডাটা দিয়ে প্রতিস্থাপন করে, তাই দুইবার নিশ্চিত হওয়া হয়।
-        async function restoreFromBackupJSON(file) {
-            if (file) document.getElementById('restoreBackupInput').value = '';
-            return blockPermanentDelete('ব্যাকআপ রিস্টোর');
+        // ===== SAFE JSON BACKUP / RESTORE =====
+        // নীতি: Restore কখনোই existing Firestore record overwrite বা delete করবে না।
+        // Backup-এ থাকা কোনো record Firebase-এ না থাকলে শুধু সেটিই যোগ হবে।
+        // একই ID/পরিচয়ে data আলাদা হলে সেটি conflict হিসেবে দেখানো হবে এবং বাদ যাবে।
+        // Restore করার আগে Admin confirmation এবং commit-এর সময় আবার Firestore-এ
+        // missing-only validation করা হয়, যাতে preview-এর পরে অন্য কোনো পরিবর্তন হলেও
+        // existing data overwrite না হয়।
+        function safeRestoreStable(value) {
+            return stableObject(value);
+        }
+        function safeRestoreSame(a, b) {
+            return JSON.stringify(safeRestoreStable(a)) === JSON.stringify(safeRestoreStable(b));
+        }
+        function safeRestoreIdentity(record, kind) {
+            if (kind === 'route') return String(record || '').trim();
+            if (kind === 'routeCode') return String(record?.route || '').trim();
+            if (kind === 'product') return String(record?.code || record?.name || '').trim();
+            if (kind === 'stock') return String(record?.productName || '').trim();
+            if (kind === 'stockLog') return String(record?.id || record?.logId || '').trim();
+            if (kind === 'retailer') return String(record?.id || record?.code || ((record?.trader || '') + '|' + (record?.mobile || '') + '|' + (record?.route || ''))).trim();
+            if (kind === 'invoice') return String(record?.id || '').trim();
+            if (kind === 'collection') return String(record?.id || '').trim();
+            return '';
+        }
+        function safeRestoreArrayPlan(backupArr, currentArr, kind) {
+            const current = Array.isArray(currentArr) ? currentArr : [];
+            const currentMap = new Map();
+            current.forEach(x => { const id = safeRestoreIdentity(x, kind); if (id && !currentMap.has(id)) currentMap.set(id, x); });
+            const seen = new Set();
+            const add = [], conflicts = [], invalid = [], duplicates = [];
+            (Array.isArray(backupArr) ? backupArr : []).forEach(x => {
+                const id = safeRestoreIdentity(x, kind);
+                if (!id) { invalid.push(x); return; }
+                if (seen.has(id)) { duplicates.push(id); return; }
+                seen.add(id);
+                if (!currentMap.has(id)) add.push(x);
+                else if (!safeRestoreSame(currentMap.get(id), x)) conflicts.push(id);
+            });
+            return { add, conflicts, invalid, duplicates };
+        }
+        function safeRestoreRoutePlan(backupRoutes, currentRoutes) {
+            const cur = new Set((Array.isArray(currentRoutes) ? currentRoutes : []).map(x => String(x).trim()).filter(Boolean));
+            const seen = new Set(), add = [], conflicts = [], invalid = [], duplicates = [];
+            (Array.isArray(backupRoutes) ? backupRoutes : []).forEach(x => {
+                const id = String(x || '').trim();
+                if (!id) { invalid.push(x); return; }
+                if (seen.has(id)) { duplicates.push(id); return; }
+                seen.add(id);
+                if (!cur.has(id)) add.push(x);
+            });
+            return { add, conflicts, invalid, duplicates };
+        }
+        function safeRestoreRouteCodePlan(backupCodes, currentCodes) {
+            const cur = (currentCodes && typeof currentCodes === 'object') ? currentCodes : {};
+            const add = {}, conflicts = [], invalid = [];
+            if (!backupCodes || typeof backupCodes !== 'object' || Array.isArray(backupCodes)) return { add, conflicts, invalid: ['routeCodes'] };
+            Object.entries(backupCodes).forEach(([route, code]) => {
+                const r = String(route || '').trim();
+                if (!r) { invalid.push(route); return; }
+                if (!(r in cur)) add[r] = code;
+                else if (String(cur[r] ?? '') !== String(code ?? '')) conflicts.push(r);
+            });
+            return { add, conflicts, invalid };
+        }
+        function safeRestoreCountText(plan) {
+            return `যোগ হবে ${plan.add?.length || 0}, Conflict ${plan.conflicts?.length || 0}`;
         }
 
-        function downloadFullDataBackup() {
+        async function restoreFromBackupJSON(file) {
+            if (file) document.getElementById('restoreBackupInput').value = '';
+            if (!file) return;
             if (!checkConnectionOrAlert()) return;
+            if (!firebase.auth().currentUser) { alert('Admin লগইন নেই। JSON Restore করা যাবে না।'); return; }
+            // appData একেবারেই হারিয়ে গেলে explicit JSON restore-এর মাধ্যমে
+            // backup-এর missing core data পুনরায় তৈরি করা যাবে। তবে appData
+            // আছে অথচ নিরাপদভাবে load হয়নি—এমন অবস্থায় restore বন্ধ থাকবে।
+            if ((!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) && !appDataMissingOnServer) {
+                alert('⚠️ Firebase-এর সর্বশেষ মূল ডাটা এখনো নিরাপদভাবে লোড হয়নি। আগে পেজটি সম্পূর্ণ লোড হতে দিন।');
+                return;
+            }
+            if (!invoicesFirstLoadDone || !collectionsFirstLoadDone) {
+                alert('⚠️ Invoice/Collection-এর সর্বশেষ Firebase data এখনো পুরোপুরি লোড হয়নি। নিরাপদ Restore-এর জন্য কয়েক সেকেন্ড অপেক্ষা করে আবার চেষ্টা করুন।');
+                return;
+            }
+
+            let backup;
+            try {
+                const text = await file.text();
+                backup = JSON.parse(text);
+            } catch (e) {
+                alert('❌ JSON ফাইলটি সঠিকভাবে পড়া যায়নি।');
+                return;
+            }
+            if (!backup || typeof backup !== 'object' || Array.isArray(backup)) {
+                alert('❌ এটি বৈধ Sales System backup নয়।');
+                return;
+            }
+
+            const hasCore = ['routes','products','stocks','retailers'].some(k => Array.isArray(backup[k]));
+            if (!hasCore) {
+                alert('❌ Backup-এ প্রয়োজনীয় core data পাওয়া যায়নি।');
+                return;
+            }
+            if (backup.invoices !== undefined && !Array.isArray(backup.invoices)) { alert('❌ Backup-এর invoices অংশটি সঠিক নয়।'); return; }
+            if (backup.retailerCollections !== undefined && !Array.isArray(backup.retailerCollections)) { alert('❌ Backup-এর retailerCollections অংশটি সঠিক নয়।'); return; }
+
+            // Preview Firebase থেকে সরাসরি পড়া হচ্ছে; শুধু missing data-এর পরিকল্পনা তৈরি হবে।
+            let liveAppSnap, liveInvoiceSnap, liveCollectionSnap;
+            try {
+                const appDataRef = db.collection('sales_system').doc('appData');
+                [liveAppSnap, liveInvoiceSnap, liveCollectionSnap] = await Promise.all([
+                    appDataRef.get(),
+                    db.collection('sales_invoices').get(),
+                    db.collection('retailer_collections').get()
+                ]);
+            } catch (e) {
+                alert('❌ Firebase থেকে বর্তমান data যাচাই করা যায়নি। Restore করা হয়নি।');
+                return;
+            }
+
+            const liveApp = liveAppSnap.exists ? liveAppSnap.data() : {};
+            const routePlan = safeRestoreRoutePlan(backup.routes, liveApp.routes);
+            const routeCodePlan = safeRestoreRouteCodePlan(backup.routeCodes, liveApp.routeCodes);
+            const productPlan = safeRestoreArrayPlan(backup.products, liveApp.products, 'product');
+            const stockPlan = safeRestoreArrayPlan(backup.stocks, liveApp.stocks, 'stock');
+            const stockLogPlan = safeRestoreArrayPlan(backup.stockLogs, liveApp.stockLogs, 'stockLog');
+            const retailerPlan = safeRestoreArrayPlan(backup.retailers, liveApp.retailers, 'retailer');
+            const invoiceCurrent = liveInvoiceSnap.docs.map(d => d.data());
+            const collectionCurrent = liveCollectionSnap.docs.map(d => d.data());
+            const invoicePlan = safeRestoreArrayPlan(backup.invoices || [], invoiceCurrent, 'invoice');
+            const collectionPlan = safeRestoreArrayPlan(backup.retailerCollections || [], collectionCurrent, 'collection');
+
+            const invalidTotal = routePlan.invalid.length + routeCodePlan.invalid.length + productPlan.invalid.length + stockPlan.invalid.length + stockLogPlan.invalid.length + retailerPlan.invalid.length + invoicePlan.invalid.length + collectionPlan.invalid.length;
+            const duplicateTotal = routePlan.duplicates.length + productPlan.duplicates.length + stockPlan.duplicates.length + stockLogPlan.duplicates.length + retailerPlan.duplicates.length + invoicePlan.duplicates.length + collectionPlan.duplicates.length;
+            const conflictTotal = routeCodePlan.conflicts.length + productPlan.conflicts.length + stockPlan.conflicts.length + stockLogPlan.conflicts.length + retailerPlan.conflicts.length + invoicePlan.conflicts.length + collectionPlan.conflicts.length;
+            const addTotal = routePlan.add.length + Object.keys(routeCodePlan.add).length + productPlan.add.length + stockPlan.add.length + stockLogPlan.add.length + retailerPlan.add.length + invoicePlan.add.length + collectionPlan.add.length;
+
+            if (addTotal === 0) {
+                let msg = 'ℹ️ Restore করার মতো কোনো missing data পাওয়া যায়নি।';
+                if (conflictTotal) msg += `\n\n⚠️ ${conflictTotal}টি একই ID/পরিচয়ের record-এ বর্তমান Firebase data আলাদা আছে। এগুলো overwrite করা হয়নি।`;
+                if (invalidTotal || duplicateTotal) msg += `\n⚠️ Invalid: ${invalidTotal}, Duplicate: ${duplicateTotal}`;
+                alert(msg);
+                return;
+            }
+
+            const summary = [
+                '🔐 SAFE JSON RESTORE — কোনো existing data overwrite/delete হবে না।',
+                '',
+                `Route: ${routePlan.add.length}টি যোগ হবে`,
+                `Route Code: ${Object.keys(routeCodePlan.add).length}টি যোগ হবে`,
+                `Product: ${productPlan.add.length}টি যোগ হবে`,
+                `Stock: ${stockPlan.add.length}টি যোগ হবে`,
+                `Stock Log: ${stockLogPlan.add.length}টি যোগ হবে`,
+                `Retailer: ${retailerPlan.add.length}টি যোগ হবে`,
+                `Invoice: ${invoicePlan.add.length}টি যোগ হবে`,
+                `Collection: ${collectionPlan.add.length}টি যোগ হবে`,
+                '',
+                `Conflict: ${conflictTotal}টি — এগুলো পরিবর্তন করা হবে না`,
+                `Invalid/Duplicate: ${invalidTotal}/${duplicateTotal} — এগুলোও যোগ হবে না`,
+                '',
+                'আপনি কি শুধু missing data Firebase-এ যোগ করতে চান?'
+            ].join('\n');
+            if (!confirm(summary)) return;
+
+            // Commit-এর আগে আবার current appData hash যাচাই করা হবে।
+            // Preview-এর পরে core data বদলালে restore থেমে যাবে।
+            const currentBeforeCommit = await db.collection('sales_system').doc('appData').get();
+            if (!currentBeforeCommit.exists) {
+                // appData পুরোপুরি অনুপস্থিত হলে backup-এর core data-ই missing;
+                // explicit Admin restore হিসেবে শুধু backup fields দিয়ে নতুন doc তৈরি করা যাবে।
+                // তবুও এই transaction-এর ভিতরেই missing-only যাচাই থাকবে।
+            } else if (getCoreDataHash(currentBeforeCommit.data()) !== getCoreDataHash(liveApp)) {
+                showExternalChangeProtection();
+                return;
+            }
+
+            try {
+                const appDataRef = db.collection('sales_system').doc('appData');
+                await db.runTransaction(async transaction => {
+                    const snap = await transaction.get(appDataRef);
+                    const cur = snap.exists ? snap.data() : {};
+                    const mergedRoutes = Array.isArray(cur.routes) ? cur.routes.slice() : [];
+                    const routeSet = new Set(mergedRoutes.map(x => String(x).trim()).filter(Boolean));
+                    (Array.isArray(backup.routes) ? backup.routes : []).forEach(x => { const id = String(x || '').trim(); if (id && !routeSet.has(id)) { mergedRoutes.push(x); routeSet.add(id); } });
+
+                    const mergedRouteCodes = (cur.routeCodes && typeof cur.routeCodes === 'object') ? {...cur.routeCodes} : {};
+                    Object.entries(backup.routeCodes || {}).forEach(([r,c]) => { if (!(r in mergedRouteCodes)) mergedRouteCodes[r] = c; });
+
+                    function mergeMissingArray(backupArr, currentArr, kind) {
+                        const merged = Array.isArray(currentArr) ? currentArr.slice() : [];
+                        const ids = new Set(merged.map(x => safeRestoreIdentity(x, kind)).filter(Boolean));
+                        (Array.isArray(backupArr) ? backupArr : []).forEach(x => { const id = safeRestoreIdentity(x, kind); if (id && !ids.has(id)) { merged.push(x); ids.add(id); } });
+                        return merged;
+                    }
+
+                    const payload = {
+                        routes: mergedRoutes,
+                        routeCodes: mergedRouteCodes,
+                        products: mergeMissingArray(backup.products, cur.products, 'product'),
+                        stocks: mergeMissingArray(backup.stocks, cur.stocks, 'stock'),
+                        stockLogs: mergeMissingArray(backup.stockLogs, cur.stockLogs, 'stockLog'),
+                        retailers: mergeMissingArray(backup.retailers, cur.retailers, 'retailer'),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    // Existing records are retained exactly; only missing records are appended.
+                    transaction.set(appDataRef, payload, { merge: true });
+                });
+
+                // Invoices/collections are independent documents. প্রতিটি transaction-এ
+                // শুধু non-existing document set করা হবে; existing document কখনো set/overwrite নয়।
+                async function restoreMissingDocuments(collectionName, records, kind) {
+                    const list = Array.isArray(records) ? records.filter(x => safeRestoreIdentity(x, kind)) : [];
+                    const CHUNK = 250;
+                    for (let i = 0; i < list.length; i += CHUNK) {
+                        const chunk = list.slice(i, i + CHUNK);
+                        await db.runTransaction(async transaction => {
+                            const refs = chunk.map(x => db.collection(collectionName).doc(safeRestoreIdentity(x, kind)));
+                            const snaps = [];
+                            for (const ref of refs) snaps.push(await transaction.get(ref));
+                            snaps.forEach((snap, idx) => {
+                                if (!snap.exists) transaction.create(refs[idx], chunk[idx]);
+                                // exists হলে কোনো write নয় — overwrite নিষিদ্ধ।
+                            });
+                        });
+                    }
+                }
+                await restoreMissingDocuments('sales_invoices', invoicePlan.add, 'invoice');
+                await restoreMissingDocuments('retailer_collections', collectionPlan.add, 'collection');
+
+                // Local listeners-এর সর্বশেষ Firebase state আসা পর্যন্ত অপেক্ষা করে UI refresh হবে।
+                alert(`✅ নিরাপদ JSON Restore সম্পন্ন হয়েছে।\n\n${addTotal}টি missing record যোগ করা হয়েছে।\n${conflictTotal}টি conflict record পরিবর্তন করা হয়নি।\n\nকোনো existing Firebase record overwrite বা delete করা হয়নি।`);
+            } catch (e) {
+                console.error('Safe JSON restore error:', e);
+                if (e?.code === 'permission-denied') alert('🔒 Firebase Security Rules Restore-এর write অনুমতি দেয়নি। কোনো অনুমোদিত overwrite/delete করা হয়নি।');
+                else if (e?.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                else alert('❌ নিরাপদ Restore সম্পূর্ণ করা যায়নি। কোনো existing data overwrite/delete করা হয়নি।');
+            }
+        }
+
+        async function downloadFullDataBackup() {
+            if (!checkConnectionOrAlert()) return;
+            if (!initialDataLoaded || !serverDataWasLoaded || !invoicesFirstLoadDone || !collectionsFirstLoadDone) {
+                alert('⚠️ Firebase-এর সব প্রয়োজনীয় data এখনো পুরোপুরি লোড হয়নি। কয়েক সেকেন্ড অপেক্ষা করে আবার Backup নিন।');
+                return;
+            }
             const backup = {
+                backupVersion: 2,
                 backupTakenAt: new Date().toISOString(),
                 routes: routes || [],
+                routeCodes: routeCodes || {},
                 products: products || [],
                 stocks: stocks || [],
+                stockLogs: stockLogs || [],
                 retailers: retailers || [],
-                invoices: invoices || []
+                invoices: invoices || [],
+                retailerCollections: retailerCollectionsLive || []
             };
             const json = JSON.stringify(backup, null, 2);
             const blob = new Blob([json], { type: 'application/json' });
@@ -6952,7 +7272,8 @@ function renderStockMultiProductList() {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            alert('সম্পূর্ণ ডাটা ব্যাকআপ ডাউনলোড হয়েছে। ফাইলটা নিরাপদ জায়গায় (যেমন Google Drive) রেখে দিন।');
+            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+            alert('সম্পূর্ণ Firebase data-এর নিরাপদ JSON Backup ডাউনলোড হয়েছে। ফাইলটি নিরাপদ জায়গায় রাখুন।');
         }
 
 
@@ -7223,6 +7544,31 @@ function renderStockMultiProductList() {
             // দ্বিতীয় শিট — এখন খালি, ভবিষ্যতে (খরচ/বাকী আদায় ট্র্যাক করার জন্য) ব্যবহার করা যাবে
             workbook.addWorksheet('খালি শিট (ভবিষ্যতের জন্য)');
 
+            // Pivot Data: প্রতিটি invoice-item এক row; সব পরিমাণ/টাকা numeric।
+            const pivotSheet = workbook.addWorksheet('Pivot Data');
+            const pivotHeaders = ['তারিখ','ইনভয়েস নং','রিটেইলার','রুট','পণ্য','কার্টুন','পিস','কার্টুন মূল্য','পিস মূল্য','গ্রস বিক্রয়','ছাড় %','ছাড়ের টাকা','নেট বিক্রয়','ইনভয়েস টাইপ'];
+            const pivotRows = [];
+            filtered.forEach(inv => {
+                const ret = resolveRetailerForInvoice(inv);
+                (inv.items || []).forEach(it => {
+                    const x = getItemLineAmounts(it);
+                    const gross = Number(x.grossTotal || 0) || 0;
+                    const disc = Number(x.discountAmount || 0) || 0;
+                    const net = Number(x.netTotal || 0) || 0;
+                    pivotRows.push([inv.date || '', inv.invoiceNo || '', ret ? displayTraderName(ret.trader) : displayTraderName(inv.retailer), inv.route || '', it.name || '', Number(x.cartonQty||0)||0, Number(x.pieceQty||0)||0, Number(x.cartonPrice||0)||0, Number(x.piecePrice||0)||0, gross, Number(x.discountPercent||0)||0, disc, net, inv.invoiceType || '']);
+                });
+            });
+            pivotSheet.addRow(pivotHeaders);
+            pivotRows.forEach(r => pivotSheet.addRow(r));
+            pivotSheet.freezePanes = {ySplit:1};
+            pivotSheet.columns = pivotHeaders.map(h=>({header:h,width:Math.max(12,Math.min(24,String(h).length+8))}));
+            if (pivotRows.length) pivotSheet.addTable({name:'DailySalesPivotSource'+Date.now(),ref:`A1:N${pivotRows.length+1}`,headerRow:true,totalsRow:false,style:{theme:'TableStyleMedium2',showRowStripes:true},columns:pivotHeaders.map(h=>({name:h})),rows:pivotRows});
+            const pivotGuide = workbook.addWorksheet('Pivot Guide');
+            pivotGuide.addRow(['PivotTable ব্যবহারের নিয়ম']);
+            pivotGuide.addRow(['Pivot Data sheet-এর যেকোনো cell নির্বাচন করুন → Insert → PivotTable।']);
+            pivotGuide.addRow(['উদাহরণ: Rows = রিটেইলার, Values = নেট বিক্রয়, Filters = তারিখ/রুট/পণ্য।']);
+            pivotGuide.getColumn(1).width = 100;
+
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
             const link = document.createElement('a');
@@ -7471,6 +7817,29 @@ function renderStockMultiProductList() {
                 cell.border = allBorders;
                 cell.alignment = { horizontal: 'center', vertical: 'middle' };
             });
+
+            // Pivot Data: retailer-product-date level raw rows; no merged cells, all numeric measures remain numeric.
+            const pivotSheet = workbook.addWorksheet('Pivot Data');
+            const pivotHeaders = ['তারিখ','রিটেইলার','পণ্য','কার্টুন','পিস','ইউনিট মূল্য','নেট বিক্রয়'];
+            const pivotRows = [];
+            filtered.forEach(inv => {
+                const buyerRet = resolveRetailerForInvoice(inv);
+                const buyerName = buyerRet ? (buyerRet.name || displayTraderName(buyerRet.trader)) : displayTraderName(inv.retailer);
+                (inv.items || []).forEach(it => {
+                    const x = getItemLineAmounts(it);
+                    pivotRows.push([inv.date || '', buyerName, it.name || '', Number(x.cartonQty||0)||0, Number(x.pieceQty||0)||0, Number(x.cartonPrice||x.piecePrice||0)||0, Number(x.netTotal||0)||0]);
+                });
+            });
+            pivotSheet.addRow(pivotHeaders);
+            pivotRows.forEach(r => pivotSheet.addRow(r));
+            pivotSheet.freezePanes = {ySplit:1};
+            pivotSheet.columns = pivotHeaders.map(h=>({header:h,width:Math.max(12,Math.min(28,String(h).length+8))}));
+            if (pivotRows.length) pivotSheet.addTable({name:'RetailerProductPivotSource'+Date.now(),ref:`A1:G${pivotRows.length+1}`,headerRow:true,totalsRow:false,style:{theme:'TableStyleMedium2',showRowStripes:true},columns:pivotHeaders.map(h=>({name:h})),rows:pivotRows});
+            const pivotGuide = workbook.addWorksheet('Pivot Guide');
+            pivotGuide.addRow(['PivotTable ব্যবহারের নিয়ম']);
+            pivotGuide.addRow(['Pivot Data sheet-এর যেকোনো cell নির্বাচন করুন → Insert → PivotTable।']);
+            pivotGuide.addRow(['উদাহরণ: Rows = রিটেইলার/পণ্য, Values = নেট বিক্রয়/পিস, Filters = তারিখ।']);
+            pivotGuide.getColumn(1).width = 100;
 
             const buffer = await workbook.xlsx.writeBuffer();
             const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -8192,10 +8561,11 @@ function renderStockMultiProductList() {
             }
             if(!date||idx===''){alert('তারিখ ও রিটেইলার নির্বাচন করুন।');return;}
             const ret=retailers[parseInt(idx)];
+            const wasOnlineApproval = Boolean(pendingApprovalReqId);
             recalculateRetailerDue(ret);
             const due=Number(ret.currentDue||0);
             if(!Number.isFinite(amount) || amount<=0){alert('সঠিক কালেকশন টাকার অংক দিন।');return;}
-            if(amount>due){alert(`কালেকশন ${amount.toLocaleString('en-US')} টাকা বর্তমান বাকি ${due.toLocaleString('en-US')} টাকার বেশি হতে পারবে না।`);return;}
+            // বাকি থেকে বেশি Collection নেওয়া যাবে — অতিরিক্ত অংশ negative balance/advance হবে এবং পরবর্তী Invoice-এ সমন্বয় হবে।
             const newEntry = {
                 id: 'RCOL_' + Date.now(),
                 retailerId: ret.id || '',
@@ -8232,12 +8602,17 @@ function renderStockMultiProductList() {
             // একসাথে ঘটলে একই কালেকশন দুইবার যোগ হয়ে যাচ্ছিল (ডাবল-কাউন্ট
             // বাগ) — তাই শুধু তাৎক্ষণিক স্ক্রিনে দেখানোর জন্য বাকিটা এখানে
             // আলাদাভাবে (অ্যারেতে হাত না দিয়ে) হিসাব করা হচ্ছে।
-            const dueAfter = Math.max(0, due - amount);
+            const dueAfter = due - amount;
             document.getElementById('collectionDueBox').innerText=`বর্তমান বাকি: ${dueAfter.toLocaleString('en-US')} ৳`;
             document.getElementById('collectionAmount').value='';
             document.getElementById('collectionNote').value='';
+            // Online Collection approve/confirm সফল হলে পুরো Collection popup বন্ধ হবে।
             showCollectionSuccessPopup(date,amount,dueAfter,ret);
             renderCustomerDueReport();
+            if (wasOnlineApproval) {
+                pendingApprovalReqId = null;
+                closeModal('collectionModal');
+            }
         }
         function showCollectionSuccessPopup(date,amount,due,ret){
             let p=document.getElementById('collectionSuccessModal');
