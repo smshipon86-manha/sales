@@ -6306,11 +6306,73 @@ function renderStockMultiProductList() {
         // রিটেইলারের সাথে মেলে না (রিটেইলার মুছে ফেলা হয়েছে, বা ভুলভাবে
         // মার্জ হয়েছে) — সেগুলোকে "এতিম" ইনভয়েস বলা হচ্ছে। এগুলো সাধারণ
         // তালিকায়/লেজারে দেখা যায় না কিন্তু রিপোর্টে দেখা যায়।
+        // "এতিম" ইনভয়েস চেনার জন্য আগে শুধু ট্রেডার্স-নাম মিলিয়ে চেক করা হতো --
+        // এই কারণে কোনো রিটেইলারের নাম এডিট করলেই তার পুরোনো ইনভয়েসগুলো
+        // ভুলভাবে "এতিম" হয়ে যেত (যদিও রিটেইলারটা আসলে হারায়নি, শুধু নাম
+        // বদলেছে)। এখন প্রথমে স্থায়ী retailerId দিয়ে মেলানো হয় (নাম বদলালেও
+        // এটা বদলায় না) -- retailerId না থাকা পুরোনো ইনভয়েসের জন্যই শুধু
+        // নাম-ভিত্তিক পুরোনো পদ্ধতিতে ফিরে যাওয়া হয়।
         function findOrphanInvoices() {
+            const validIds = new Set(retailers.map(r => r.id).filter(Boolean));
             const validTraders = new Set(retailers.map(r => r.trader));
-            // ওয়াক-ইন (তালিকায় নেই) ইনভয়েসগুলো ইচ্ছাকৃতভাবেই কোনো
-            // রিটেইলারের সাথে যুক্ত না — এগুলো "এতিম" ধরা হবে না।
-            return (invoices || []).filter(inv => !inv.isWalkIn && !validTraders.has(inv.retailer));
+            return (invoices || []).filter(inv => {
+                if (inv.isWalkIn) return false;
+                if (inv.retailerId) return !validIds.has(inv.retailerId);
+                return !validTraders.has(inv.retailer);
+            });
+        }
+
+        // এতিম ইনভয়েসগুলোর ভেতরে থাকা রুট/ট্রেডার্স/ক্রেতার নাম/ঠিকানা/মোবাইল
+        // দিয়ে হারানো রিটেইলারদের আবার তৈরি করে দেওয়া হয় — এটা শুধু নতুন
+        // এন্ট্রি *যোগ* করে, বর্তমান তালিকার কাউকে মুছে/বদলে না।
+        async function recoverRetailersFromOrphanInvoices() {
+            if (!checkConnectionOrAlert()) return;
+            const orphans = findOrphanInvoices();
+            if (orphans.length === 0) { alert('কোনো এতিম ইনভয়েস নেই।'); return; }
+
+            const found = new Map();
+            orphans.forEach(inv => {
+                if (!inv.route || !inv.retailer) return;
+                const key = `${inv.route}||${inv.retailer}`;
+                const order = getInvoiceCreationOrder(inv);
+                const existing = found.get(key);
+                if (!existing || order > existing.order) {
+                    found.set(key, {
+                        route: inv.route,
+                        trader: inv.retailer,
+                        name: inv.buyerName || '',
+                        address: inv.buyerAddress || '',
+                        mobile: inv.buyerMobile || '',
+                        order
+                    });
+                }
+            });
+            if (found.size === 0) { alert('এতিম ইনভয়েস থেকে পুনরুদ্ধারযোগ্য কোনো রিটেইলার পাওয়া যায়নি।'); return; }
+
+            const names = Array.from(found.values()).map(r => `${r.trader} (${r.route})`).join('\n');
+            if (!confirm(`এই ${found.size}টি রিটেইলার আবার তৈরি করা হবে:\n\n${names}\n\nক্রেডিট লিমিট পরে ম্যানুয়ালি সেট করতে হবে। বর্তমান তালিকার কাউকে মুছবে না। এগিয়ে যাবেন?`)) return;
+
+            found.forEach(r => {
+                retailers.push({
+                    id: 'RET_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+                    route: r.route,
+                    trader: r.trader,
+                    name: r.name,
+                    address: r.address,
+                    mobile: r.mobile,
+                    currentDue: 0,
+                    collections: []
+                });
+            });
+            retailers.forEach(r => recalculateRetailerDue(r));
+
+            const saved = await syncToFirebase();
+            if (!saved) { alert('সিঙ্ক করতে সমস্যা হয়েছে, আবার চেষ্টা করুন।'); return; }
+
+            alert(`${found.size}টি রিটেইলার পুনরুদ্ধার হয়েছে। ক্রেডিট লিমিট চেক করে বসিয়ে দিন।`);
+            renderRetailerReport();
+            renderCustomerDueReport();
+            renderOrphanInvoices();
         }
 
         function openOrphanInvoiceFinder() {
@@ -6335,7 +6397,10 @@ function renderStockMultiProductList() {
                     <td style="text-align:center;"><button class="btn-action btn-delete" onclick="deleteOrphanInvoice('${inv.id}')">মুছুন</button></td>
                 </tr>`).join('');
             container.innerHTML = `
-                <div style="margin-bottom:10px; font-weight:bold;">মোট ${orphans.length}টি এতিম ইনভয়েস পাওয়া গেছে।</div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="font-weight:bold;">মোট ${orphans.length}টি এতিম ইনভয়েস পাওয়া গেছে।</div>
+                    <button class="btn-submit" style="width:auto; background:#2e7d32;" onclick="recoverRetailersFromOrphanInvoices()">🔧 এই রিটেইলারদের পুনরুদ্ধার করুন</button>
+                </div>
                 <table class="data-table">
                     <thead><tr><th>ইনভয়েস নং</th><th>তারিখ</th><th>রিটেইলার (যেটা আর নেই)</th><th>টাকা</th><th>অ্যাকশন</th></tr></thead>
                     <tbody>${rows}</tbody>
