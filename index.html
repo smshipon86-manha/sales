@@ -1261,12 +1261,13 @@ body.edit-modal-open { overflow: hidden !important; }
                         <input type="text" id="salesDueAmount" placeholder="বাকি টাকা" readonly style="background:#eee;">
                     </div>
                     <div class="form-group">
-                        <label>ক্যাশ জমা (Cash Deposit) : <span style="color:#c0392b;">*</span></label>
-                        <input type="number" id="salesCashDeposit" placeholder="ক্যাশ ইনভয়েসে বাধ্যতামূলক">
-                    </div>
-                    <div class="form-group">
                         <label>বাকি নিতে পারবে (Available For Purchase) :</label>
                         <input type="text" id="salesAvailable" placeholder="বাকি নিতে পারবে" readonly style="background:#eee;">
+                    </div>
+                    <div class="form-group" id="cashDepositGroup" style="display:none;">
+                        <label>ক্যাশ জমা : <span style="color:#c0392b;">*</span></label>
+                        <input type="number" id="salesCashDeposit" min="0" step="0.01" placeholder="ছাড়ের পর ইনভয়েসের মোট টাকা লিখুন" style="background:#fff8dc; border:2px solid #f0b429; font-weight:bold;" oninput="updateCashDepositHint()">
+                        <small id="cashDepositHint" style="display:block; margin-top:4px; color:#666;">ক্যাশ ইনভয়েসে ছাড়ের পর মোট টাকা এখানে বসাতে হবে।</small>
                     </div>
                 </div>
             </div>
@@ -3219,7 +3220,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     document.getElementById('salesInvoiceType').value = inv.invoiceType;
                     document.getElementById('salesCreditLimit').value = inv.creditLimit || '';
                     document.getElementById('salesDueAmount').value = inv.dueAmount || '';
-                    document.getElementById('salesCashDeposit').value = inv.cashDeposit || '';
+                    const cashDepositEl = document.getElementById('salesCashDeposit'); if (cashDepositEl) cashDepositEl.value = inv.cashDeposit || '';
                     updateInvoiceFinancialFields();
                     // এডিট করার সময় "এখনই জমা" ঘরটা শুধু তথ্যের জন্য দেখানো
                     // হয় (ফাঁকা রাখলে বোঝা যাবে ওই সময় কিছু জমা নেওয়া
@@ -3268,7 +3269,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 document.getElementById('salesInvoiceType').value = "";
                 document.getElementById('salesCreditLimit').value = "";
                 document.getElementById('salesDueAmount').value = "";
-                document.getElementById('salesCashDeposit').value = "";
+                const cashDepositResetEl = document.getElementById('salesCashDeposit'); if (cashDepositResetEl) cashDepositResetEl.value = "";
                 document.getElementById('salesAvailable').value = "";
                 selectedInvoiceItems = [];
                 renderInvoiceItemTable();
@@ -3296,6 +3297,24 @@ body.edit-modal-open { overflow: hidden !important; }
             updateInvoiceFinancialFields();
         }
 
+        function updateCashDepositHint() {
+            const hint = document.getElementById('cashDepositHint');
+            const input = document.getElementById('salesCashDeposit');
+            if (!hint || !input) return;
+            const total = calculateInvoiceTotal();
+            const entered = parseFloat(input.value || 0) || 0;
+            if (total > 0 && Math.abs(entered - total) < 0.005) {
+                hint.textContent = `সঠিক। জমা: ${total.toLocaleString('en-US')} ৳`;
+                hint.style.color = '#198754';
+            } else if (total > 0) {
+                hint.textContent = `ছাড়ের পর ইনভয়েসের মোট: ${total.toLocaleString('en-US')} ৳ — এই অংকটি না বসালে কনফার্ম হবে না।`;
+                hint.style.color = '#c0392b';
+            } else {
+                hint.textContent = 'পণ্য ও ছাড় সেট করার পর ছাড়ের পর মোট টাকা এখানে বসাতে হবে।';
+                hint.style.color = '#666';
+            }
+        }
+
         function updateInvoiceFinancialFields() {
             const selectedIndex = document.getElementById('salesRetailerSelect').value;
             const type = document.getElementById('salesInvoiceType').value;
@@ -3309,10 +3328,19 @@ body.edit-modal-open { overflow: hidden !important; }
             document.getElementById('salesDueAmount').value = type === 'Credit' && retData ? currentDue : "";
             document.getElementById('salesAvailable').value = type === 'Credit' && retData ? available : "";
 
-            const cash = document.getElementById('salesCashDeposit');
-            cash.disabled = type !== 'Cash';
-            cash.style.backgroundColor = type === 'Cash' ? '' : '#eee';
-            if (type !== 'Cash') cash.value = '';
+            // Cash হলে ক্যাশ জমার ঘর খুলবে; Credit হলে ঘরটি ব্লক/লুকানো থাকবে।
+            const cashDepositGroup = document.getElementById('cashDepositGroup');
+            const cashDepositEl = document.getElementById('salesCashDeposit');
+            if (cashDepositGroup && cashDepositEl) {
+                const isCash = type === 'Cash';
+                cashDepositGroup.style.display = isCash ? 'block' : 'none';
+                cashDepositEl.disabled = !isCash;
+                cashDepositEl.required = isCash;
+                if (!isCash) {
+                    cashDepositEl.value = '';
+                }
+                updateCashDepositHint();
+            }
 
             // "তালিকায় নেই — হাতে লিখুন" চেকবক্সটা শুধু ক্যাশ ইনভয়েসে দেখানো
             // হয়। ক্যাশ থেকে সরে গেলে ওয়াক-ইন মোড স্বয়ংক্রিয়ভাবে বন্ধ করে
@@ -3554,9 +3582,8 @@ body.edit-modal-open { overflow: hidden !important; }
                 }
             });
             selectedProductIndexesForInvoice.clear();
-            // পণ্য যে ক্রমেই টিক দিয়ে সিলেক্ট করা হোক না কেন, ইনভয়েস আইটেম
-            // তালিকায় সবসময় A-Z (অক্ষর) অনুযায়ী সাজানো থাকবে।
-            selectedInvoiceItems.sort((a, b) => String(a.name||'').localeCompare(String(b.name||'')));
+            // পণ্য যে ক্রমে টিক দিয়ে সিলেক্ট করা হয়েছে, ইনভয়েস আইটেম
+            // তালিকায় সেই ক্রমই বজায় থাকবে।
             closeModal('productSelectModal');
             renderInvoiceItemTable();
             if (autoFilledCount > 0) {
@@ -3794,6 +3821,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const avgPct = totalGross > 0 ? (totalDiscountAmount / totalGross) * 100 : 0;
                 avgEl.innerText = (Math.round(avgPct * 100) / 100) + '%';
             }
+            updateCashDepositHint();
         }
 
         function removeInvoiceItem(index) {
@@ -3869,7 +3897,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 // চেয়ে খারাপ না, শুধু এই একটা বিরল ফলব্যাক অবস্থায়
                 // নম্বর-সংঘর্ষের ঝুঁকিটা আগের মতোই থেকে যায়।
             }
-            const cashDeposit = parseFloat(document.getElementById('salesCashDeposit').value || 0) || 0;
+            let cashDeposit = 0;
 
             if(selectedInvoiceItems.length === 0) { alert("কমপক্ষে একটি পণ্য যুক্ত করুন।"); return; }
 
@@ -3921,12 +3949,17 @@ body.edit-modal-open { overflow: hidden !important; }
                     return;
                 }
             } else {
-                // ক্যাশ ইনভয়েসে ইনভয়েসের পুরো টাকাটাই "ক্যাশ জমা" ঘরে বসাতে
-                // হবে — কম-বেশি হলে ইনভয়েস সেভ হবে না, কারণ এটা যেহেতু ক্যাশ
-                // ইনভয়েস, পুরো টাকা তখনই বুঝে নেওয়া হয়েছে ধরে নেওয়া হয়।
-                if (cashDeposit !== currentInvoiceTotal) {
-                    alert(`ক্যাশ ইনভয়েস কমপ্লিট করতে 'ক্যাশ জমা' ঘরে ইনভয়েসের পুরো টাকা (${currentInvoiceTotal.toLocaleString('en-US')} ৳) বসাতে হবে।\nআপনি বসিয়েছেন: ${cashDeposit.toLocaleString('en-US')} ৳`);
-                    document.getElementById('salesCashDeposit').focus();
+                const cashDepositEl = document.getElementById('salesCashDeposit');
+                const enteredCashDeposit = parseFloat(cashDepositEl ? cashDepositEl.value : 0) || 0;
+                cashDeposit = enteredCashDeposit;
+                if (!cashDepositEl || cashDepositEl.disabled || enteredCashDeposit <= 0) {
+                    alert(`ক্যাশ ইনভয়েস কনফার্ম করতে আগে ছাড়ের পর ইনভয়েসের মোট টাকা ক্যাশ জমার ঘরে বসান।\nমোট জমা: ${currentInvoiceTotal.toLocaleString('en-US')} ৳`);
+                    if (cashDepositEl) cashDepositEl.focus();
+                    return;
+                }
+                if (Math.abs(enteredCashDeposit - currentInvoiceTotal) > 0.005) {
+                    alert(`ক্যাশ জমার অংক ইনভয়েসের ছাড়ের পর মোট টাকার সমান হতে হবে।\nইনভয়েসের মোট: ${currentInvoiceTotal.toLocaleString('en-US')} ৳\nআপনি দিয়েছেন: ${enteredCashDeposit.toLocaleString('en-US')} ৳`);
+                    cashDepositEl.focus();
                     return;
                 }
             }
@@ -3961,7 +3994,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 // ডিলিট করলে এই লিংক ধরেই সেই কালেকশন এন্ট্রিটাও একসাথে
                 // মুছে ফেলা যাবে, নাহলে সেটা "ভুতুড়ে" কালেকশন হয়ে বাকির
                 // হিসাব স্থায়ীভাবে ভুল করে রেখে দিত।
-                linkedCollectionId: newDepositId || (oldInvoice?.linkedCollectionId || null),
+                linkedCollectionId: oldInvoice?.linkedCollectionId || null,
                 available: invoiceType === 'Credit' ? Math.max(0, (parseFloat(selectedRetailerData.creditLimit || 0)||0) - existingDueForLimit - currentInvoiceTotal) : 0,
                 // ক্রেতার নাম/ঠিকানা/মোবাইল সরাসরি ইনভয়েসের সাথেই সেভ করে
                 // রাখা হচ্ছে (রিটেইলার তালিকার ওপর নির্ভর না করে) — বিশেষ
@@ -5090,12 +5123,12 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
 let stockSelectedIndexes = new Set();
-// প্রতিটা পণ্যের পাশে টাইপ করা পিস সংখ্যা এখানে সাথে সাথে সেভ থাকে
-// (প্রোডাক্ট ইনডেক্স অনুযায়ী) -- আগে এটা না থাকায় "নির্বাচন পরিবর্তন
-// করুন" চেপে আরেকটা পণ্য যোগ করে ফিরে এলে আগে টাইপ করা সব সংখ্যা মুছে
-// শূন্য হয়ে যেত। এখন ফিরে এলেও আগের লেখা সংখ্যাগুলো ঠিক আগের মতোই
-// থেকে যাবে।
-let stockQtyValues = {};
+// প্রতিটি পণ্য যে ক্রমে প্রথমবার সিলেক্ট করা হয়েছে, Set সেই insertion order ধরে রাখে।
+// তাই নির্বাচিত তালিকা আর A-Z অনুযায়ী সাজানো হবে না; ব্যবহারকারীর সিলেক্ট করা ক্রমেই দেখাবে।
+// প্রতিটি পণ্যের কার্টুন ও পিস ইনপুট আলাদাভাবে এখানে সংরক্ষিত থাকে, যাতে Back/আরও পণ্য যোগ
+// করলে আগের লেখা সংখ্যা হারিয়ে না যায়।
+let stockCartonQtyValues = {};
+let stockPieceQtyValues = {};
 let stockMultiPhase = 'select'; // 'select' → checkbox দিয়ে পণ্য বাছা, 'qty' → শুধু বাছাই করা পণ্যে পিস সংখ্যা লেখা
 let stockInfoConfirmed = false; // তারিখ+রেফারেন্স নম্বর কনফার্ম করার আগে পণ্যের তালিকা দেখানো হয় না
 let stockProductSearchFilter = '';
@@ -5179,15 +5212,25 @@ function renderStockMultiProductList() {
         }
 
         function renderStockQtyPhase(container, actionBar) {
-            const indexes = Array.from(stockSelectedIndexes).sort((a, b) => products[a].name.localeCompare(products[b].name));
-            const rowsHtml = indexes.map(index => `
-                    <div class="stock-multi-row" style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid #eee;">
-                        <span style="flex:1;">${escapeHtml(products[index].name)}</span>
-                        <input type="number" class="stockMultiQty" data-index="${index}" value="${stockQtyValues[index] !== undefined ? stockQtyValues[index] : ''}" oninput="stockQtyValues[${index}] = this.value;" placeholder="পিস সংখ্যা লিখুন" min="1" step="1" style="width:150px;">
+            // Set-এর insertion order-ই ব্যবহারকারীর সিলেক্ট করা serial/order। এখানে A-Z sort করা যাবে না।
+            const indexes = Array.from(stockSelectedIndexes);
+            const rowsHtml = indexes.map((index, order) => {
+                const product = products[index];
+                const ppc = getPiecesPerCarton(product);
+                return `
+                    <div class="stock-multi-row" style="display:flex; align-items:center; gap:10px; padding:9px 4px; border-bottom:1px solid #eee;">
+                        <span style="width:28px; flex:0 0 28px; text-align:center; font-weight:bold; color:#555;">${toBanglaNumber(order + 1)}</span>
+                        <span style="flex:1; min-width:150px; font-weight:600;">${escapeHtml(product.name)}</span>
+                        <span style="font-size:11px; color:#777; white-space:nowrap;">১ কার্টুন = ${toBanglaNumber(ppc)} পিস</span>
+                        <input type="number" class="stockMultiCartonQty" data-index="${index}" value="${stockCartonQtyValues[index] !== undefined ? stockCartonQtyValues[index] : ''}" oninput="stockCartonQtyValues[${index}] = this.value;" placeholder="কার্টুন" min="0" step="1" inputmode="numeric" style="width:88px; padding:7px; border:1px solid #f0ad4e; background:#fff3cd; border-radius:5px; color:#7a4b00; font-weight:600;">
+                        <input type="number" class="stockMultiPieceQty" data-index="${index}" value="${stockPieceQtyValues[index] !== undefined ? stockPieceQtyValues[index] : ''}" oninput="stockPieceQtyValues[${index}] = this.value;" placeholder="পিস" min="0" step="1" inputmode="numeric" style="width:88px; padding:7px; border:1px solid #64b5f6; background:#e3f2fd; border-radius:5px; color:#0d47a1; font-weight:600;">
                         <button type="button" onclick="removeStockQtyItem(${index})" title="এই পণ্যটি বাদ দিন" style="background:none; border:none; color:#c0392b; font-size:20px; font-weight:bold; cursor:pointer; padding:0 4px; line-height:1;">✕</button>
-                    </div>`).join('');
+                    </div>`;
+            }).join('');
             container.innerHTML = `
-                <div style="font-size:12px; color:#666; margin-bottom:8px;">${toBanglaNumber(indexes.length)}টি পণ্য নির্বাচিত হয়েছে — প্রতিটির পাশে মোট পিস সংখ্যা লিখুন, তারপর সবচেয়ে নিচের সবুজ "সেভ করুন" বাটনে চাপুন। ভুল করে সিলেক্ট হয়ে গেলে পাশের ✕ চেপে বাদ দিন।</div>
+                <div style="font-size:12px; color:#666; margin-bottom:8px;">
+                    ${toBanglaNumber(indexes.length)}টি পণ্য নির্বাচিত হয়েছে — <b style="color:#7a4b00;">হলুদ ঘরে কার্টুন</b> এবং <b style="color:#0d47a1;">নীল ঘরে পিস</b> লিখুন। তালিকাটি আপনি যে ক্রমে পণ্য সিলেক্ট করেছেন সেই ক্রমেই থাকবে।
+                </div>
                 <div>${rowsHtml}</div>`;
             if (actionBar) {
                 actionBar.innerHTML = `<button type="button" class="btn-action btn-edit" style="width:100%; padding:10px;" onclick="backToStockSelection()">← আরও পণ্য যোগ করুন</button>`;
@@ -5199,7 +5242,8 @@ function renderStockMultiProductList() {
         // একটা পণ্যই তালিকা থেকে সরে যায়।
         function removeStockQtyItem(index) {
             stockSelectedIndexes.delete(index);
-            delete stockQtyValues[index];
+            delete stockCartonQtyValues[index];
+            delete stockPieceQtyValues[index];
             if (stockSelectedIndexes.size === 0) {
                 // সব পণ্যই বাদ দিয়ে দিলে সিলেকশন ধাপে ফিরে যাওয়াই স্বাভাবিক
                 stockMultiPhase = 'select';
@@ -5227,7 +5271,8 @@ function renderStockMultiProductList() {
             stockInfoConfirmed = false;
             stockProductSearchFilter = '';
             stockSelectedIndexes = new Set();
-            stockQtyValues = {};
+            stockCartonQtyValues = {};
+            stockPieceQtyValues = {};
             stockMultiPhase = 'select';
         }
 
@@ -5280,20 +5325,39 @@ function renderStockMultiProductList() {
 
             const entries = [];
             for (const idx of stockSelectedIndexes) {
-                const qtyInput = document.querySelector(`.stockMultiQty[data-index="${idx}"]`);
-                const qtyPieces = parseFloat(qtyInput.value);
-                if (!Number.isFinite(qtyPieces) || qtyPieces <= 0) {
-                    alert(`"${products[idx].name}" এর জন্য সঠিক পিস সংখ্যা লিখুন।`);
-                    qtyInput.focus();
+                const cartonInput = document.querySelector(`.stockMultiCartonQty[data-index="${idx}"]`);
+                const pieceInput = document.querySelector(`.stockMultiPieceQty[data-index="${idx}"]`);
+                const cartonQty = parseFloat(cartonInput?.value || 0);
+                const pieceQty = parseFloat(pieceInput?.value || 0);
+                const ppc = getPiecesPerCarton(products[idx]);
+                if (!Number.isFinite(cartonQty) || cartonQty < 0 || !Number.isInteger(cartonQty)) {
+                    alert(`"${products[idx].name}" এর জন্য সঠিক কার্টুন সংখ্যা লিখুন।`);
+                    cartonInput?.focus();
                     return;
                 }
-                entries.push({ product: products[idx], qtyPieces });
+                if (!Number.isFinite(pieceQty) || pieceQty < 0 || !Number.isInteger(pieceQty)) {
+                    alert(`"${products[idx].name}" এর জন্য সঠিক পিস সংখ্যা লিখুন।`);
+                    pieceInput?.focus();
+                    return;
+                }
+                if (pieceQty >= ppc) {
+                    alert(`"${products[idx].name}" এর পিস সংখ্যা ${toBanglaNumber(ppc)}-এর কম হতে হবে। অতিরিক্ত পিস হলে কার্টুন ঘরে কার্টুন সংখ্যা দিন।`);
+                    pieceInput?.focus();
+                    return;
+                }
+                if (cartonQty === 0 && pieceQty === 0) {
+                    alert(`"${products[idx].name}" এর জন্য কার্টুন অথবা পিস—অন্তত একটি সংখ্যা দিতে হবে।`);
+                    cartonInput?.focus();
+                    return;
+                }
+                const qtyPieces = (cartonQty * ppc) + pieceQty;
+                entries.push({ product: products[idx], cartonQty, pieceQty, qtyPieces });
             }
 
             const stockDate = document.getElementById('stockAddDate').value || getLocalISODate();
             const stockInvoiceRefValue = (document.getElementById('stockInvoiceRef').value || '').trim();
 
-            entries.forEach(({ product, qtyPieces }) => {
+            entries.forEach(({ product, cartonQty, pieceQty, qtyPieces }) => {
                 const ppc = getPiecesPerCarton(product);
                 // Internally stock is kept as carton-equivalent so existing sales logic remains compatible.
                 const cartonEquivalent = qtyPieces / ppc;
