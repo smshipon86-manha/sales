@@ -2304,7 +2304,8 @@ body.edit-modal-open { overflow: hidden !important; }
         // ===== FIRESTORE NO-DELETE SAFETY =====
         // এই অ্যাপ কোনো বিদ্যমান Firestore রেকর্ড স্থায়ীভাবে ডিলিট করবে না।
         function blockPermanentDelete(label = 'এই ডাটা') {
-            alert(`🔒 ডাটা সুরক্ষার জন্য ${label} ডিলিট বন্ধ রাখা হয়েছে।\n\nএই অ্যাপ কোনো বিদ্যমান রেকর্ড Firestore থেকে মুছবে না।`);
+            const detail = lastBlockedDeletionDetail ? `\n\nযা "হারিয়ে যাচ্ছে" বলে মনে হয়েছে: ${lastBlockedDeletionDetail}` : '';
+            alert(`🔒 ডাটা সুরক্ষার জন্য ${label} ডিলিট বন্ধ রাখা হয়েছে।${detail}\n\nএই অ্যাপ কোনো বিদ্যমান রেকর্ড Firestore থেকে মুছবে না।`);
             return false;
         }
         function identityOfRecord(x, kind) {
@@ -2314,10 +2315,15 @@ body.edit-modal-open { overflow: hidden !important; }
             if (kind === 'stockLog') return String(x?.id || x?.logId || ((x?.createdAt || '') + '|' + (x?.productName || '') + '|' + (x?.type || ''))).trim();
             return String(x || '').trim();
         }
+        // ঠিক কোন ধরনের ডেটা (রুট/পণ্য/রিটেইলার/স্টক) "হারিয়ে যাচ্ছে" বলে
+        // মনে হচ্ছে, তার নির্দিষ্ট নাম/পরিচয়টাই এখন আলাদা করে মনে রাখা
+        // হয়, যাতে "ডিলিট বন্ধ" বার্তা এলে ঠিক কোনটার কারণে তা বলা যায়
+        // (আগে শুধু "কোনো একটা কিছু" বলত, নির্দিষ্ট করা যেত না)।
+        let lastBlockedDeletionDetail = '';
         function arrayHasDeletion(serverArr, localArr, kind) {
             const serverSet = new Set((Array.isArray(serverArr) ? serverArr : []).map(x => identityOfRecord(x, kind)).filter(Boolean));
             const localSet = new Set((Array.isArray(localArr) ? localArr : []).map(x => identityOfRecord(x, kind)).filter(Boolean));
-            for (const id of serverSet) if (!localSet.has(id)) return true;
+            for (const id of serverSet) if (!localSet.has(id)) { lastBlockedDeletionDetail = `${kind}: "${id}"`; return true; }
             return false;
         }
         function checkNoCoreDeletion(serverData, payload) {
@@ -6306,11 +6312,172 @@ function renderStockMultiProductList() {
         // রিটেইলারের সাথে মেলে না (রিটেইলার মুছে ফেলা হয়েছে, বা ভুলভাবে
         // মার্জ হয়েছে) — সেগুলোকে "এতিম" ইনভয়েস বলা হচ্ছে। এগুলো সাধারণ
         // তালিকায়/লেজারে দেখা যায় না কিন্তু রিপোর্টে দেখা যায়।
+        // "এতিম" ইনভয়েস চেনার জন্য আগে শুধু ট্রেডার্স-নাম মিলিয়ে চেক করা হতো --
+        // এই কারণে কোনো রিটেইলারের নাম এডিট করলেই তার পুরোনো ইনভয়েসগুলো
+        // ভুলভাবে "এতিম" হয়ে যেত। এখন প্রথমে স্থায়ী retailerId দিয়ে মেলানো
+        // হয় (নাম বদলালেও এটা বদলায় না) -- retailerId না থাকা পুরোনো
+        // ইনভয়েসের জন্যই শুধু নাম-ভিত্তিক পুরোনো পদ্ধতিতে ফিরে যাওয়া হয়।
         function findOrphanInvoices() {
+            const validIds = new Set(retailers.map(r => r.id).filter(Boolean));
             const validTraders = new Set(retailers.map(r => r.trader));
-            // ওয়াক-ইন (তালিকায় নেই) ইনভয়েসগুলো ইচ্ছাকৃতভাবেই কোনো
-            // রিটেইলারের সাথে যুক্ত না — এগুলো "এতিম" ধরা হবে না।
-            return (invoices || []).filter(inv => !inv.isWalkIn && !validTraders.has(inv.retailer));
+            return (invoices || []).filter(inv => {
+                if (inv.isWalkIn) return false;
+                if (inv.retailerId) return !validIds.has(inv.retailerId);
+                return !validTraders.has(inv.retailer);
+            });
+        }
+
+        // আগের একটা ভার্সনের ভুলে যদি কারো রিটেইলার এমনভাবে পুনরুদ্ধার হয়ে
+        // গিয়ে থাকে যেখানে নতুন র‍্যান্ডম id দেওয়া হয়েছিল (ইনভয়েসের পুরোনো
+        // id-র সাথে না মিলিয়ে), সেই ভুলটা এই ফাংশন দিয়ে মেরামত করা যাবে --
+        // নতুন কোনো রিটেইলার তৈরি না করে, বিদ্যমান (নাম/রুট মিলে যাওয়া)
+        // রিটেইলারের id-টাই ইনভয়েসে থাকা সঠিক id দিয়ে বদলে দেওয়া হয়।
+        // ২১ সেপ্টেম্বরের ঘটনার সম্পূর্ণ, হাতে-কলমে যাচাই করা সংশোধন (v2) --
+        // আগের সংস্করণে ভুল দিকে ঠিক করা হয়েছিল (রিটেইলারের প্রতিষ্ঠিত,
+        // বহু-ইনভয়েসে ব্যবহৃত id বদলে ফেলা হয়েছিল), যার ফলে উল্টো আরও বেশি
+        // ইনভয়েস এতিম হয়ে গিয়েছিল। এবার কোনো "মিলানোর লজিক" ব্যবহার করা
+        // হচ্ছে না -- সরাসরি সম্পূর্ণ যাচাই-করা রিটেইলার তালিকা (রিটেইলারের
+        // নিজের id কখনো বদলানো হয়নি) আর শুধু ১২টা সত্যিকারের stray ইনভয়েসের
+        // retailerId ফিল্ড সরাসরি সংশোধন করা হচ্ছে। এটা idempotent (একাধিকবার
+        // চালালেও ক্ষতি নেই) -- আগে থেকেই ঠিক থাকলে শুধু জানিয়ে দেবে।
+        const SEP21_FINAL_RETAILERS = [{"name": "মোঃ আবু হানিফ", "currentDue": 317496, "creditLimit": 1000000, "trader": "মেসার্স বিসমিল্লাহ ট্রেডার্স", "openingDue": {"amount": 582666, "id": "OPEN_1789306570662", "date": "13-09-2026"}, "address": "ধুনট বাজার", "id": "RET_1788962971440_xuxd1i", "mobile": "1740727922", "route": "ধুনট", "code": "DHU03"}, {"name": "মোঃ পিয়ার আলী", "trader": "মেসার্স তানিয়া  বীজ ভান্ডার", "id": "RET_1788962971440_nj0c7d", "mobile": "1712869297", "openingDue": {"amount": 97769, "id": "OPEN_1789351713892_1", "date": "14-09-2026"}, "currentDue": 97769, "route": "ধুনট", "address": "ধুনট বাজার", "code": "DHU02", "creditLimit": 200000}, {"id": "RET_1788962971440_7a22dk", "mobile": "1722461344", "address": "ধুনট বাজার", "name": "মোঃ রিপন হোসেন", "currentDue": 54007, "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713894_2", "amount": 68007}, "creditLimit": 200000, "trader": "মেসার্স কৃষি সেবা ট্রেডার্স", "route": "ধুনট", "code": "DHU01"}, {"collections": [], "name": "মোঃ শাহিন আলম", "trader": "মেসার্স মা ট্রেডার্স এন্ড বীজ ভান্ডার", "code": "DHU04", "mobile": "1712466692", "openingDue": {"date": "14-09-2026", "amount": 300635, "id": "OPEN_1789351713895_3"}, "id": "RET_1789006276533_ihhkus", "currentDue": 365467, "route": "ধুনট", "address": "ধুনট বাজার", "creditLimit": 1200000}, {"trader": "মেসার্স মা বীজ ভান্ডার", "name": "মোঃ আশাদুল হক", "collections": [], "route": "ধুনট", "code": "DHU05", "id": "RET_1789006276533_m6rj6k", "openingDue": {"amount": 83388, "date": "14-09-2026", "id": "OPEN_1789351713896_4"}, "address": "ধুনট বাজার", "mobile": "1720190902", "currentDue": 108950, "creditLimit": 300000}, {"mobile": "1713760781", "address": "ধুনট বাজার", "creditLimit": 1000000, "code": "DHU06", "route": "ধুনট", "id": "RET_1789006276533_m3k8yf", "name": "মোঃ মিলন সরকার", "currentDue": 119280, "openingDue": {"amount": 161478, "id": "OPEN_1789351713896_5", "date": "14-09-2026"}, "trader": "মেসার্স মিথিলা ট্রেডার্স", "collections": []}, {"mobile": "1827732066", "id": "RET_1789006276533_7fmw9k", "address": "ধুনট বাজার", "creditLimit": 200000, "name": "মোঃ রেজাউল করিম", "currentDue": 10369, "code": "DHU07", "trader": "মেসার্স সরকার এন্টারপ্রাইজ", "collections": [], "route": "ধুনট"}, {"mobile": "1712883537", "address": "ধুনট বাজার", "creditLimit": 250000, "id": "RET_1789006276533_e5jcye", "name": "শ্রী সজল কুমার", "currentDue": 56175, "code": "DHU08", "trader": "মেসার্স সীমান্ত ট্রেডার্স", "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713896_7", "amount": 59175}, "route": "ধুনট", "collections": []}, {"creditLimit": 250000, "code": "DHU09", "trader": "মোঃ চান হোসেন", "currentDue": 0, "route": "ধুনট", "id": "RET_1789006276533_gk9mco", "collections": [], "name": "মোঃ চান হোসেন", "address": "ধুনট বাজার", "mobile": "1839895841"}, {"creditLimit": 100000, "name": "মোঃ আব্দুল্লাহ", "trader": "মেসার্স আবদুল্লা ট্রেডার্স", "currentDue": 0, "route": "বিলচাপরি", "address": "শৈলঢুকড়ি বাজার", "id": "RET_1789006276534_ay3u1f", "collections": [], "mobile": "1770372853", "code": "BIL01"}, {"collections": [], "code": "BIL02", "openingDue": {"amount": 42604, "id": "OPEN_1789351713896_10", "date": "14-09-2026"}, "mobile": "1309434439", "currentDue": 42604, "id": "RET_1789006276534_960f6l", "route": "বিলচাপরি", "address": "হাসুখালি বাজার", "creditLimit": 200000, "name": "মোঃ মাসুদ রানা", "trader": "মেসার্স আবু হুরায়রা ট্রেডার্স"}, {"collections": [], "id": "RET_1789006276534_n59g34", "route": "বিলচাপরি", "code": "BIL03", "mobile": "1718547164", "creditLimit": 200000, "address": "ঝাঝর বাজার", "trader": "মেসার্স আরশিয়ান ট্রেডার্স", "name": "মোঃ রাজিবুল ইসলাম রাজু", "currentDue": 0}, {"currentDue": 6776, "creditLimit": 50000, "id": "RET_1789006276534_dibqgd", "name": "মোঃ রিপন হোসাইন", "trader": "মেসার্স আরাফাত এন্টারপ্রাইজ", "address": "এলাঙ্গি বাজার", "openingDue": {"id": "OPEN_1789351713896_12", "date": "14-09-2026", "amount": 6776}, "mobile": "1738007669", "collections": [], "route": "বিলচাপরি", "code": "BIL04"}, {"code": "BIL05", "creditLimit": 500000, "mobile": "1717309491", "currentDue": 275681, "openingDue": {"date": "13-09-2026", "id": "OPEN_1789306671294", "amount": 272777}, "route": "বিলচাপরি", "address": "এলাঙ্গি বাজার", "collections": [], "name": "মোঃ আবু তাহের বাবু", "trader": "মেসার্স জারিফ সিড", "id": "RET_1789006276534_bbipv6"}, {"creditLimit": 100000, "currentDue": 0, "id": "RET_1789006276534_1rc8xe", "code": "BIL06", "trader": "মেসার্স মোল্লা ট্রেডার্স", "route": "বিলচাপরি", "name": "মোঃ বুলেট ইসলাম", "collections": [], "mobile": "1719330332", "address": "তারাকান্দি বাজার"}, {"name": "মোঃ পলাশ মিয়া", "id": "RET_1789006276534_wg439v", "trader": "মেসার্স রিয়াদ এন্ড রিহান ট্রেডার্স", "collections": [], "currentDue": 2222, "mobile": "1790918095", "route": "বিলচাপরি", "creditLimit": 50000, "address": "বিলনোতার বাজার", "code": "BIL07", "openingDue": {"id": "OPEN_1789351713896_15", "date": "14-09-2026", "amount": 2222}}, {"code": "BIL08", "creditLimit": 80000, "id": "RET_1789006276534_kq430y", "trader": "মেসার্স সাকিব এন্ড সোহান স্টোর", "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713896_16", "amount": 6444}, "mobile": "1740813238", "route": "বিলচাপরি", "name": "মোঃ মাহাবুর রহমান", "currentDue": 6444, "address": "ঈশ্বরঘাট বাজার", "collections": []}, {"name": "মোঃ পলাশ সরকার", "creditLimit": 70000, "trader": "মেসার্স সাব্বির ট্রেডার্স", "address": "রাঙ্গামাটি বাজার", "id": "RET_1789006276534_uat3f6", "currentDue": 2163, "mobile": "1773731462", "collections": [], "route": "বিলচাপরি", "code": "BIL09", "openingDue": {"date": "14-09-2026", "amount": 2163, "id": "OPEN_1789351713897_17"}}, {"currentDue": 77333, "mobile": "1736136358", "code": "BIL10", "creditLimit": 200000, "openingDue": {"id": "OPEN_1789351713897_18", "date": "14-09-2026", "amount": 77335}, "name": "মোঃ জহুরুল ইসলাম", "route": "বিলচাপরি", "address": "বিলচাপরি বাজার", "collections": [], "id": "RET_1789006276534_e5e1hv", "trader": "মেসার্স সিয়াম ট্রেডার্স"}, {"mobile": "1728326762", "currentDue": 0, "creditLimit": 70000, "code": "BIL11", "route": "বিলচাপরি", "name": "মোঃ আতাউর রহমান", "address": "রাঙ্গামাটি বাজার", "id": "RET_1789006276534_bza23g", "trader": "মেসার্স সেবা কৃষি বিতান", "collections": []}, {"address": "পাইকুরতলী বাজার", "code": "GOSSA01", "route": "গোসাইবাড়ি", "creditLimit": 90000, "id": "RET_1789006276534_ldxtq8", "currentDue": 0, "mobile": "1732535724", "trader": "মেসার্স ঈমান ট্রেডার্স", "name": "মোঃ ইমান আলী", "collections": []}, {"openingDue": {"amount": 13357, "date": "14-09-2026", "id": "OPEN_1789351713897_21"}, "trader": "মেসার্স জনতা ট্রেডার্স", "creditLimit": 300000, "name": "মোঃ ইউনুস আলী", "id": "RET_1789006276534_s70dyn", "route": "গোসাইবাড়ি", "currentDue": 27923, "collections": [], "address": "গোসাইবাড়ি বাজার", "mobile": "1739768734", "code": "GOSSA02"}, {"code": "GOSSA03", "trader": "মেসার্স ভাই ভাই ট্রেডার্স", "route": "গোসাইবাড়ি", "creditLimit": 70000, "id": "RET_1789006276534_mycy3q", "currentDue": 1973, "openingDue": {"amount": 1973, "date": "14-09-2026", "id": "OPEN_1789351713897_22"}, "address": "গুয়াডুরি বাজার", "name": "মোঃ শাহাদত হোসেন", "mobile": "1774771320", "collections": []}, {"currentDue": 11885, "code": "GOSSA04", "mobile": "1727590827", "creditLimit": 80000, "openingDue": {"id": "OPEN_1789351713897_23", "date": "14-09-2026", "amount": 11885}, "id": "RET_1789006276534_dhfnun", "address": "আরকাটিয়া বাজার", "route": "গোসাইবাড়ি", "trader": "মেসার্স মন্ডল ট্রেডার্স", "name": "মোঃ এনামুল হক", "collections": []}, {"mobile": "1782607730", "currentDue": 0, "address": "আনারপুর বাজার", "collections": [], "id": "RET_1789006276534_s935s4", "name": "মোঃ আব্দুর রশিদ", "creditLimit": 80000, "code": "GOSSA05", "trader": "মেসার্স রশিদ ট্রেডার্স", "route": "গোসাইবাড়ি"}, {"mobile": "1753984486", "id": "RET_1789006276534_kut5pu", "collections": [], "name": "মোঃ আব্দুর রহিম", "address": "চান্দার পাড়া বাজার", "code": "GOSSA06", "trader": "মেসার্স রহিম ট্রেডার্স", "currentDue": 0, "creditLimit": 60000, "route": "গোসাইবাড়ি"}, {"creditLimit": 50000, "code": "GOSSA07", "currentDue": 0, "trader": "মেসার্স সরকার ট্রেডার্স", "address": "মরিচতলা বাজার", "mobile": "1788033072", "route": "গোসাইবাড়ি", "collections": [], "name": "মোঃ বায়োজিদ হোসেন", "id": "RET_1789006276534_f3l4u2"}, {"name": "মোঃ সবুজ হোসাইন", "mobile": "1725092946", "collections": [], "route": "গোসাইবাড়ি", "trader": "মেসার্স সাকিবউল এন্টারপ্রাইজ", "address": "সুলতান হাটা বাজার", "code": "GOSSA08", "openingDue": {"amount": 903, "date": "14-09-2026", "id": "OPEN_1789351713897_27"}, "id": "RET_1789006276534_nicm0y", "creditLimit": 100000, "currentDue": 903}, {"mobile": "1713729401", "address": "পাইকুরতলী বাজার", "id": "RET_1789006276534_oitflf", "creditLimit": 200000, "name": "মোঃ আব্দুল মতিন", "openingDue": {"id": "OPEN_1789351713897_28", "date": "14-09-2026", "amount": 21883}, "code": "GOSSA09", "trader": "মেসার্স সাদিয়া বীজ ভান্ডার", "collections": [], "currentDue": 21883, "route": "গোসাইবাড়ি"}, {"code": "GOSSA10", "creditLimit": 70000, "trader": "মেসার্স সিয়াম এগ্রো ট্রেডার্স", "mobile": "1776235430", "route": "গোসাইবাড়ি", "currentDue": 4000, "id": "RET_1789006276535_jw8fim", "openingDue": {"date": "14-09-2026", "amount": 4000, "id": "OPEN_1789351713897_29"}, "name": "মোঃ জিলানী", "address": "গোসাইবাড়ি বাজার", "collections": []}, {"collections": [], "code": "GOSSA11", "route": "গোসাইবাড়ি", "trader": "মেসার্স হৃদয় ট্রেডার্স", "id": "RET_1789006276535_7vmc6n", "currentDue": 4418, "creditLimit": 100000, "name": "মোঃ রাশেদুল ইসলাম", "address": "জোরশিমুল বাজার", "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713897_30", "amount": 4418}, "mobile": "1725734409"}, {"name": "মোঃ আমিনুর রহমান", "collections": [], "route": "সোনাহাটা", "mobile": "1743574650", "address": "কান্তনগর বাজার", "trader": "মেসার্স ইয়াহিয়া ট্রেডার্স", "openingDue": {"amount": 269936, "id": "OPEN_1789351713897_31", "date": "14-09-2026"}, "creditLimit": 500000, "code": "SONAH01", "currentDue": 275495, "id": "RET_1789006276535_lak3b1"}, {"address": "সোনাহাটা বাজার", "openingDue": {"id": "OPEN_1789351713897_32", "date": "14-09-2026", "amount": 80297}, "route": "সোনাহাটা", "id": "RET_1789006276535_ey5n2b", "collections": [], "mobile": "1731020352", "currentDue": 94823, "code": "SONAH02", "name": "মোঃ এনামুল হক", "trader": "মেসার্স এনামুল ট্রেডার্স", "creditLimit": 200000}, {"id": "RET_1789006276535_v6sh5t", "code": "SONAH03", "trader": "মেসার্স বিপাশা বীজ ভান্ডার", "collections": [], "route": "সোনাহাটা", "name": "মোঃ আলমগীর হোসেন", "currentDue": 25495, "mobile": "01793892987", "creditLimit": 150000, "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713897_33", "amount": 25343}, "address": "নলডাঙ্গা বাজার"}, {"route": "সোনাহাটা", "trader": "মেসার্স ভাই ভাই ট্রেডার্স", "collections": [], "code": "SONAH04", "id": "RET_1789006276535_36wb23", "name": "মোঃ জিয়াউর রহমান", "openingDue": {"id": "OPEN_1789351713897_34", "date": "14-09-2026", "amount": 7700}, "currentDue": 17037, "address": "নিমগাছি বাজার", "creditLimit": 100000, "mobile": "1725245920"}, {"mobile": "1780852798", "name": "মোঃ রুহুল আমিন", "creditLimit": 100000, "route": "সোনাহাটা", "trader": "মেসার্স রুহুল ট্রেডার্স", "address": "বড়চাপড়া বাজার", "code": "SONAH05", "currentDue": 0, "id": "RET_1789006276535_y99sd4", "collections": []}, {"route": "সোনাহাটা", "trader": "মেসার্স সিনিহা ভেরাইটি স্টোর", "code": "SONAH06", "address": "কাতলাহার বাজার", "creditLimit": 100000, "name": "মোঃ আখতার হোসেন", "openingDue": {"id": "OPEN_1789351713897_36", "date": "14-09-2026", "amount": 6852}, "collections": [], "id": "RET_1789006276535_5p6xf6", "currentDue": 23018, "mobile": "1794989915"}, {"currentDue": 89724, "collections": [], "name": "শ্রী সঞ্জয় সাহা", "mobile": "1710189217", "route": "সোনামুখী", "openingDue": {"date": "14-09-2026", "amount": 119724, "id": "OPEN_1789351713897_37"}, "code": "SONAM01", "trader": "মেসার্স জননী ট্রেডার্স", "address": "হরিনাথপুর বাজার", "creditLimit": 500000, "id": "RET_1789006276535_asptqs"}, {"address": "দিগলকান্দি", "code": "SONAM02", "route": "সোনামুখী", "mobile": "1736550531", "creditLimit": 100000, "trader": "মেসার্স জিসান ট্রেডার্স", "id": "RET_1789006276535_kjyzjg", "collections": [], "currentDue": 0, "name": "মোঃ জুয়েল রানা"}, {"code": "SONAM03", "creditLimit": 300000, "address": "সোনামুখী বাজার", "trader": "মেসার্স বিউটি ভান্ডার", "route": "সোনামুখী", "name": "মোঃ বাবুল আক্তার বাবু", "currentDue": 132979, "mobile": "1721104578", "id": "RET_1789006276535_x7atmq", "collections": [], "openingDue": {"amount": 132979, "date": "14-09-2026", "id": "OPEN_1789351713897_39"}}, {"code": "SONAM04", "route": "সোনামুখী", "id": "RET_1789006276535_uclri0", "collections": [], "mobile": "1747679902", "address": "দিগলকান্দি বাজার", "trader": "মেসার্স ভাই ভাই ট্রেডার্স", "currentDue": 45276, "openingDue": {"amount": 61160, "id": "OPEN_1789351713897_40", "date": "14-09-2026"}, "creditLimit": 200000, "name": "মোঃ সেলিম রেজা"}, {"name": "মোঃ দুলাল উদ্দিন", "trader": "মেসার্স মা এগ্রো কেমিক্যাল ট্রেডার্স", "currentDue": 0, "route": "সোনামুখী", "address": "দিগলকান্দি বাজার", "creditLimit": 50000, "code": "SONAM05", "id": "RET_1789006276535_1e3h1l", "mobile": "1745910511", "collections": []}, {"id": "RET_1789006276535_6idzb0", "route": "সোনামুখী", "address": "দিগলকান্দি বাজার", "creditLimit": 60000, "mobile": "1767434185", "code": "SONAM06", "name": "মোঃ রব্বানী", "trader": "মেসার্স রুহুল আমিন টেডার্স", "collections": [], "currentDue": 0}, {"id": "RET_1789006276535_62uu3f", "collections": [], "code": "SONAM07", "trader": "মেসার্স শামসুল ট্রেডার্স", "route": "সোনামুখী", "currentDue": 0, "name": "মোঃ শামসুল হক", "mobile": "1739083495", "creditLimit": 80000, "address": "বেলকুচি বাজার"}, {"code": "SONAM08", "collections": [], "trader": "মেসার্স সোনালী ট্রেডার্স", "route": "সোনামুখী", "mobile": "1771133928", "currentDue": 0, "name": "মোঃ আব্দুল আজিজ", "id": "RET_1789006276535_gh9d1y", "address": "সোনামুখী বাজার", "creditLimit": 90000}, {"address": "চরকাদহ বাজার", "currentDue": 30888, "code": "SONAM09", "route": "সোনামুখী", "creditLimit": 100000, "mobile": "1748904151", "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713898_45", "amount": 30888}, "id": "RET_1789006276535_5bgems", "trader": "মেসার্স হৃদয় স্টোর", "name": "মোঃ লাভলু মিয়া", "collections": []}, {"name": "মোঃ লিঙ্কন হোসেন", "currentDue": 0, "trader": "মেসার্স লিংকন টেলার্স", "collections": [], "address": "আলমপুর বাজার", "mobile": "1732677011", "id": "RET_1789006276535_3i8yw0", "route": "কাজিপুর", "code": "KAZ01", "creditLimit": 200000}, {"code": "KAZ02", "address": "সীমান্ত বাজার", "route": "কাজিপুর", "collections": [], "mobile": "1721222890", "creditLimit": 200000, "trader": "মোঃ লোকমান হাকিম", "currentDue": 0, "name": "মোঃ লোকমান হাকিম", "id": "RET_1789006276536_vq7d6v"}, {"trader": "মেসার্স শামীম ট্রেডার্স", "collections": [], "openingDue": {"id": "OPEN_1789351713898_48", "amount": 14298, "date": "14-09-2026"}, "code": "KAZ03", "route": "কাজিপুর", "currentDue": 14298, "address": "পরানপুর বাজার", "id": "RET_1789006276536_1yh5u3", "creditLimit": 150000, "mobile": "1234567890", "name": "মোঃ শামীম আহমেদ"}, {"collections": [], "id": "RET_1789006276536_5xzm2i", "code": "KAZ04", "trader": "মোঃ শহিদুল ইসলাম", "address": "ঢাকুরিয়া বাজার", "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713898_49", "amount": 35385}, "mobile": "1740911677", "creditLimit": 80000, "route": "কাজিপুর", "currentDue": 35385, "name": "মোঃ শহিদুল ইসলাম"}, {"code": "PUR01", "trader": "মেসার্স মজনু ট্রেডার্স", "route": "পুরাতন", "openingDue": {"amount": 208044, "id": "OPEN_1789351713898_50", "date": "14-09-2026"}, "name": "মোঃ মজনু সরকার", "id": "RET_1789006276536_2r2f4f", "mobile": "1717334964", "collections": [], "currentDue": 208044, "address": "চালাপাড়া বাজার"}, {"name": "মোঃ সেলিম রেজা", "currentDue": 9419, "id": "RET_1789006276536_s88h7d", "route": "পুরাতন", "openingDue": {"amount": 9419, "date": "14-09-2026", "id": "OPEN_1789351713898_51"}, "mobile": "1735616552", "collections": [], "address": "তারাকান্দি বাজার", "trader": "মোঃ সেলিম রেজা", "code": "PUR02"}, {"code": "PUR03", "trader": "শিশির বাবু", "address": "ধুনট বাজার", "id": "RET_1789006276536_9uva8y", "openingDue": {"id": "OPEN_1789351713898_52", "date": "14-09-2026", "amount": 31044}, "mobile": "2356789012", "route": "পুরাতন", "currentDue": 31044, "name": "শিশির বাবু", "collections": []}, {"code": "PUR04", "trader": "মিলন হোসেন", "collections": [], "id": "RET_1789006276536_7bghna", "address": "ধুনট বাজার", "currentDue": 84524, "mobile": "1253459875", "route": "পুরাতন", "name": "মিলন হোসেন", "openingDue": {"id": "OPEN_1789351713898_53", "amount": 84524, "date": "14-09-2026"}}, {"code": "PUR05", "route": "পুরাতন", "creditLimit": 100000, "mobile": "1985317066", "openingDue": {"date": "14-09-2026", "amount": 2613, "id": "OPEN_1789351713898_54"}, "address": "আনারপুর বাজার", "id": "RET_1789006276536_snuio4", "trader": "আব্দুল করিম", "name": "আব্দুল করিম", "currentDue": 2613, "collections": []}, {"openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713898_55", "amount": 1745}, "collections": [], "name": "মোঃ সালাম হোসেন", "route": "পুরাতন", "mobile": "1713739510", "currentDue": 1745, "id": "RET_1789006276536_bdgb0j", "address": "সোনামুখী বাজার", "trader": "মোঃ সালাম হোসেন", "creditLimit": 100000, "code": "PUR06"}, {"route": "পুরাতন", "creditLimit": 90000, "trader": "মোঃ সামিউল ইসলাম", "code": "PUR07", "name": "মোঃ সামিউল ইসলাম", "currentDue": 2000, "collections": [], "id": "RET_1789006276536_kmxm8k", "address": "বড়চাপরা বাজার", "mobile": "1725792492", "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713898_56", "amount": 2000}}, {"code": "PUR08", "route": "পুরাতন", "trader": "মোঃ জিয়া", "address": "শৈলঢুকড়ি বাজার", "openingDue": {"date": "14-09-2026", "id": "OPEN_1789351713898_57", "amount": 75573}, "currentDue": 75573, "name": "মোঃ জিয়া", "collections": [], "mobile": "1721464650", "id": "RET_1789006276536_unnhl8"}, {"creditLimit": 90000, "code": "PUR09", "trader": "মোঃ দুলাল উদ্দিন", "route": "পুরাতন", "name": "মোঃ দুলাল উদ্দিন", "currentDue": 9852, "collections": [], "mobile": "1777991242", "openingDue": {"date": "14-09-2026", "amount": 9852, "id": "OPEN_1789351713899_58"}, "id": "RET_1789006276536_dlbhgy", "address": "কালেরপাড়া বাজার"}, {"address": "ছোটদিয়ার বাজার", "mobile": "1751349254", "id": "RET_1789006276536_rwyq3q", "collections": [], "name": "মোঃ রুবেল আহমেদ", "route": "পুরাতন", "trader": "মোঃ রুবেল আহমেদ", "currentDue": 3092, "code": "PUR10", "creditLimit": 100000, "openingDue": {"id": "OPEN_1789351713899_59", "date": "14-09-2026", "amount": 3092}}, {"trader": "মোঃ সবুজ মিয়া", "address": "সোনাহাটা বাজার", "collections": [], "name": "মোঃ সবুজ মিয়া", "route": "পুরাতন", "id": "RET_1789006276536_hbigcn", "openingDue": {"id": "OPEN_1789351713899_60", "amount": 11135, "date": "14-09-2026"}, "code": "PUR11", "mobile": "", "currentDue": 11135}, {"currentDue": 78047, "trader": "মোঃ টগর আলী", "name": "মোঃ টগর আলী", "openingDue": {"amount": 78047, "id": "OPEN_1789351713899_61", "date": "14-09-2026"}, "id": "RET_1789006276537_3s6mvy", "collections": [], "mobile": "1718213828", "code": "PUR12", "address": "মাঠপাড়া বাজার", "route": "পুরাতন"}, {"name": "মোঃ রাজু আহমেদ", "trader": "মোঃ রাজু আহমেদ", "route": "পুরাতন", "openingDue": {"date": "14-09-2026", "amount": 5000, "id": "OPEN_1789351713899_62"}, "code": "PUR13", "address": "কাতলাহার বাজার", "collections": [], "mobile": "1745853404", "currentDue": 5000, "id": "RET_1789006276537_n8bof7"}, {"mobile": "1993437032", "currentDue": 47647, "address": "ভুবনগাতি বাজার", "id": "RET_1789006276537_mkg4k8", "name": "মোঃ বক্কার আলী", "openingDue": {"amount": 47647, "date": "14-09-2026", "id": "OPEN_1789351713899_63"}, "code": "PUR14", "trader": "মোঃ বক্কার আলী", "collections": [], "route": "পুরাতন"}, {"currentDue": 17291, "name": "মোঃ আব্দুস সালাম", "collections": [], "trader": "মোঃ আব্দুস সালাম", "openingDue": {"amount": 17291, "id": "OPEN_1789351713899_64", "date": "14-09-2026"}, "id": "RET_1789006276537_icf0tl", "creditLimit": 70000, "mobile": "1766183743", "route": "পুরাতন", "code": "PUR15", "address": "বাকসাপাড়া বাজার"}, {"route": "পুরাতন", "creditLimit": 100000, "trader": "মোঃ আনোয়ার হোসেন", "id": "RET_1789006276537_yfp6ly", "code": "PUR16", "openingDue": {"amount": 13419, "date": "14-09-2026", "id": "OPEN_1789351713900_65"}, "collections": [], "name": "মোঃ আনোয়ার হোসেন", "address": "হরিনাথপুর বাজার", "currentDue": 13419, "mobile": "1740914399"}, {"id": "RET_1789006276537_2d0d94", "creditLimit": 200000, "mobile": "1784785301", "route": "পুরাতন", "name": "মোঃ জহুরুল ইসলাম", "currentDue": 3173, "trader": "মোঃ জহুরুল ইসলাম", "address": "তারাকান্দি বাজার", "collections": [], "code": "PUR17", "openingDue": {"amount": 3173, "date": "14-09-2026", "id": "OPEN_1789351713900_66"}}, {"id": "RET_1789006276537_kt8dm6", "route": "পুরাতন", "trader": "মোঃ সজল এসপিও", "openingDue": {"amount": 65119, "id": "OPEN_1789351713900_67", "date": "14-09-2026"}, "creditLimit": 150000, "currentDue": 65119, "address": "hh", "code": "PUR18", "collections": [], "name": "মোঃ সজল এসপিও", "mobile": "1842730797"}, {"name": "মোঃ আব্দুল মান্নান", "id": "RET_1789006717282_dusx29", "creditLimit": 150000, "trader": "মেসার্স আরাফাত ট্রেডার্স", "mobile": "1717761642", "currentDue": 9785, "route": "বিশ্বহরিগাছা", "code": "BISS01", "address": "ভুবনগাতি বাজার", "collections": [], "openingDue": {"amount": 9785, "id": "OPEN_1789351713900_68", "date": "14-09-2026"}}, {"currentDue": 335055, "code": "BISS02", "mobile": "1719779442", "creditLimit": 400000, "id": "RET_1789006717282_0cfp83", "openingDue": {"id": "OPEN_1789351713900_69", "amount": 312981, "date": "14-09-2026"}, "collections": [], "address": "বিশ্বহরিগাছা বাজার", "route": "বিশ্বহরিগাছা", "trader": "মেসার্স নিঝুম ট্রেডার্স", "name": "মোঃ আব্দুল হামিদ"}, {"name": "মোঃ আতিকুর রহমান", "mobile": "1710793995", "collections": [], "currentDue": 44439, "address": "বিশ্বহরিগাছা বাজার", "id": "RET_1789006717282_d88k90", "route": "বিশ্বহরিগাছা", "trader": "মেসার্স মেসার্স সাদিফ ট্রেডার্স", "creditLimit": 200000, "code": "BISS03", "openingDue": {"amount": 54439, "date": "14-09-2026", "id": "OPEN_1789351713900_70"}}, {"currentDue": 17874, "mobile": "1751204703", "id": "RET_1789006717282_vich2d", "openingDue": {"amount": 17874, "id": "OPEN_1789351713900_71", "date": "14-09-2026"}, "collections": [], "code": "BISS04", "route": "বিশ্বহরিগাছা", "address": "চানদিয়ার বাজার", "name": "মোঃ জাহাঙ্গীর ইসলাম", "creditLimit": 100000, "trader": "মেসার্স মেসির উদ্দিন ট্রেডার্স"}, {"code": "BISS05", "collections": [], "currentDue": 0, "trader": "মেসার্স সম্রাট ট্রেডার্স", "id": "RET_1789006717282_wpm1pi", "creditLimit": 100000, "mobile": "1774887342", "route": "বিশ্বহরিগাছা", "name": "মোঃ মমিন শেখ", "address": "চানদিয়ার বাজার"}, {"id": "RET_1789006717282_cryuz2", "route": "বিশ্বহরিগাছা", "code": "BISS06", "collections": [], "mobile": "1722646824", "address": "চালাপাড়া বাজার", "trader": "মেসার্স সালমান ট্রেডার্স", "currentDue": 0, "creditLimit": 90000, "name": "মোঃ জাহিদুল ইসলাম"}, {"id": "RET_1789006956907_g35e3x", "code": "KAZ05", "route": "কাজিপুর", "mobile": "01538200280", "creditLimit": 200000, "address": "সোনামুখী বাজার", "trader": "মোঃ আবুল কালাম", "collections": [], "currentDue": 0, "name": "মোঃ আবুল কালাম"}, {"route": "কাজিপুর", "trader": "মেসার্স সাগর ট্রেডার্স", "code": "KAZI01", "address": "একডালা বাজার", "collections": [], "name": "মোঃ সাগর আলী", "id": "RET_1789027079485_yv3dv7", "currentDue": 0, "creditLimit": 150000, "mobile": "01352823548"}, {"trader": "মেসার্স আজাদ ট্রেডার্স", "id": "RET_1789030189800_zh600l", "code": "GOSSA12", "route": "গোসাইবাড়ি", "collections": [], "address": "গোসাইবাড়ি বাজার", "creditLimit": 80000, "currentDue": 0, "mobile": "", "name": "মোঃ আজাদ হোসেন"}, {"currentDue": 0, "collections": [], "id": "RET_1789031166331_5ja9mc", "name": "মোঃ মিজানুর রহমান মন্টু", "mobile": "01713723672", "route": "কাজিপুর", "address": "স্থলবাড়ি  বাজার", "creditLimit": 90000, "trader": "মেসার্স মিজানুর ট্রেডার্স", "code": "KAZI02"}, {"id": "RET_1789092587918_y55x8p", "creditLimit": 100000, "trader": "মেসার্স আমিনুল টেডার্স", "code": "KAZI03", "route": "কাজিপুর", "name": "মোঃ আমিনুল ইসলাম", "mobile": "01721210130", "currentDue": 0, "collections": [], "address": "সোনামুখী বাজার"}, {"address": "পারুলকান্দি বাজার", "collections": [], "mobile": "", "name": "মোঃ সাজ্জাদুর রহমান পিয়ার", "route": "সোনামুখী", "code": "SONAM10", "trader": "মেসার্স ভাই ভাই ট্রেডার্স", "creditLimit": 100000, "id": "RET_1789182177851_d9nbb4", "currentDue": 0}, {"currentDue": 133872, "trader": "মেসার্স ভাই ভাই ট্রেডার্স", "id": "RET_1789189006723_37g0xf", "openingDue": {"amount": 68700, "id": "OPEN_1789351713901_80", "date": "14-09-2026"}, "route": "সোনাহাটা", "creditLimit": 400000, "name": "মোঃ জাহাঙ্গীর আলম", "code": "SONAH07", "address": "সোনাহাটা বাজার", "mobile": "01728404851", "collections": []}, {"code": "KAZI05", "currentDue": 0, "collections": [], "mobile": "01737524655", "creditLimit": 200000, "route": "কাজিপুর", "address": "একডালা বাজার", "name": "মোঃ শাহিন আলম", "id": "RET_1789277341436_m1k5yb", "trader": "মেসার্স শাহিন ট্রেডার্স"}, {"collections": [], "name": "মোঃ ফরিদুল ইসলাম", "trader": "মেসার্স সততা এন্টারপ্রাইজ", "id": "RET_1789279375556_1ipauy", "mobile": "01353151877", "creditLimit": 100000, "route": "কাজিপুর", "currentDue": 0, "code": "KAZI06", "address": "খোদারবাগ বাজার"}, {"mobile": "01783417149", "address": "শিমুলদাইর বাজার", "creditLimit": 100000, "id": "RET_1789305861327_gmpj4p", "code": "KAZI07", "currentDue": 0, "route": "কাজিপুর", "name": "মোঃ বিদ্যুৎ হোসেন", "collections": [], "trader": "মেসার্স বিদ্যুৎ ট্রেডার্স"}, {"id": "RET_1789372242087_w0gd94", "creditLimit": 100000, "currentDue": 0, "code": "KAZI08", "trader": "মেসার্স লিটন ট্রেডার্স", "route": "কাজিপুর", "collections": [], "mobile": "০৭১৫৪০১৬৬৫", "name": "লিটন মাহমুদ", "address": "চালিতাডাঙ্গা বাজার"}, {"code": "KAZI09", "route": "কাজিপুর", "trader": "মেসার্স আশরাফুল ট্রেডার্স", "creditLimit": 0, "address": "সানবান্দা চর", "currentDue": 0, "collections": [], "name": "আব্দুল মালেক", "id": "RET_1789545278231_p5tv7o", "mobile": "01768798534"}, {"mobile": "01743574995", "id": "RET_1789618631045_3q1avq", "address": "ধুনট বাজার", "name": "মোঃ সাইফুল ইসলাম", "collections": [], "route": "ধুনট", "trader": "মেসার্স সাইফুল ট্রেডার্স", "creditLimit": 200000, "currentDue": 68775, "code": "DHU10"}, {"code": "KAZ06", "trader": "মেসার্স লিমন ট্রেডার্স", "mobile": "01724507444", "route": "কাজিপুর", "name": "মোঃ তোরাব আলী", "currentDue": 0, "collections": [], "id": "RET_1789986117019_adr44m", "address": "সীমান্ত বাজার"}, {"collections": [], "address": "সীমান্ত বাজার", "id": "RET_1789277268529_i4yleq", "trader": "মেসার্স তোরাব ট্রেডার্স", "name": "মোঃ তোরাব আলী", "route": "কাজিপুর", "currentDue": 0, "mobile": "01724507444"}, {"name": "মোঃ তোরাব আলী", "trader": "মেসার্স তোরাব ট্রেডার্স", "address": "সীমান্ত বাজার", "route": "কাজিপুর", "currentDue": 0, "id": "RET_1789990178632_r6ewlu", "mobile": "01724507444", "collections": []}, {"mobile": "01724507444", "route": "কাজিপুর", "name": "মোঃ তোরাব আলী", "currentDue": 0, "collections": [], "id": "RET_1789990199241_thqbar", "trader": "মেসার্স তোরাব ট্রেডার্স", "address": "সীমান্ত বাজার"}, {"mobile": "01724507444", "collections": [], "name": "মোঃ তোরাব আলী", "address": "সীমান্ত বাজার", "id": "RET_1789990210909_ul8ngt", "trader": "মেসার্স তোরাব ট্রেডার্স", "route": "কাজিপুর", "currentDue": 0}, {"id": "RET_1788846357752_d1gkwb", "currentDue": 0, "mobile": "", "name": "অজানা গ্রাহক (বিস্তারিত পরে বসান)", "collections": [], "route": "অজানা রুট (ঠিক করে দিন)", "trader": "মোঃ চান হোসেন", "address": ""}, {"id": "RET_1788404673957_mcmg00", "route": "সোনাহাটা", "trader": "মেসার্স ভাই ভাই ট্রেডার্স", "name": "অজানা গ্রাহক #mcmg00 (বিস্তারিত পরে বসান)", "address": "", "mobile": "", "currentDue": 0, "collections": []}];
+        const SEP21_INVOICE_FIXES = [{"docId": "INV_1788840362953", "invoiceNo": "INV-003", "newRetailerId": "RET_1789006276534_n59g34"}, {"docId": "INV_1788844753112", "invoiceNo": "INV-005", "newRetailerId": "RET_1788962971440_7a22dk"}, {"docId": "INV_1788941244697", "invoiceNo": "INV-017", "newRetailerId": "RET_1788962971440_7a22dk"}, {"docId": "INV_1788852265086", "invoiceNo": "INV-007", "newRetailerId": "RET_1789006276535_36wb23"}, {"docId": "INV_1788852834883", "invoiceNo": "INV-008", "newRetailerId": "RET_1789006717282_0cfp83"}, {"docId": "INV_1788854627995", "invoiceNo": "INV-009", "newRetailerId": "RET_1789006276536_vq7d6v"}, {"docId": "INV_1788854879575", "invoiceNo": "INV-010", "newRetailerId": "RET_1789006276535_3i8yw0"}, {"docId": "INV_1788863281474", "invoiceNo": "INV-011", "newRetailerId": "RET_1789006276535_5p6xf6"}, {"docId": "INV_1788863798368", "invoiceNo": "INV-012", "newRetailerId": "RET_1789006276535_lak3b1"}, {"docId": "INV_1788934717867", "invoiceNo": "INV-013", "newRetailerId": "RET_1789006276533_m6rj6k"}, {"docId": "INV_1788934807701", "invoiceNo": "INV-014", "newRetailerId": "RET_1789006276535_ey5n2b"}, {"docId": "INV_1788934901885", "invoiceNo": "INV-015", "newRetailerId": "RET_1789006276534_bbipv6"}];
+
+        async function applySep21FinalFix() {
+            if (!checkConnectionOrAlert()) return;
+            const currentOrphans = findOrphanInvoices();
+            if (currentOrphans.length === 0) { alert('এতিম ইনভয়েস আগে থেকেই ০ -- এই সংশোধন চালানোর প্রয়োজন নেই।'); return; }
+            if (!confirm(`এটা রিটেইলার তালিকা সম্পূর্ণভাবে যাচাই-করা একটা সঠিক অবস্থায় বসিয়ে দেবে (${SEP21_FINAL_RETAILERS.length}টি রিটেইলার), আর ${SEP21_INVOICE_FIXES.length}টি ইনভয়েসের retailerId সংশোধন করবে। এটা একবারই চালান। এগিয়ে যাবেন?`)) return;
+
+            retailers = JSON.parse(JSON.stringify(SEP21_FINAL_RETAILERS));
+            retailers.forEach(r => recalculateRetailerDue(r));
+            const savedApp = await syncToFirebaseAdminDelete();
+            if (!savedApp) { alert('রিটেইলার তালিকা সিঙ্ক করতে সমস্যা হয়েছে। ইনভয়েস সংশোধন শুরু হয়নি -- আবার চেষ্টা করুন।'); return; }
+
+            let invFixed = 0, invFailed = [];
+            for (const f of SEP21_INVOICE_FIXES) {
+                try {
+                    await db.collection('sales_invoices').doc(f.docId).update({ retailerId: f.newRetailerId });
+                    invFixed++;
+                } catch (e) { invFailed.push(f.invoiceNo); }
+            }
+
+            let msg = `সম্পন্ন হয়েছে।\n\nরিটেইলার তালিকা: ${retailers.length}টি (যাচাই-করা সঠিক অবস্থা)\nইনভয়েস সংশোধন: ${invFixed}/${SEP21_INVOICE_FIXES.length}টি`;
+            if (invFailed.length) msg += `\n\n⚠️ এই ইনভয়েসগুলো সংশোধন করা যায়নি: ${invFailed.join(', ')} -- আবার চেষ্টা করুন।`;
+            alert(msg);
+            renderRetailerReport();
+            renderCustomerDueReport();
+            renderOrphanInvoices();
+        }
+
+        async function repairMismatchedRetailerIds() {
+            if (!checkConnectionOrAlert()) return;
+            const orphans = findOrphanInvoices();
+            if (orphans.length === 0) { alert('কোনো এতিম ইনভয়েস নেই, মেরামতের দরকার নেই।'); return; }
+
+            let repairedCount = 0;
+            const repairedNames = [];
+            const seenInvoiceIds = new Set();
+            orphans.forEach(inv => {
+                if (!inv.retailerId || !inv.route || !inv.retailer) return;
+                const groupKey = inv.retailerId;
+                if (seenInvoiceIds.has(groupKey)) return;
+                // এই একই রুট+ট্রেডার্স-এর একটা রিটেইলার বর্তমান তালিকায়
+                // আছে কিনা খুঁজে দেখা হচ্ছে (থাকলে তার id-টাই ভুল আইডি হতে
+                // পারে, ঠিক করে দেওয়া হবে)।
+                const match = retailers.find(r => r.route === inv.route && r.trader === inv.retailer && r.id !== inv.retailerId);
+                if (match) {
+                    seenInvoiceIds.add(groupKey);
+                    match.id = inv.retailerId;
+                    repairedCount++;
+                    repairedNames.push(`${match.trader} (${match.route})`);
+                }
+            });
+
+            if (repairedCount === 0) {
+                alert('মেরামত করার মতো কোনো ভুল-আইডির রিটেইলার পাওয়া যায়নি। যদি এখনো এতিম ইনভয়েস থাকে, তাহলে "রিটেইলারদের পুনরুদ্ধার করুন" বাটনটা ব্যবহার করুন (নতুন করে তৈরি করার জন্য)।');
+                return;
+            }
+
+            if (!confirm(`এই ${repairedCount}টি রিটেইলারের আইডি মেরামত করা হবে (নতুন কেউ তৈরি হবে না, শুধু আইডি ঠিক হবে):\n\n${repairedNames.join('\n')}\n\nএগিয়ে যাবেন?`)) {
+                // ব্যবহারকারী বাতিল করলে মেমোরিতে করা পরিবর্তন ফিরিয়ে
+                // আনার প্রয়োজন নেই কারণ এখনো সিঙ্ক করা হয়নি -- তবে সেভ
+                // এড়াতে পেজ রিফ্রেশের পরামর্শ দেওয়া নিরাপদ।
+                location.reload();
+                return;
+            }
+
+            retailers.forEach(r => recalculateRetailerDue(r));
+            // এই মেরামতে বিদ্যমান রিটেইলারের id বদলে যায় (পুরোনো ভুল id-র
+            // জায়গায় সঠিক id বসে) -- সাধারণ "কোনো কিছু হারানো যাবে না" চেকটা
+            // এটাকে ভুলবশত "একটা রিটেইলার হারিয়ে গেছে" ধরে নিয়ে আটকে দিত,
+            // তাই এখানে সেই একই নিরাপদ, admin-অনুমোদিত bypass ব্যবহার করা
+            // হচ্ছে যা অন্যান্য ইচ্ছাকৃত ডিলিট অপারেশনেও ব্যবহার হয়।
+            const saved = await syncToFirebaseAdminDelete();
+            if (!saved) { alert('সিঙ্ক করতে সমস্যা হয়েছে, আবার চেষ্টা করুন।'); return; }
+
+            alert(`${repairedCount}টি রিটেইলারের আইডি মেরামত হয়েছে। ইনভয়েসগুলো এখন সঠিকভাবে যুক্ত হয়ে যাওয়ার কথা।`);
+            renderRetailerReport();
+            renderCustomerDueReport();
+            renderOrphanInvoices();
+        }
+
+        // এতিম ইনভয়েসগুলোর ভেতরে থাকা রুট/ট্রেডার্স/ক্রেতার নাম/ঠিকানা/মোবাইল
+        // দিয়ে হারানো রিটেইলারদের আবার তৈরি করে দেওয়া হয়। খুব গুরুত্বপূর্ণ:
+        // ইনভয়েসে যদি আগের retailerId সেভ করা থাকে, নতুন রিটেইলারকে *সেই
+        // একই id* দিয়েই তৈরি করা হয় (নতুন র‍্যান্ডম id দিলে ইনভয়েসের সাথে আর
+        // মিলবে না, ফলে "পুনরুদ্ধার" করার পরও এতিম তালিকায় থেকে যাবে -- এটাই
+        // ছিল আগের সংস্করণের ভুল)। শুধু retailerId না থাকা পুরোনো
+        // ইনভয়েসের বেলাতেই নতুন id তৈরি করা হয়।
+        async function recoverRetailersFromOrphanInvoices() {
+            if (!checkConnectionOrAlert()) return;
+            const orphans = findOrphanInvoices();
+            if (orphans.length === 0) { alert('কোনো এতিম ইনভয়েস নেই।'); return; }
+
+            const found = new Map();
+            orphans.forEach(inv => {
+                if (!inv.route || !inv.retailer) return;
+                const key = inv.retailerId ? ('ID:' + inv.retailerId) : (inv.route + '||' + inv.retailer);
+                const order = getInvoiceCreationOrder(inv);
+                const existing = found.get(key);
+                if (!existing || order > existing.order) {
+                    found.set(key, {
+                        id: inv.retailerId || null,
+                        route: inv.route,
+                        trader: inv.retailer,
+                        name: inv.buyerName || '',
+                        address: inv.buyerAddress || '',
+                        mobile: inv.buyerMobile || '',
+                        order
+                    });
+                }
+            });
+            if (found.size === 0) { alert('এতিম ইনভয়েস থেকে পুনরুদ্ধারযোগ্য কোনো রিটেইলার পাওয়া যায়নি।'); return; }
+
+            const names = Array.from(found.values()).map(r => `${r.trader} (${r.route})`).join('\n');
+            if (!confirm(`এই ${found.size}টি রিটেইলার আবার তৈরি করা হবে:\n\n${names}\n\nক্রেডিট লিমিট পরে ম্যানুয়ালি সেট করতে হবে। বর্তমান তালিকার কাউকে মুছবে না। এগিয়ে যাবেন?`)) return;
+
+            found.forEach(r => {
+                retailers.push({
+                    id: r.id || ('RET_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
+                    route: r.route,
+                    trader: r.trader,
+                    name: r.name,
+                    address: r.address,
+                    mobile: r.mobile,
+                    currentDue: 0,
+                    collections: []
+                });
+            });
+            retailers.forEach(r => recalculateRetailerDue(r));
+
+            const saved = await syncToFirebase();
+            if (!saved) { alert('সিঙ্ক করতে সমস্যা হয়েছে, আবার চেষ্টা করুন।'); return; }
+
+            alert(`${found.size}টি রিটেইলার পুনরুদ্ধার হয়েছে। ক্রেডিট লিমিট চেক করে বসিয়ে দিন।`);
+            renderRetailerReport();
+            renderCustomerDueReport();
+            renderOrphanInvoices();
         }
 
         function openOrphanInvoiceFinder() {
@@ -6335,7 +6502,10 @@ function renderStockMultiProductList() {
                     <td style="text-align:center;"><button class="btn-action btn-delete" onclick="deleteOrphanInvoice('${inv.id}')">মুছুন</button></td>
                 </tr>`).join('');
             container.innerHTML = `
-                <div style="margin-bottom:10px; font-weight:bold;">মোট ${orphans.length}টি এতিম ইনভয়েস পাওয়া গেছে।</div>
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <div style="font-weight:bold;">মোট ${orphans.length}টি এতিম ইনভয়েস পাওয়া গেছে।</div>
+                    <button class="btn-submit" style="width:auto; background:#c0392b;" onclick="applySep21FinalFix()">✅ ২১ সেপ্টেম্বরের চূড়ান্ত সংশোধন চালান (একবারই)</button>
+                </div>
                 <table class="data-table">
                     <thead><tr><th>ইনভয়েস নং</th><th>তারিখ</th><th>রিটেইলার (যেটা আর নেই)</th><th>টাকা</th><th>অ্যাকশন</th></tr></thead>
                     <tbody>${rows}</tbody>
