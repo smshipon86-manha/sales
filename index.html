@@ -3543,7 +3543,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 })
                 .sort((a, b) => getInvoiceCreationOrder(b) - getInvoiceCreationOrder(a));
             for (const inv of matchingInvoices) {
-                const item = (inv.items || []).find(it => it.name === productName);
+                const item = (inv.items || []).find(it => normalizeProductKey(it.name) === normalizeProductKey(productName));
                 if (item) {
                     const { discountPercent } = getItemLineAmounts(item);
                     if (discountPercent !== undefined && discountPercent !== null && discountPercent !== '') return discountPercent;
@@ -4836,15 +4836,25 @@ body.edit-modal-open { overflow: hidden !important; }
             displayCreditLimitInSales();
 
             selectedInvoiceItems = (order.items || []).map(it => {
-                const product = products.find(p => p.name === it.productName);
+                const product = findProductByName(it.productName);
+                const stock = (stocks || []).find(st => normalizeProductKey(st.productName) === normalizeProductKey(it.productName));
+                const histDiscount = matchedIndex !== -1
+                    ? getRetailerLastDiscountForProduct(matchedIndex, it.productName)
+                    : null;
+                const orderDiscount = (it.discountPercent !== undefined && it.discountPercent !== null && it.discountPercent !== '')
+                    ? it.discountPercent
+                    : null;
                 return {
                     name: it.productName,
                     cartonQty: it.cartonQty || '',
                     pieceQty: it.pieceQty || '',
                     cartonPrice: product ? product.price : 0,
                     piecePrice: product ? getRatioBasedPiecePrice(product) : 0,
-                    discountPercent: '',
-                    inventory: (stocks.find(st => st.productName === it.productName) || {}).qty || 0
+                    // SPO online order-ও manual invoice-এর মতো একই retailer+product
+                    // discount memory ব্যবহার করবে। অনলাইন অর্ডারে যদি নিজস্ব
+                    // discount না থাকে, আগের ইনভয়েসের discount auto-fill হবে।
+                    discountPercent: orderDiscount !== null ? orderDiscount : (histDiscount !== null ? histDiscount : ''),
+                    inventory: stock ? (Number(stock.qty || 0) || 0) : 0
                 };
             });
             renderInvoiceItemTable();
