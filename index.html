@@ -3582,13 +3582,20 @@ body.edit-modal-open { overflow: hidden !important; }
                 }
             });
             selectedProductIndexesForInvoice.clear();
-            // পণ্য যে ক্রমে টিক দিয়ে সিলেক্ট করা হয়েছে, ইনভয়েস আইটেম
-            // তালিকায় সেই ক্রমই বজায় থাকবে।
+            // স্টক অ্যাডে পণ্য সিলেকশনের ক্রম অপরিবর্তিত থাকবে, কিন্তু ইনভয়েসে
+            // যোগ হওয়ার পর আইটেম তালিকা সবসময় A-Z অনুযায়ী দেখানো হবে।
+            sortSelectedInvoiceItemsAZ();
             closeModal('productSelectModal');
             renderInvoiceItemTable();
             if (autoFilledCount > 0) {
                 showSaveToast(autoFilledCount + 'টি পণ্যে এই রিটেইলারের আগের ছাড়% নিজে থেকেই বসানো হয়েছে');
             }
+        }
+
+        function sortSelectedInvoiceItemsAZ() {
+            selectedInvoiceItems.sort((a, b) =>
+                String(a?.name || '').trim().localeCompare(String(b?.name || '').trim(), undefined, { sensitivity: 'base' })
+            );
         }
 
         function renderInvoiceItemTable() {
@@ -4857,6 +4864,9 @@ body.edit-modal-open { overflow: hidden !important; }
                     inventory: stock ? (Number(stock.qty || 0) || 0) : 0
                 };
             });
+            // SPO Online Order থেকে Invoice-এ এলেও পণ্যগুলোর তালিকা A-Z থাকবে,
+            // অর্ডারে যেভাবেই পণ্য সাজানো/সিলেক্ট করা হয়ে থাকুক।
+            sortSelectedInvoiceItemsAZ();
             renderInvoiceItemTable();
         }
 
