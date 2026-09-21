@@ -2283,6 +2283,24 @@ body.edit-modal-open { overflow: hidden !important; }
             return true;
         }
 
+        // ===== ADMIN FULL POWER DELETE MODE =====
+        // এই Admin-only ফাইলটিতে Delete ইচ্ছাকৃতভাবে অনুমোদিত।
+        // তবে শুধু নিশ্চিতভাবে লগইন করা Admin action-এর সময় core deletion guard bypass হবে।
+        let adminDeletionInProgress = false;
+        function requireAdminForDelete() {
+            if (!firebase.auth().currentUser) {
+                alert('Admin লগইন নেই। এই ডাটা ডিলিট করা যাবে না।');
+                return false;
+            }
+            return true;
+        }
+        async function syncToFirebaseAdminDelete() {
+            if (!requireAdminForDelete()) return false;
+            adminDeletionInProgress = true;
+            try { return await syncToFirebase(); }
+            finally { adminDeletionInProgress = false; }
+        }
+
         // ===== FIRESTORE NO-DELETE SAFETY =====
         // এই অ্যাপ কোনো বিদ্যমান Firestore রেকর্ড স্থায়ীভাবে ডিলিট করবে না।
         function blockPermanentDelete(label = 'এই ডাটা') {
@@ -2318,7 +2336,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const snap = await transaction.get(ref);
                 if (!snap.exists) throw new Error('__APPDATA_MISSING__');
                 if (getCoreDataHash(snap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
-                if (!checkNoCoreDeletion(snap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
+                if (!adminDeletionInProgress && !checkNoCoreDeletion(snap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
                 transaction.set(ref, payload, { merge: true });
             }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
             }).catch(error => {
@@ -2441,7 +2459,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const appSnap = await transaction.get(appDataRef);
                 if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
                 if (getCoreDataHash(appSnap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
-                if (!checkNoCoreDeletion(appSnap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
+                if (!adminDeletionInProgress && !checkNoCoreDeletion(appSnap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
                 transaction.delete(invoiceRef);
                 if (collectionRef) transaction.delete(collectionRef);
                 transaction.set(appDataRef, payload, { merge: true });
@@ -4548,7 +4566,11 @@ body.edit-modal-open { overflow: hidden !important; }
                 // ইনভয়েস ডিলিট, স্টক ফেরত, আর (থাকলে) সাথে-সাথে-জমা-নেওয়া
                 // কালেকশন এন্ট্রি ডিলিট -- তিনটাই এখন একটামাত্র atomic batch
                 // দিয়ে একসাথে সেভ হয় (হয় সবগুলোই হবে, নয়তো কিছুই হবে না)।
-                if (!(await deleteInvoiceAndSyncAtomic(id, inv ? inv.linkedCollectionId : null))) {
+                adminDeletionInProgress = true;
+                let invoiceDeleteOk = false;
+                try { invoiceDeleteOk = await deleteInvoiceAndSyncAtomic(id, inv ? inv.linkedCollectionId : null); }
+                finally { adminDeletionInProgress = false; }
+                if (!invoiceDeleteOk) {
                     stocks = stocksBackupForDelete;
                     invoices = invoicesBackupForDelete;
                     return;
@@ -4670,7 +4692,7 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         async function deleteProduct(index) {
-            return blockPermanentDelete('পণ্য');
+            if (!requireAdminForDelete()) return false;
             if (!checkConnectionOrAlert()) return;
             const product = products[index];
             if (!product) return;
@@ -4681,7 +4703,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 : `"${product.name}" পণ্যটি মুছে ফেলতে চান?`;
             if(confirm(warningMsg)) {
                 products.splice(index, 1);
-                if (!(await syncToFirebase())) return;
+                if (!(await syncToFirebaseAdminDelete())) return;
                 renderProducts();
             }
         }
@@ -4815,13 +4837,16 @@ body.edit-modal-open { overflow: hidden !important; }
         // পুরোনো/টেস্ট অনলাইন অর্ডার এন্ট্রি একদম মুছে ফেলা (এটা শুধু
         // ইতিহাস থেকে মুছবে, ইনভয়েস/স্টক/বাকির হিসাবে কোনো প্রভাব ফেলবে না)
         async function deleteOnlineOrderEntry(orderId) {
-            return blockPermanentDelete('অনলাইন অর্ডার');
+            if (!requireAdminForDelete()) return false;
             if (!checkConnectionOrAlert()) return;
             if (!confirm('এই অর্ডার এন্ট্রিটা স্থায়ীভাবে মুছে ফেলতে চান? এটা শুধু ইতিহাস থেকে মুছবে।')) return;
             try {
-                return blockPermanentDelete('অনলাইন অর্ডার');
+                await db.collection('online_orders').doc(orderId).delete();
+                return true;
             } catch (e) {
-                alert('মুছতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');
+                console.error('Online order delete error:', e);
+                alert('অনলাইন অর্ডারটি ডিলিট করা যায়নি। Firebase অনুমতি/ইন্টারনেট পরীক্ষা করুন।');
+                return false;
             }
         }
 
@@ -4962,13 +4987,16 @@ body.edit-modal-open { overflow: hidden !important; }
         // রিকোয়েস্টের ইতিহাস মুছবে; আগে অ্যাপ্রুভ করা থাকলে রিটেইলারের
         // বাকি/কালেকশনের হিসাবে কোনো প্রভাব ফেলবে না — সেটা আলাদাভাবেই থেকে যাবে)
         async function deleteOnlineCollectionEntry(reqId) {
-            return blockPermanentDelete('অনলাইন কালেকশন রিকোয়েস্ট');
+            if (!requireAdminForDelete()) return false;
             if (!checkConnectionOrAlert()) return;
             if (!confirm('এই কালেকশন রিকোয়েস্ট এন্ট্রিটা স্থায়ীভাবে মুছে ফেলতে চান? এটা শুধু ইতিহাস থেকে মুছবে, আগে অ্যাপ্রুভ হওয়া কালেকশনের হিসাব বদলাবে না।')) return;
             try {
-                return blockPermanentDelete('অনলাইন কালেকশন রিকোয়েস্ট');
+                await db.collection('online_collections').doc(reqId).delete();
+                return true;
             } catch (e) {
-                alert('মুছতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');
+                console.error('Online collection request delete error:', e);
+                alert('অনলাইন কালেকশন রিকোয়েস্টটি ডিলিট করা যায়নি। Firebase অনুমতি/ইন্টারনেট পরীক্ষা করুন।');
+                return false;
             }
         }
 
@@ -5106,7 +5134,7 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!checkConnectionOrAlert()) return;
             const stockLogsBackup = JSON.parse(JSON.stringify(stockLogs || []));
             stockLogs = stockLogs.filter(log => log.id !== logId);
-            if (!(await syncToFirebase())) {
+            if (!(await syncToFirebaseAdminDelete())) {
                 stockLogs = stockLogsBackup;
                 renderStockLogReport();
                 return;
@@ -5429,11 +5457,11 @@ function renderStockMultiProductList() {
         }
 
         async function deleteStock(index) {
-            return blockPermanentDelete('স্টক');
+            if (!requireAdminForDelete()) return false;
             if (!checkConnectionOrAlert()) return;
             if(confirm("স্টক এন্ট্রি মুছে ফেলতে চান?")) {
                 stocks.splice(index, 1);
-                if (!(await syncToFirebase())) return;
+                if (!(await syncToFirebaseAdminDelete())) return;
                 renderStocks();
             }
         }
@@ -5513,15 +5541,15 @@ function renderStockMultiProductList() {
             });
         }
 
-        function deleteRoute(index) {
-            return blockPermanentDelete('রুট');
+        async function deleteRoute(index) {
+            if (!requireAdminForDelete()) return false;
             if (!checkConnectionOrAlert()) return;
             const route = routes[index];
             const linked = retailers.filter(r => r.route === route).length;
             if (!confirm(linked ? `এই রুটের সাথে ${linked} জন রিটেইলার যুক্ত আছে। তারপরও "${route}" ডিলিট করতে চান?` : `"${route}" রুটটি মুছে ফেলতে চান?`)) return;
             routes.splice(index, 1);
             retailers.forEach(r => { if (r.route === route) r.route = ""; });
-            syncToFirebase();
+            await syncToFirebaseAdminDelete();
             renderRoutes();
             renderRetailerDropdowns();
             filterRetailersByRoute();
@@ -5784,7 +5812,7 @@ function renderStockMultiProductList() {
         }
 
         async function deleteRetailer(index) {
-            return blockPermanentDelete('রিটেইলার');
+            if (!requireAdminForDelete()) return false;
             if (!checkConnectionOrAlert()) return;
             const ret = retailers[index];
             if (!ret) return;
@@ -5800,7 +5828,7 @@ function renderStockMultiProductList() {
             }
             if(confirm(warningMsg)) {
                 retailers.splice(index, 1);
-                if (!(await syncToFirebase())) return;
+                if (!(await syncToFirebaseAdminDelete())) return;
                 filterRetailersByRoute();
             }
         }
@@ -5883,14 +5911,14 @@ function renderStockMultiProductList() {
             editRetailer(index);
         }
 
-        function deleteRetailerByTrader(trader) {
-            return blockPermanentDelete('রিটেইলার');
+        async function deleteRetailerByTrader(trader) {
+            if (!requireAdminForDelete()) return false;
             if (!checkConnectionOrAlert()) return;
             const ret = retailers.find(r => r.trader === trader);
             if (!ret) return;
             if (!confirm(`"${ret.trader}" রিটেইলারটি ডিলিট করতে চান?`)) return;
             retailers = retailers.filter(r => r !== ret);
-            syncToFirebase();
+            await syncToFirebaseAdminDelete();
             renderRetailerReport();
             renderCustomerDueReport();
             renderRetailerDropdowns();
@@ -6438,7 +6466,7 @@ function renderStockMultiProductList() {
         }
 
         async function deleteOpeningDue(index) {
-            return blockPermanentDelete('আগের বাকি');
+            if (!requireAdminForDelete()) return false;
             if (!checkConnectionOrAlert()) return;
             const ret = retailers[index];
             if (!ret) return;
@@ -6446,7 +6474,7 @@ function renderStockMultiProductList() {
             if (!confirm(`এই রিটেইলারের আগের বাকি ${amount.toLocaleString('en-US')} ৳ ডিলিট করবেন? ডিলিট করলে ওই টাকার অংশ লেজার থেকেও বাদ যাবে।`)) return;
             delete ret.openingDue;
             recalculateRetailerDue(ret);
-            if (!(await syncToFirebase())) return;
+            if (!(await syncToFirebaseAdminDelete())) return;
             renderCustomerDueReport();
             const ridx = document.getElementById('ledgerRetailerSelect')?.value;
             if (ridx !== undefined && ridx !== '') showCustomerLedger();
@@ -8209,7 +8237,7 @@ function renderStockMultiProductList() {
             const retailersBackup = JSON.parse(JSON.stringify(retailers || []));
             ret.collections = (ret.collections || []).filter(x => x.id !== id);
             recalculateRetailerDue(ret);
-            if (!(await syncToFirebase())) { retailers = retailersBackup; return false; }
+            if (!(await syncToFirebaseAdminDelete())) { retailers = retailersBackup; return false; }
             renderCustomerDueReport();
             const ridx = document.getElementById('ledgerRetailerSelect')?.value;
             if (ridx !== undefined && ridx !== '') showCustomerLedger();
