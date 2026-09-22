@@ -2020,8 +2020,7 @@ body.edit-modal-open { overflow: hidden !important; }
             badge = document.getElementById("statusBadge");
             text = document.getElementById("statusText");
 
-            if (firestoreUnsubscribe) { firestoreUnsubscribe(); firestoreUnsubscribe = null; }
-            if (invoicesUnsubscribe) { invoicesUnsubscribe(); invoicesUnsubscribe = null; }
+            unsubscribeAllFirebaseListeners();
 
             firestoreUnsubscribe = db.collection("sales_system").doc("appData")
                 .onSnapshot((doc) => {
@@ -2206,8 +2205,29 @@ body.edit-modal-open { overflow: hidden !important; }
                 });
         }
 
+        function unsubscribeAllFirebaseListeners() {
+            const listeners = [
+                ['firestoreUnsubscribe', firestoreUnsubscribe],
+                ['invoicesUnsubscribe', invoicesUnsubscribe],
+                ['onlineOrdersUnsubscribe', onlineOrdersUnsubscribe],
+                ['onlineCollectionsUnsubscribe', onlineCollectionsUnsubscribe],
+                ['retailerCollectionsUnsubscribe', retailerCollectionsUnsubscribe]
+            ];
+            listeners.forEach(([name, unsub]) => {
+                if (typeof unsub === 'function') {
+                    try { unsub(); } catch (e) { console.warn('Listener cleanup failed:', name, e); }
+                }
+            });
+            firestoreUnsubscribe = null;
+            invoicesUnsubscribe = null;
+            onlineOrdersUnsubscribe = null;
+            onlineCollectionsUnsubscribe = null;
+            retailerCollectionsUnsubscribe = null;
+        }
+
         function doLogout() {
             if (!confirm('আপনি কি সাইন আউট করতে চান?')) return;
+            unsubscribeAllFirebaseListeners();
             firebase.auth().signOut();
         }
 
@@ -2219,9 +2239,16 @@ body.edit-modal-open { overflow: hidden !important; }
                 appWrap.style.display = '';
                 initAppData();
             } else {
-                if (firestoreUnsubscribe) { firestoreUnsubscribe(); firestoreUnsubscribe = null; }
-                if (invoicesUnsubscribe) { invoicesUnsubscribe(); invoicesUnsubscribe = null; }
+                unsubscribeAllFirebaseListeners();
                 isConnectedToDB = false;
+                initialDataLoaded = false;
+                serverDataWasLoaded = false;
+                lastServerCoreHash = null;
+                invoicesFirstLoadDone = false;
+                collectionsFirstLoadDone = false;
+                onlineOrders = [];
+                onlineCollections = [];
+                retailerCollectionsLive = [];
                 overlay.style.display = 'flex';
                 appWrap.style.display = 'none';
                 document.getElementById('loginPassword').value = '';
@@ -3152,7 +3179,8 @@ body.edit-modal-open { overflow: hidden !important; }
                         matchedIndex = retailers.findIndex(r => r.id === inv.retailerId);
                     }
                     if (matchedIndex === -1) {
-                        matchedIndex = retailers.findIndex(r => r.route === inv.route && r.trader === inv.retailer);
+                        const legacyRetailer = resolveRetailerByStableIdOrUniqueLegacy('', inv.route, inv.retailer);
+                        matchedIndex = legacyRetailer ? retailers.indexOf(legacyRetailer) : -1;
                     }
                     if (matchedIndex !== -1) document.getElementById('salesRetailerSelect').value = matchedIndex;
                     // ওয়াক-ইন (তালিকায় নেই) ইনভয়েস এডিট করার সময় — এদের
@@ -3401,7 +3429,7 @@ body.edit-modal-open { overflow: hidden !important; }
             tbody.innerHTML = '';
             const sortedProducts = products.map((p, idx) => {
                 return {p, idx, stockQty:getProductStockQty(p.name), salesRank:getProductSalesRank(p.name)};
-            }).sort((a, b) => {
+            }).filter(({p}) => p.active !== false).sort((a, b) => {
                 // ০.০০১-এর কম হলেও কার্যত "স্টক শেষ" ধরা হয় — ভাসমান-বিন্দু
                 // হিসাবের ক্ষুদ্র ভগ্নাংশ ত্রুটির কারণে যেন ভুলভাবে "স্টকে আছে"
                 // না দেখায়।
@@ -4569,7 +4597,7 @@ body.edit-modal-open { overflow: hidden !important; }
             const old = editIndex >= 0 && products[editIndex] ? products[editIndex] : {};
             const piecesPerCarton = getPiecesPerCarton({name, piecesPerCarton: old.piecesPerCarton});
             const piecePrice = getRatioBasedPiecePrice({name, price, piecesPerCarton, piecePrice:enteredPiecePrice});
-            const prodData = { name, price, piecePrice, piecesPerCarton, code: old.code || generateProductCode() };
+            const prodData = { name, price, piecePrice, piecesPerCarton, code: old.code || generateProductCode(), active: old.active !== false };
             if(editIndex === -1) products.push(prodData);
             else {
                 const oldName = products[editIndex].name;
@@ -4620,20 +4648,21 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         async function deleteProduct(index) {
-            return blockPermanentDelete('পণ্য');
             if (!checkConnectionOrAlert()) return;
             const product = products[index];
             if (!product) return;
             const stockEntry = stocks.find(st => st.productName === product.name);
             const hasStock = stockEntry && (parseFloat(stockEntry.qty || 0) || 0) > 0.001;
             const warningMsg = hasStock
-                ? `⚠️ সাবধান! "${product.name}"-এর স্টকে এখনো মাল আছে। মুছে ফেললে সেই স্টকের হিসাব/দাম আর সঠিকভাবে দেখানো যাবে না।\n\nসত্যিই মুছে ফেলতে চান?`
-                : `"${product.name}" পণ্যটি মুছে ফেলতে চান?`;
-            if(confirm(warningMsg)) {
-                products.splice(index, 1);
-                if (!(await syncToFirebase())) return;
-                renderProducts();
-            }
+                ? `⚠️ সাবধান! "${product.name}"-এর স্টক আছে। পণ্যটি স্থায়ীভাবে মুছে ফেলা হবে না; শুধু নিষ্ক্রিয় করা হবে, যাতে পুরোনো ইনভয়েস/স্টক ইতিহাস অক্ষত থাকে।\n\nনিষ্ক্রিয় করতে চান?`
+                : `"${product.name}" পণ্যটি স্থায়ীভাবে মুছে ফেলা হবে না; পুরোনো হিসাব রক্ষার জন্য নিষ্ক্রিয় করা হবে।\n\nনিষ্ক্রিয় করতে চান?`;
+            if (!confirm(warningMsg)) return;
+            const oldActive = product.active;
+            product.active = false;
+            if (!(await syncToFirebase())) { product.active = oldActive; return; }
+            renderProducts();
+            renderProductSelectionList();
+            renderStocks();
         }
 
         function openStockModal() {
@@ -4788,7 +4817,7 @@ body.edit-modal-open { overflow: hidden !important; }
             loadRetailersByRoute();
             let matchedIndex = -1;
             if (order.retailerId) matchedIndex = retailers.findIndex(r => r.id === order.retailerId);
-            if (matchedIndex === -1) matchedIndex = retailers.findIndex(r => r.route === order.route && r.trader === order.retailerTrader);
+            if (matchedIndex === -1) { const legacyRetailer = resolveRetailerByStableIdOrUniqueLegacy('', order.route, order.retailerTrader); matchedIndex = legacyRetailer ? retailers.indexOf(legacyRetailer) : -1; }
             if (matchedIndex !== -1) document.getElementById('salesRetailerSelect').value = matchedIndex;
             displayCreditLimitInSales();
 
@@ -4927,7 +4956,7 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!req) return;
             let ret = null;
             if (req.retailerId) ret = retailers.find(r => r.id === req.retailerId);
-            if (!ret) ret = retailers.find(r => r.route === req.route && r.trader === req.retailerTrader);
+            if (!ret) ret = resolveRetailerByStableIdOrUniqueLegacy('', req.route, req.retailerTrader);
             if (!ret) { alert('রিটেইলার খুঁজে পাওয়া যায়নি, ম্যানুয়ালি কালেকশন যুক্ত করুন।'); return; }
             const retIndex = retailers.indexOf(ret);
 
@@ -5135,7 +5164,7 @@ function renderStockMultiProductList() {
         function renderStockSelectPhase(container, actionBar) {
             const q = stockProductSearchFilter.trim().toLowerCase();
             const sortedForStock = products.map((p, index) => ({p, index}))
-                .filter(({p}) => !q || p.name.toLowerCase().includes(q))
+                .filter(({p}) => p.active !== false && (!q || p.name.toLowerCase().includes(q)))
                 .sort((a, b) => a.p.name.localeCompare(b.p.name));
             const rowsHtml = sortedForStock.map(({p, index}) => `
                     <label class="stock-multi-row" style="display:flex; align-items:center; gap:8px; padding:7px 4px; border-bottom:1px solid #eee;">
@@ -5900,6 +5929,15 @@ function renderStockMultiProductList() {
             return null;
         }
 
+        function resolveRetailerByStableIdOrUniqueLegacy(retailerId, route, trader) {
+            if (retailerId) {
+                const byId = (retailers || []).find(r => r && r.id === retailerId);
+                if (byId) return byId;
+            }
+            const candidates = (retailers || []).filter(r => r && r.trader === trader && (!route || r.route === route));
+            return candidates.length === 1 ? candidates[0] : null;
+        }
+
         function getInvoicesForRetailer(ret) {
             if (!ret) return [];
             return (invoices || []).filter(inv => {
@@ -6133,64 +6171,80 @@ function renderStockMultiProductList() {
             const keepIdx = parseInt(selected.value);
             const removeIndices = indices.filter(i => i !== keepIdx);
             const keep = retailers[keepIdx];
-            const removeNames = removeIndices.map(i => displayTraderName(retailers[i].trader)).join(', ');
-            if (!confirm(`"${displayTraderName(keep.trader)}"-কে রেখে বাকি (${removeNames})-এর সব ইনভয়েস/বাকি/কালেকশন এতে যোগ করে সেগুলো মুছে ফেলা হবে। এটা ফিরিয়ে আনা যাবে না। নিশ্চিত?`)) return;
+            if (!keep || removeIndices.length === 0) return;
+            const removeNames = removeIndices.map(i => displayTraderName(retailers[i]?.trader || '')).join(', ');
+            if (!confirm(`"${displayTraderName(keep.trader)}"-কে রেখে বাকি (${removeNames})-এর history একই retailer ID-তে যুক্ত করা হবে। কোনো record মুছে ফেলা হবে না; শুধু retailer identity update হবে। নিশ্চিত?`)) return;
             if (!checkConnectionOrAlert()) return;
+            if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('Firebase-এর সর্বশেষ মূল ডাটা নিরাপদভাবে লোড হয়নি।'); return; }
 
-            const affectedInvoiceIds = [];
-            removeIndices.forEach(idx => {
-                const remove = retailers[idx];
-                // এই রিটেইলারের নামে থাকা সব ইনভয়েস এখন থেকে যাকে রাখা হচ্ছে
-                // তার নামে গণ্য হবে
-                // এই রিটেইলারের ইনভয়েস এখন থেকে যাকে রাখা হচ্ছে তার নামে
-                // গণ্য হবে — retailerId থাকলে সেটা দিয়েই নিশ্চিত করা হয়
-                // যে ঠিক এই রিটেইলারেরই ইনভয়েস সরানো হচ্ছে, একই নামের
-                // অন্য কোনো রিটেইলারেরটা যেন ভুলে চলে না আসে।
-                invoices.forEach(inv => {
-                    const belongsToRemove = inv.retailerId ? (inv.retailerId === remove.id) : (inv.retailer === remove.trader);
-                    if (belongsToRemove) {
-                        inv.retailer = keep.trader;
-                        inv.retailerId = keep.id;
-                        affectedInvoiceIds.push(inv.id);
-                    }
+            const removeIds = new Set(removeIndices.map(i => retailers[i]?.id).filter(Boolean));
+            const invoiceUpdates = [];
+            (invoices || []).forEach(inv => {
+                const belongsToRemove = inv.retailerId ? removeIds.has(inv.retailerId) : removeIndices.some(i => {
+                    const r = retailers[i];
+                    if (!r || inv.retailer !== r.trader) return false;
+                    const candidates = retailers.filter(x => x && x.trader === inv.retailer && (!inv.route || x.route === inv.route));
+                    return candidates.length === 1 && candidates[0].id === r.id;
                 });
-                // কালেকশন ইতিহাসও একসাথে যোগ হয়ে যাবে
-                if (Array.isArray(remove.collections) && remove.collections.length) {
-                    keep.collections = (keep.collections || []).concat(remove.collections.map(c => ({ ...c, retailer: keep.trader })));
-                }
-                // আগের বাকি থাকলে সেটাও যোগ হবে
-                const removeOpening = getExplicitOpeningDue(remove);
-                if (removeOpening > 0) {
-                    const keepOpening = getExplicitOpeningDue(keep);
-                    keep.openingDue = { id: (keep.openingDue && keep.openingDue.id) || ('OPEN_' + Date.now()), date: getLocalISODate(), amount: keepOpening + removeOpening };
-                }
+                if (belongsToRemove) invoiceUpdates.push({ ...inv, retailer: keep.trader, retailerId: keep.id });
             });
 
-            // আগে এখানে ইনভয়েসের "কার নামে" এই পরিবর্তনটা শুধু স্ক্রিনে
-            // (মেমোরিতে) হতো, ডাটাবেজে সেভ হতো না — তাই পরে রিলোড করলে
-            // ইনভয়েসগুলো আবার পুরোনো (মুছে ফেলা) রিটেইলারের নামে ফিরে যেত,
-            // এবং "এতিম" হয়ে রিপোর্টে দেখা যেত কিন্তু তালিকায় খুঁজে পাওয়া
-            // যেত না। এখন প্রতিটা পরিবর্তিত ইনভয়েস আলাদাভাবে ডাটাবেজেও
-            // আপডেট করে দেওয়া হচ্ছে।
-            for (const invId of affectedInvoiceIds) {
-                const inv = invoices.find(i => i.id === invId);
-                if (inv) await saveInvoiceDoc(inv);
+            const collectionUpdates = (retailerCollectionsLive || []).filter(c => c.retailerId && removeIds.has(c.retailerId))
+                .map(c => ({ ...c, retailerId: keep.id, retailerTrader: keep.trader, route: keep.route, retailerName: keep.name || '' }));
+
+            // Firestore batch has a hard operation limit. Refuse the merge rather than risk partial writes.
+            const operationCount = 1 + invoiceUpdates.length + collectionUpdates.length;
+            if (operationCount > 450) {
+                alert(`এই merge-এ ${operationCount}টি database write লাগবে। নিরাপদ একবারে merge সীমা 450; তাই কোনো পরিবর্তন করা হয়নি।`);
+                return;
             }
 
-            // ডুপ্লিকেটগুলো মুছে ফেলা হচ্ছে (উচ্চ ইনডেক্স থেকে মুছলে বাকি
-            // ইনডেক্সগুলো এলোমেলো হয় না)
-            removeIndices.sort((a, b) => b - a).forEach(idx => retailers.splice(idx, 1));
+            const nextRetailers = JSON.parse(JSON.stringify(retailers));
+            const nextKeep = nextRetailers.find(r => r.id === keep.id);
+            if (!nextKeep) return;
+            removeIndices.forEach(idx => {
+                const remove = retailers[idx];
+                if (Array.isArray(remove?.collections) && remove.collections.length) {
+                    nextKeep.collections = (nextKeep.collections || []).concat(remove.collections.map(c => ({ ...c, retailer: nextKeep.trader, retailerId: nextKeep.id })));
+                }
+                const removeOpening = getExplicitOpeningDue(remove);
+                if (removeOpening > 0) {
+                    const keepOpening = getExplicitOpeningDue(nextKeep);
+                    nextKeep.openingDue = { id: (nextKeep.openingDue && nextKeep.openingDue.id) || ('OPEN_' + Date.now()), date: getLocalISODate(), amount: keepOpening + removeOpening };
+                }
+            });
+            const removeIdSet = new Set(removeIndices.map(i => retailers[i]?.id).filter(Boolean));
+            const filteredRetailers = nextRetailers.filter(r => !removeIdSet.has(r.id));
+            recalculateRetailerDue(nextKeep);
 
-            recalculateRetailerDue(keep);
-            if (!(await syncToFirebase())) return;
+            const appDataRef = db.collection('sales_system').doc('appData');
+            try {
+                const serverSnap = await appDataRef.get();
+                if (!serverSnap.exists) throw new Error('__APPDATA_MISSING__');
+                if (getCoreDataHash(serverSnap.data()) !== lastServerCoreHash) throw new Error('__EXTERNAL_CHANGE__');
+                const batch = db.batch();
+                invoiceUpdates.forEach(inv => batch.set(db.collection('sales_invoices').doc(inv.id), inv));
+                collectionUpdates.forEach(c => batch.set(db.collection('retailer_collections').doc(c.id), c, { merge: true }));
+                batch.set(appDataRef, { routes, routeCodes, products, stocks, stockLogs, retailers: filteredRetailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                await batch.commit();
 
-            renderRetailerReport();
-            renderCustomerDueReport();
-            filterRetailersByRoute();
-            renderRetailerDropdowns();
-            updateDashboardStats();
-            renderDuplicateRetailerGroups();
-            alert('মার্জ সম্পন্ন হয়েছে।');
+                invoices = (invoices || []).map(inv => invoiceUpdates.find(u => u.id === inv.id) || inv);
+                retailerCollectionsLive = (retailerCollectionsLive || []).map(c => collectionUpdates.find(u => u.id === c.id) || c);
+                retailers = filteredRetailers;
+                lastServerCoreHash = getCoreDataHash({ routes, routeCodes, products, stocks, stockLogs, retailers });
+                renderRetailerReport();
+                renderCustomerDueReport();
+                filterRetailersByRoute();
+                renderRetailerDropdowns();
+                updateDashboardStats();
+                renderDuplicateRetailerGroups();
+                alert('মার্জ সম্পন্ন হয়েছে। কোনো historical invoice/collection document ডিলিট করা হয়নি।');
+            } catch (e) {
+                console.error('Atomic retailer merge failed:', e);
+                if (e.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                else if (e.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData পাওয়া যায়নি। কোনো merge করা হয়নি।');
+                else alert('Merge সম্পূর্ণভাবে সংরক্ষণ করা যায়নি। নিরাপত্তার জন্য local data-ও পরিবর্তন করা হয়নি।');
+            }
         }
 
         // যেসব ইনভয়েসের "রিটেইলার" (ট্রেডার্স) এখন আর কোনো বিদ্যমান
@@ -6431,6 +6485,44 @@ function renderStockMultiProductList() {
             const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'})); a.download=filename; a.click(); URL.revokeObjectURL(a.href);
         }
 
+        // সাধারণ রিপোর্টের জন্য shared ExcelJS helper। এটি Pivot Data শিটও তৈরি করে,
+        // তাই ভবিষ্যৎ/বিদ্যমান report caller-রা missing helper-এর কারণে fail করবে না।
+        async function downloadPivotReadyExcel(reportTitle, filename, headers, displayRows, pivotRows) {
+            if (typeof ExcelJS === 'undefined') {
+                alert('Excel তৈরির লাইব্রেরি লোড হয়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।');
+                return false;
+            }
+            try {
+                const wb = new ExcelJS.Workbook();
+                wb.creator = 'Sales System';
+                wb.created = new Date();
+                const ws = wb.addWorksheet(reportTitle || 'Report');
+                ws.addRows(displayRows && displayRows.length ? [headers, ...displayRows] : [headers]);
+                ws.getRow(1).font = { bold: true };
+                ws.views = [{ state: 'frozen', ySplit: 1 }];
+                const pivot = wb.addWorksheet('Pivot Data');
+                pivot.addRows(pivotRows && pivotRows.length ? [headers, ...pivotRows] : [headers]);
+                pivot.getRow(1).font = { bold: true };
+                pivot.views = [{ state: 'frozen', ySplit: 1 }];
+                [ws, pivot].forEach(sheet => {
+                    sheet.columns.forEach(col => {
+                        let max = 12;
+                        col.eachCell({ includeEmpty: false }, cell => { max = Math.max(max, String(cell.value ?? '').length + 2); });
+                        col.width = Math.min(45, max);
+                    });
+                });
+                const blob = await wb.xlsx.writeBuffer();
+                const url = URL.createObjectURL(new Blob([blob], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}));
+                const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                return true;
+            } catch (e) {
+                console.error('Generic Excel report error:', e);
+                alert('Excel রিপোর্ট তৈরি করা যায়নি।');
+                return false;
+            }
+        }
+
         function filterDueReportTable() {
             const query = document.getElementById('dueReportSearchInput').value;
             renderCustomerDueReport(query);
@@ -6605,7 +6697,9 @@ function renderStockMultiProductList() {
                 const filterRetailerObj = retailers.find(r => r.id === retailerFilter);
                 filtered = filtered.filter(inv => {
                     if (filterRetailerObj) {
-                        return inv.retailerId ? inv.retailerId === filterRetailerObj.id : inv.retailer === filterRetailerObj.trader;
+                        if (inv.retailerId) return inv.retailerId === filterRetailerObj.id;
+                        const resolved = resolveRetailerByStableIdOrUniqueLegacy('', inv.route, inv.retailer);
+                        return !!resolved && resolved.id === filterRetailerObj.id;
                     }
                     return inv.retailer === retailerFilter;
                 });
@@ -6867,32 +6961,52 @@ function renderStockMultiProductList() {
             let rows = parseSimpleCSV(text);
             if (rows.length && rows[0][1] && isNaN(parseFloat(rows[0][1]))) rows = rows.slice(1);
 
-            let updated = 0, skipped = 0;
+            const parsed = [];
             const skippedRows = [];
             rows.forEach((row, i) => {
                 const name = (row[0] || '').trim();
                 const qtyPieces = parseFloat(row[1]);
-                const product = products.find(p => p.name.trim().toUpperCase() === name.toUpperCase());
-                if (!product || !Number.isFinite(qtyPieces) || qtyPieces <= 0) {
-                    skipped++; skippedRows.push(i + 1);
+                const product = products.find(p => p.active !== false && p.name.trim().toUpperCase() === name.toUpperCase());
+                if (!product || !Number.isInteger(qtyPieces) || qtyPieces <= 0) {
+                    skippedRows.push(i + 1);
                     return;
                 }
-                const ppc = getPiecesPerCarton(product);
-                const cartonEquivalent = qtyPieces / ppc;
-                const existing = stocks.find(st => st.productName === product.name);
-                // "যোগ" না করে সরাসরি "সেট" (প্রতিস্থাপন) করা হয় — কারণ নমুনা
-                // ফাইলে বর্তমান স্টকও দেখানো হয়, তাই অপরিবর্তিত সারি আপলোড
-                // করলে যেন স্টক দ্বিগুণ হয়ে না যায়।
-                if (existing) existing.qty = cartonEquivalent;
-                else stocks.push({ productName: product.name, qty: cartonEquivalent });
-                updated++;
+                parsed.push({ product, qtyPieces, row: i + 1, ppc: getPiecesPerCarton(product) });
             });
+            if (!parsed.length) {
+                document.getElementById('stockCsvInput').value = '';
+                alert('CSV-তে কোনো বৈধ স্টক রেকর্ড পাওয়া যায়নি। কোনো স্টক পরিবর্তন করা হয়নি।');
+                return;
+            }
 
-            if (updated > 0) { if (!(await syncToFirebase())) return; }
+            const preview = parsed.slice(0, 12).map(x => `${x.product.name}: ${x.qtyPieces} পিস (বর্তমান স্টক প্রতিস্থাপিত হবে)`).join('\n');
+            const more = parsed.length > 12 ? `\n...আরও ${parsed.length - 12}টি` : '';
+            const msg = `⚠️ Stock CSV Import Preview\n\nমোট বৈধ রেকর্ড: ${parsed.length}টি\nপ্রতিটি পণ্যের বর্তমান স্টক CSV-এর পিস দিয়ে SET হবে; যোগ হবে না।\n\n${preview}${more}\n\n${skippedRows.length ? `⚠️ বাদ যাবে: ${skippedRows.length}টি সারি\n` : ''}\nএই পরিবর্তন Firebase-এ সেভ হবে। চালিয়ে যাবেন?`;
+            if (!confirm(msg)) {
+                document.getElementById('stockCsvInput').value = '';
+                return;
+            }
+
+            const nextStocks = JSON.parse(JSON.stringify(stocks || []));
+            parsed.forEach(({ product, qtyPieces, ppc }) => {
+                const cartonEquivalent = qtyPieces / ppc;
+                const existing = nextStocks.find(st => st.productName === product.name);
+                if (existing) existing.qty = cartonEquivalent;
+                else nextStocks.push({ productName: product.name, qty: cartonEquivalent });
+            });
+            const oldStocks = stocks;
+            stocks = nextStocks;
+            if (!(await syncToFirebase())) {
+                stocks = oldStocks;
+                renderStocks();
+                renderProductSelectionList();
+                document.getElementById('stockCsvInput').value = '';
+                return;
+            }
             renderStocks();
             renderProductSelectionList();
             document.getElementById('stockCsvInput').value = '';
-            alert(`CSV থেকে ${updated}টি পণ্যের স্টক যোগ হয়েছে।${skipped > 0 ? ` ${skipped}টি সারি বাদ দেওয়া হয়েছে (পণ্যের নাম/পিস সংখ্যা ঠিক নেই) — সারি নং: ${skippedRows.join(', ')}` : ''}`);
+            alert(`CSV Preview অনুমোদনের পর ${parsed.length}টি পণ্যের স্টক নিরাপদভাবে SET হয়েছে।${skippedRows.length ? ` ${skippedRows.length}টি সারি বাদ গেছে — সারি: ${skippedRows.join(', ')}` : ''}`);
         }
 
         // প্রতিটা CSV ইমপোর্টের জন্য একটা ছোট নমুনা ফাইল ডাউনলোড করে দেয়, যাতে
@@ -7678,28 +7792,49 @@ function renderStockMultiProductList() {
                         const newAmount = Number(values.amount);
                         if (!Number.isFinite(newAmount) || newAmount <= 0) { showUniversalEditError('সঠিক কালেকশন টাকার পরিমাণ লিখুন।'); return false; }
                         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) { showUniversalEditError('সঠিক তারিখ নির্বাচন করুন।'); return false; }
-                        c.date = isoToSystemDate(values.date);
-                        c.amount = newAmount;
-                        c.note = (values.note || '').trim();
-                        // নতুন কালেকশন এমাউন্ট অনুযায়ী সম্পূর্ণ হিসাব পুনরায় তৈরি
-                        recalculateRetailerDue(ret);
-                        ret.currentDue = Number(ret.currentDue || 0);
-
-                        // আগে ফায়ারবেজ সিঙ্ক শেষ হওয়া পর্যন্ত অপেক্ষা করে তারপর স্ক্রিন
-                        // আপডেট হতো — ইন্টারনেট একটু স্লো হলে সাকসেস পপ-আপ ও লেজার
-                        // রিফ্রেশ দুটোই দেরিতে (বা চোখে না পড়ার মতো দেরিতে) আসত।
-                        // এখন স্ক্রিন সঙ্গে সঙ্গেই (রিয়েল-টাইম) আপডেট হয়ে যাবে, আর
-                        // ফায়ারবেজ সিঙ্ক ব্যাকগ্রাউন্ডে চলবে।
-                        renderCustomerDueReport();
-                        updateDashboardStats();
-                        renderTodayInvoices();
-                        const ridx = document.getElementById('ledgerRetailerSelect')?.value;
-                        if (ridx !== undefined && ridx !== '') showCustomerLedger();
-
-                        syncToFirebase().then(ok => {
-                            if (!ok) alert('তথ্য স্ক্রিনে আপডেট হয়েছে কিন্তু ডাটাবেজে সংরক্ষণ ব্যর্থ হয়েছে। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন, নাহলে অন্য ডিভাইসে পুরোনো তথ্য দেখাতে পারে।');
-                        });
-                        return true;
+                        // Firebase-এ সফলভাবে লেখা শেষ না হওয়া পর্যন্ত আসল local object বদলানো হবে না।
+                        // এতে save ব্যর্থ হলে স্ক্রিনে এমন data পড়ে থাকবে না যা Firebase-এ নেই।
+                        const oldDate = c.date;
+                        const oldAmount = c.amount;
+                        const oldNote = c.note;
+                        const newDate = isoToSystemDate(values.date);
+                        const newNote = (values.note || '').trim();
+                        const retailerSnapshot = JSON.parse(JSON.stringify(retailers));
+                        const targetRet = retailerSnapshot.find(r => r.id === ret.id);
+                        if (!targetRet) { showUniversalEditError('রিটেইলার ডাটা পাওয়া যায়নি। আবার চেষ্টা করুন।'); return false; }
+                        const targetCollection = (targetRet.collections || []).find(x => x.id === id);
+                        if (!targetCollection) { showUniversalEditError('কালেকশন রেকর্ড পাওয়া যায়নি। আবার চেষ্টা করুন।'); return false; }
+                        targetCollection.date = newDate;
+                        targetCollection.amount = newAmount;
+                        targetCollection.note = newNote;
+                        const expectedHash = lastServerCoreHash;
+                        const appDataRef = db.collection('sales_system').doc('appData');
+                        try {
+                            const result = await db.runTransaction(async transaction => {
+                                const snap = await transaction.get(appDataRef);
+                                if (!snap.exists) throw new Error('__APPDATA_MISSING__');
+                                if (expectedHash && getCoreDataHash(snap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
+                                const payload = { routes, routeCodes, products, stocks, stockLogs, retailers: retailerSnapshot, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+                                transaction.set(appDataRef, payload, { merge: true });
+                                return payload;
+                            });
+                            retailers = retailerSnapshot;
+                            lastServerCoreHash = getCoreDataHash(result);
+                            recalculateRetailerDue(retailers.find(r => r.id === ret.id));
+                            renderCustomerDueReport();
+                            updateDashboardStats();
+                            renderTodayInvoices();
+                            const ridx = document.getElementById('ledgerRetailerSelect')?.value;
+                            if (ridx !== undefined && ridx !== '') showCustomerLedger();
+                            return true;
+                        } catch (e) {
+                            console.error('Embedded collection edit save failed:', e);
+                            if (e.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                            else if (e.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর মূল ডাটা পাওয়া যাচ্ছে না। নিরাপত্তার জন্য কালেকশন এডিট সংরক্ষণ করা হয়নি।');
+                            else alert('কালেকশন এডিট ডাটাবেজে সংরক্ষণ হয়নি। আগের তথ্যই রাখা হয়েছে।');
+                            c.date = oldDate; c.amount = oldAmount; c.note = oldNote;
+                            return false;
+                        }
                     }
                 });
             }
@@ -7724,21 +7859,28 @@ function renderStockMultiProductList() {
                         const newAmount = Number(values.amount);
                         if (!Number.isFinite(newAmount) || newAmount <= 0) { showUniversalEditError('সঠিক কালেকশন টাকার পরিমাণ লিখুন।'); return false; }
                         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) { showUniversalEditError('সঠিক তারিখ নির্বাচন করুন।'); return false; }
-                        c.date = isoToSystemDate(values.date);
-                        c.amount = newAmount;
-                        c.note = (values.note || '').trim();
-                        recalculateRetailerDue(ret);
-                        renderCustomerDueReport();
-                        updateDashboardStats();
-                        renderTodayInvoices();
-                        const ridx = document.getElementById('ledgerRetailerSelect')?.value;
-                        if (ridx !== undefined && ridx !== '') showCustomerLedger();
+                        const newDate = isoToSystemDate(values.date);
+                        const newNote = (values.note || '').trim();
+                        const oldDate = c.date, oldAmount = c.amount, oldNote = c.note;
                         try {
-                            await db.collection('retailer_collections').doc(id).set({ date: c.date, amount: c.amount, note: c.note }, { merge: true });
+                            const docRef = db.collection('retailer_collections').doc(id);
+                            const snap = await docRef.get();
+                            if (!snap.exists) { showUniversalEditError('Firebase-এ এই কালেকশনটি আর পাওয়া যাচ্ছে না।'); return false; }
+                            await docRef.set({ date: newDate, amount: newAmount, note: newNote }, { merge: true });
+                            c.date = newDate; c.amount = newAmount; c.note = newNote;
+                            recalculateRetailerDue(ret);
+                            renderCustomerDueReport();
+                            updateDashboardStats();
+                            renderTodayInvoices();
+                            const ridx = document.getElementById('ledgerRetailerSelect')?.value;
+                            if (ridx !== undefined && ridx !== '') showCustomerLedger();
+                            return true;
                         } catch (e) {
-                            alert('তথ্য স্ক্রিনে আপডেট হয়েছে কিন্তু ডাটাবেজে সংরক্ষণ ব্যর্থ হয়েছে। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।');
+                            console.error('Separate collection edit save failed:', e);
+                            c.date = oldDate; c.amount = oldAmount; c.note = oldNote;
+                            alert('কালেকশন এডিট ডাটাবেজে সংরক্ষণ হয়নি। আগের তথ্যই রাখা হয়েছে।');
+                            return false;
                         }
-                        return true;
                     }
                 });
             }
@@ -8249,21 +8391,20 @@ function renderStockMultiProductList() {
                 createdAt: Date.now()
             };
             try {
-                await db.collection('retailer_collections').doc(newEntry.id).set(newEntry);
+                // Collection record + SPO approval status একসাথে batch commit হবে।
+                // ফলে collection save হয়ে approval status না বদলানোর partial state হবে না।
+                const batch = db.batch();
+                batch.set(db.collection('retailer_collections').doc(newEntry.id), newEntry);
+                if (pendingApprovalReqId) {
+                    batch.set(db.collection('online_collections').doc(pendingApprovalReqId), { status: 'approved' }, { merge: true });
+                }
+                await batch.commit();
             } catch (e) {
-                alert('কালেকশন সেভ করা যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।');
+                console.error('Atomic collection save failed:', e);
+                alert('কালেকশন সংরক্ষণ সম্পূর্ণ হয়নি। নিরাপত্তার জন্য কোনো আংশিক পরিবর্তন গ্রহণ করা হয়নি।');
                 return;
             }
-            // এসপিও-এর কালেকশন রিকোয়েস্ট অ্যাপ্রুভ করার ফলেই যদি এই সেভ
-            // হয়ে থাকে (openCollectionModalForApproval() থেকে খোলা হয়ে
-            // থাকলে), তাহলে এখানেই সেই মূল রিকোয়েস্টটাকে 'approved' হিসেবে
-            // চিহ্নিত করে দেওয়া হচ্ছে — এসপিও অ্যাপে টিক দেখা যাবে।
             if (pendingApprovalReqId) {
-                try {
-                    await db.collection('online_collections').doc(pendingApprovalReqId).set({ status: 'approved' }, { merge: true });
-                } catch (e) {
-                    console.error(e);
-                }
                 pendingApprovalReqId = null;
                 renderOnlineCollectionsList();
             }
