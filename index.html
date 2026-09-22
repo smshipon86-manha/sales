@@ -2126,6 +2126,13 @@ body.edit-modal-open { overflow: hidden !important; }
                     text.innerText = "অফলাইন / কানেকশন এরর";
                 });
 
+            // একই সেশনে listener যেন দ্বিতীয়বার attach না হয়। আগে থাকা listener
+            // থাকলে নতুন listener তৈরি না করে existing subscription-ই ব্যবহার করা হবে।
+            if (invoicesUnsubscribe || onlineOrdersUnsubscribe || onlineCollectionsUnsubscribe || retailerCollectionsUnsubscribe) {
+                console.warn('Firebase live listeners already active; duplicate subscription skipped.');
+                return;
+            }
+
             // ইনভয়েসের জন্য আলাদা লাইভ শোনার ব্যবস্থা — এখন থেকে ইনভয়েস
             // "sales_invoices" কালেকশন থেকে আলাদাভাবে লোড হবে
             invoicesUnsubscribe = db.collection("sales_invoices")
@@ -2285,7 +2292,20 @@ body.edit-modal-open { overflow: hidden !important; }
             if (kind === 'stockLog') return String(x?.id || x?.logId || ((x?.createdAt || '') + '|' + (x?.productName || '') + '|' + (x?.type || ''))).trim();
             return String(x || '').trim();
         }
-        function arrayHasDeletion(serverArr, localArr, kind) {
+        function arrayHasDeletion(serverArr, localArr, kind, serverData, localData) {
+            // Stock-এর identity productName দিয়ে রাখা হলেও product rename হলে
+            // একই stock-কে পুরোনো নাম থেকে নতুন নামে rename করা বৈধ। Product code
+            // দিয়ে stock identity মিলিয়ে সেই false-positive deletion ধরা বন্ধ করা হয়।
+            if (kind === 'stock') {
+                const serverProducts = Array.isArray(serverData?.products) ? serverData.products : [];
+                const localProducts = Array.isArray(localData?.products) ? localData.products : [];
+                const serverByName = new Map(serverProducts.map(p => [String(p?.name || '').trim(), String(p?.code || p?.name || '').trim()]));
+                const localByName = new Map(localProducts.map(p => [String(p?.name || '').trim(), String(p?.code || p?.name || '').trim()]));
+                const serverSet = new Set((Array.isArray(serverArr) ? serverArr : []).map(x => serverByName.get(String(x?.productName || '').trim()) || String(x?.productName || '').trim()).filter(Boolean));
+                const localSet = new Set((Array.isArray(localArr) ? localArr : []).map(x => localByName.get(String(x?.productName || '').trim()) || String(x?.productName || '').trim()).filter(Boolean));
+                for (const id of serverSet) if (!localSet.has(id)) return true;
+                return false;
+            }
             const serverSet = new Set((Array.isArray(serverArr) ? serverArr : []).map(x => identityOfRecord(x, kind)).filter(Boolean));
             const localSet = new Set((Array.isArray(localArr) ? localArr : []).map(x => identityOfRecord(x, kind)).filter(Boolean));
             for (const id of serverSet) if (!localSet.has(id)) return true;
@@ -2293,7 +2313,7 @@ body.edit-modal-open { overflow: hidden !important; }
         }
         function checkNoCoreDeletion(serverData, payload) {
             const s = serverData || {}, p = payload || {};
-            return !arrayHasDeletion(s.routes,p.routes,'route') && !arrayHasDeletion(s.products,p.products,'product') && !arrayHasDeletion(s.retailers,p.retailers,'retailer') && !arrayHasDeletion(s.stocks,p.stocks,'stock') && !arrayHasDeletion(s.stockLogs,p.stockLogs,'stockLog');
+            return !arrayHasDeletion(s.routes,p.routes,'route',s,p) && !arrayHasDeletion(s.products,p.products,'product',s,p) && !arrayHasDeletion(s.retailers,p.retailers,'retailer',s,p) && !arrayHasDeletion(s.stocks,p.stocks,'stock',s,p) && !arrayHasDeletion(s.stockLogs,p.stockLogs,'stockLog',s,p);
         }
 
         function syncToFirebase() {
@@ -2371,13 +2391,7 @@ body.edit-modal-open { overflow: hidden !important; }
         // "sales_invoices" কালেকশন থেকে নির্দিষ্ট ইনভয়েস ডিলিট করা
         function deleteInvoiceDoc(id) {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
-            return Promise.resolve(blockPermanentDelete('ইনভয়েস'))
-                .then(() => true)
-                .catch((error) => {
-                    console.error("Invoice delete error:", error);
-                    alert("ইনভয়েসটি ডাটাবেজ থেকে ডিলিট হয়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।");
-                    return false;
-                });
+            return Promise.resolve(blockPermanentDelete('ইনভয়েস'));
         }
 
         // ইনভয়েস সেভ + স্টক/বাকির (appData) পরিবর্তন — দুটো আলাদা জায়গায়
@@ -2414,29 +2428,14 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         // ইনভয়েস ডিলিট + স্টক ফেরত
+        // স্থায়ী invoice deletion ইচ্ছাকৃতভাবে নিষিদ্ধ।
+        // পুরোনো invoice/stock history রক্ষার জন্য এখানে কোনো Firestore delete
+        // বা stock rollback চালানো হবে না। ভবিষ্যতে archive/void দরকার হলে
+        // আলাদা soft-delete flow যোগ করতে হবে।
         function deleteInvoiceAndSyncAtomic(id, linkedCollectionIdToDelete) {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
-            if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি — ডাটা হারানোর ঝুঁকি এড়াতে ডিলিট বন্ধ রাখা হয়েছে।'); return Promise.resolve(false); }
-            updateDashboardStats();
-            const appDataRef = db.collection('sales_system').doc('appData');
-            const invoiceRef = db.collection('sales_invoices').doc(id);
-            const collectionRef = linkedCollectionIdToDelete ? db.collection('retailer_collections').doc(linkedCollectionIdToDelete) : null;
-            const expectedHash = lastServerCoreHash;
-            const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
-            return db.runTransaction(async transaction => {
-                const appSnap = await transaction.get(appDataRef);
-                if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
-                if (getCoreDataHash(appSnap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
-                throw new Error('__DATA_DELETE_BLOCKED__');
-                transaction.set(appDataRef, payload, { merge: true });
-            }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
-            }).catch(error => {
-                console.error('Atomic invoice safe delete error:', error);
-                if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
-                else if (error && error.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData ডকুমেন্ট পাওয়া যাচ্ছে না। ডিলিট করা হয়নি।');
-                else alert('ইনভয়েস/স্টক পরিবর্তন সংরক্ষণ করা যায়নি।');
-                return false;
-            });
+            blockPermanentDelete('ইনভয়েস');
+            return Promise.resolve(false);
         }
 
         // ইউজারের টাইপ করা টেক্সট (রিটেইলারের নাম, ঠিকানা, রুট, পণ্যের নাম ইত্যাদি)
@@ -3091,7 +3090,7 @@ body.edit-modal-open { overflow: hidden !important; }
             const routeSelect = document.getElementById('creditLimitRouteSelect');
             routeSelect.innerHTML = '<option value="">-- রুট নির্বাচন করুন --</option>';
             routes.forEach(r => {
-                routeSelect.innerHTML += `<option value="${r}">${r}</option>`;
+                routeSelect.innerHTML += `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`;
             });
             document.getElementById('creditLimitRetailerSelect').innerHTML = '<option value="">-- প্রথমে রুট সিলেক্ট করুন --</option>';
             document.getElementById('retailerCreditLimitValue').value = '';
@@ -3104,7 +3103,7 @@ body.edit-modal-open { overflow: hidden !important; }
 
             retailers.forEach((ret, index) => {
                 if(ret.route === selectedRoute) {
-                    retailerSelect.innerHTML += `<option value="${index}">${displayTraderName(ret.trader)} (${ret.name || ''})</option>`;
+                    retailerSelect.innerHTML += `<option value="${index}">${escapeHtml(displayTraderName(ret.trader))} (${escapeHtml(ret.name || '')})</option>`;
                 }
             });
             document.getElementById('retailerCreditLimitValue').value = '';
@@ -3158,7 +3157,7 @@ body.edit-modal-open { overflow: hidden !important; }
             const routeSelect = document.getElementById('salesRouteSelect');
             routeSelect.innerHTML = '<option value="">-- রুট নির্বাচন করুন --</option>';
             routes.forEach(r => {
-                routeSelect.innerHTML += `<option value="${r}">${r}</option>`;
+                routeSelect.innerHTML += `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`;
             });
 
             if (editId) {
@@ -4495,7 +4494,9 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         async function deleteInvoice(id) {
-            return blockPermanentDelete('ইনভয়েস');
+            blockPermanentDelete('ইনভয়েস');
+            return false;
+            /* Permanent deletion intentionally disabled for data safety.
             if (!checkConnectionOrAlert()) return;
             if(confirm("এই ইনভয়েসটি ডিলিট করতে চান?")) {
                 let inv = invoices.find(i => i.id === id);
@@ -4540,6 +4541,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     showCustomerLedger();
                 }
             }
+            */
         }
 
         function openProductModal() {
@@ -4598,6 +4600,9 @@ body.edit-modal-open { overflow: hidden !important; }
             const piecesPerCarton = getPiecesPerCarton({name, piecesPerCarton: old.piecesPerCarton});
             const piecePrice = getRatioBasedPiecePrice({name, price, piecesPerCarton, piecePrice:enteredPiecePrice});
             const prodData = { name, price, piecePrice, piecesPerCarton, code: old.code || generateProductCode(), active: old.active !== false };
+            const productsBackup = JSON.parse(JSON.stringify(products));
+            const stocksBackup = JSON.parse(JSON.stringify(stocks));
+            const invoicesBackup = JSON.parse(JSON.stringify(invoices));
             if(editIndex === -1) products.push(prodData);
             else {
                 const oldName = products[editIndex].name;
@@ -4607,7 +4612,13 @@ body.edit-modal-open { overflow: hidden !important; }
                     invoices.forEach(inv => (inv.items || []).forEach(it => { if(it.name === oldName) it.name = name; }));
                 }
             }
-            if (!(await syncToFirebase())) return;
+            if (!(await syncToFirebase())) {
+                products = productsBackup;
+                stocks = stocksBackup;
+                invoices = invoicesBackup;
+                renderProducts(); renderStocks(); renderSavedInvoices();
+                return;
+            }
             renderProducts(); renderStocks(); renderSavedInvoices();
             resetProductForm();
             if (editIndex >= 0) { closeModal('productModal'); showSaveToast('পণ্যের তথ্য সফলভাবে আপডেট হয়েছে'); }
@@ -4635,12 +4646,21 @@ body.edit-modal-open { overflow: hidden !important; }
                     const oldName = product.name;
                     const piecesPerCarton = getPiecesPerCarton({...product, name});
                     const piecePrice = getRatioBasedPiecePrice({name, price, piecesPerCarton, piecePrice:enteredPiecePrice});
+                    const productsBackup = JSON.parse(JSON.stringify(products));
+                    const stocksBackup = JSON.parse(JSON.stringify(stocks));
+                    const invoicesBackup = JSON.parse(JSON.stringify(invoices));
                     products[index] = {...product, name, price, piecesPerCarton, piecePrice};
                     if (oldName !== name) {
                         stocks.forEach(st => { if (st.productName === oldName) st.productName = name; });
                         invoices.forEach(inv => (inv.items || []).forEach(it => { if (it.name === oldName) it.name = name; }));
                     }
-                    if (!(await syncToFirebase())) return false;
+                    if (!(await syncToFirebase())) {
+                        products = productsBackup;
+                        stocks = stocksBackup;
+                        invoices = invoicesBackup;
+                        renderProducts(); renderStocks(); renderSavedInvoices();
+                        return false;
+                    }
                     renderProducts(); renderStocks(); renderSavedInvoices();
                     return true;
                 }
@@ -5469,7 +5489,7 @@ function renderStockMultiProductList() {
             filterRouteSelect.innerHTML = '<option value="">-- সকল রুট --</option>';
 
             routes.forEach(r => {
-                routeSelect.innerHTML += `<option value="${r}">${r}</option>`;
+                routeSelect.innerHTML += `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`;
                 filterRouteSelect.innerHTML += `<option value="${r}">${r}</option>`;
             });
         }
@@ -6346,7 +6366,7 @@ function renderStockMultiProductList() {
             rs.innerHTML = '<option value="">-- রিটেইলার নির্বাচন করুন --</option>';
             retailers.filter(r => r.route === route).forEach(r => {
                 const idx = retailers.indexOf(r);
-                rs.innerHTML += `<option value="${idx}">${displayTraderName(r.trader)}</option>`;
+                rs.innerHTML += `<option value="${idx}">${escapeHtml(displayTraderName(r.trader))}</option>`;
             });
             showOpeningDueValue();
         }
