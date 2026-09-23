@@ -2595,6 +2595,34 @@ body.edit-modal-open { overflow: hidden !important; }
             return value;
         }
         function getCoreDataHash(source) { return JSON.stringify(stableObject(getCoreDataForHash(source))); }
+        // ===== সেভ ব্যর্থ হলে লোকাল ডাটা Firebase-এর শেষ সঠিক অবস্থায় ফেরানো =====
+        // Firebase-এ শেষবার যে মূল ডাটা (রুট/পণ্য/স্টক/স্টক লগ/রিটেইলার) নিশ্চিতভাবে
+        // আছে, তার একটা কপি এখানে রাখা হয়। কোনো সেভ ব্যর্থ হলে স্ক্রিন/মেমোরির
+        // ডাটা এই কপিতে ফেরত যায় — ফলে ব্যর্থ পরিবর্তন মেমোরিতে থেকে গিয়ে আবার
+        // চেষ্টা করলে ডাবল হওয়া, বা পরের কোনো সেভের সাথে চুপচাপ চলে যাওয়া বন্ধ হয়।
+        // এটা শুধু এই ডিভাইসের মেমোরি বদলায়; Firebase-এ কিছুই লেখে বা মোছে না।
+        let lastServerCoreData = null;
+        let __coreRestoreCount = 0;
+        function cloneCoreData(src) {
+            const d = src || {};
+            return JSON.parse(JSON.stringify({ routes: d.routes, routeCodes: d.routeCodes, products: d.products, stocks: d.stocks, stockLogs: d.stockLogs, retailers: d.retailers }));
+        }
+        function restoreLocalCoreFromServer() {
+            if (!lastServerCoreData) return false;
+            const snap = cloneCoreData(lastServerCoreData);
+            if (Array.isArray(snap.routes)) routes = snap.routes;
+            if (snap.routeCodes && typeof snap.routeCodes === 'object') routeCodes = snap.routeCodes;
+            if (Array.isArray(snap.products)) products = snap.products;
+            if (Array.isArray(snap.stocks)) stocks = snap.stocks;
+            if (Array.isArray(snap.stockLogs)) stockLogs = snap.stockLogs;
+            if (Array.isArray(snap.retailers)) retailers = snap.retailers;
+            __coreRestoreCount++;
+            [renderRoutes, renderProducts, renderStocks, renderProductSelectionList, renderRetailerDropdowns,
+             filterRetailersByRoute, renderRetailerReport, renderCustomerDueReport, updateDashboardStats].forEach(fn => {
+                try { if (typeof fn === 'function') fn(); } catch (e) { console.error('Restore render failed:', e); }
+            });
+            return true;
+        }
         function showExternalChangeProtection() { alert('⚠️ অন্য ডিভাইস/ব্রাউজার থেকে ডাটা পরিবর্তন হয়েছে। নিরাপত্তার জন্য এই ডিভাইসের পুরোনো ডাটা Firebase-এর ওপর লেখা হয়নি। পেজটি রিফ্রেশ করে সর্বশেষ ডাটা লোড করুন, তারপর আপনার পরিবর্তন আবার করুন।'); }
 
         function initAppData() {
@@ -2666,6 +2694,7 @@ body.edit-modal-open { overflow: hidden !important; }
                         renderRetailerReport();
                         renderCustomerDueReport();
                         updateDashboardStats();
+                        lastServerCoreData = cloneCoreData({ routes, routeCodes, products, stocks, stockLogs, retailers });
                         // One-time migration: store ratio-based per-piece prices for
                         // existing products that were previously carton-price only.
                         if (productPricingChanged || retailerIdsAdded) syncToFirebase();
@@ -2705,6 +2734,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     } else {
                         serverDataWasLoaded = false;
                         lastServerCoreHash = null;
+                        lastServerCoreData = null;
                         initialDataLoaded = false;
                         alert('⚠️ Firebase-এর মূল appData ডকুমেন্ট পাওয়া যাচ্ছে না। নিরাপত্তার জন্য কোনো default/খালি ডাটা Firebase-এ লেখা হয়নি।');
                     }
@@ -2855,6 +2885,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 initialDataLoaded = false;
                 serverDataWasLoaded = false;
                 lastServerCoreHash = null;
+                lastServerCoreData = null;
                 invoicesFirstLoadDone = false;
                 collectionsFirstLoadDone = false;
                 onlineOrders = [];
@@ -2921,11 +2952,12 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         function syncToFirebase() {
-            if (!checkConnectionOrAlert()) return Promise.resolve(false);
-            if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি। ডাটা হারানোর ঝুঁকি এড়াতে Save বন্ধ রাখা হয়েছে। পেজটি রিফ্রেশ করে আবার চেষ্টা করুন।'); return Promise.resolve(false); }
+            if (!checkConnectionOrAlert()) { restoreLocalCoreFromServer(); return Promise.resolve(false); }
+            if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { restoreLocalCoreFromServer(); alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি। ডাটা হারানোর ঝুঁকি এড়াতে Save বন্ধ রাখা হয়েছে। পেজটি রিফ্রেশ করে আবার চেষ্টা করুন।'); return Promise.resolve(false); }
             updateDashboardStats();
             const ref = db.collection('sales_system').doc('appData');
             const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            const payloadCoreSnapshot = cloneCoreData(payload);
             const expectedHash = lastServerCoreHash;
             return db.runTransaction(async transaction => {
                 const snap = await transaction.get(ref);
@@ -2933,13 +2965,15 @@ body.edit-modal-open { overflow: hidden !important; }
                 if (getCoreDataHash(snap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
                 if (!checkNoCoreDeletion(snap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
                 transaction.set(ref, payload, { merge: true });
-            }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
+            }).then(() => { lastServerCoreHash = getCoreDataHash(payload); lastServerCoreData = payloadCoreSnapshot; return true;
             }).catch(error => {
                 console.error('Firestore safe save error:', error);
+                // ব্যর্থ পরিবর্তনটা মেমোরি থেকে সরিয়ে Firebase-এর শেষ সঠিক অবস্থায় ফেরানো
+                restoreLocalCoreFromServer();
                 if (error && error.message === '__DATA_DELETE_BLOCKED__') blockPermanentDelete('কোনো বিদ্যমান রেকর্ড');
                 else if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
                 else if (error && error.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData ডকুমেন্ট পাওয়া যাচ্ছে না। নিরাপত্তার জন্য কোনো নতুন/খালি ডাটা লেখা হয়নি।');
-                else { isConnectedToDB = false; badge.classList.add('offline'); text.innerText = 'সংরক্ষণে সমস্যা'; alert('তথ্য ডাটাবেজে সংরক্ষণ হয়নি। ইন্টারনেট ও Firebase অনুমতি পরীক্ষা করে আবার চেষ্টা করুন।'); }
+                else { if (typeof window.updateConnectionIndicator === 'function') window.updateConnectionIndicator(false, 'সংরক্ষণে সমস্যা'); alert('তথ্য ডাটাবেজে সংরক্ষণ হয়নি। ইন্টারনেট ও Firebase অনুমতি পরীক্ষা করে আবার চেষ্টা করুন।'); }
                 return false;
             });
         }
@@ -3014,6 +3048,7 @@ body.edit-modal-open { overflow: hidden !important; }
             const collectionRef = linkedCollectionEntry ? db.collection('retailer_collections').doc(linkedCollectionEntry.id) : null;
             const expectedHash = lastServerCoreHash;
             const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            const payloadCoreSnapshot = cloneCoreData(payload);
             return db.runTransaction(async transaction => {
                 const appSnap = await transaction.get(appDataRef);
                 if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
@@ -3021,7 +3056,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 transaction.set(invoiceRef, invoiceObj);
                 transaction.set(appDataRef, payload, { merge: true });
                 if (collectionRef) transaction.set(collectionRef, linkedCollectionEntry);
-            }).then(() => { lastServerCoreHash = getCoreDataHash(payload); return true;
+            }).then(() => { lastServerCoreHash = getCoreDataHash(payload); lastServerCoreData = payloadCoreSnapshot; return true;
             }).catch(error => {
                 console.error('Atomic invoice safe save error:', error);
                 if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
@@ -6943,6 +6978,7 @@ function renderStockMultiProductList() {
                 retailerCollectionsLive = (retailerCollectionsLive || []).map(c => collectionUpdates.find(u => u.id === c.id) || c);
                 retailers = filteredRetailers;
                 lastServerCoreHash = getCoreDataHash({ routes, routeCodes, products, stocks, stockLogs, retailers });
+                lastServerCoreData = cloneCoreData({ routes, routeCodes, products, stocks, stockLogs, retailers });
                 renderRetailerReport();
                 renderCustomerDueReport();
                 filterRetailersByRoute();
@@ -8650,6 +8686,7 @@ function renderStockMultiProductList() {
                             });
                             retailers = retailerSnapshot;
                             lastServerCoreHash = getCoreDataHash(result);
+                            lastServerCoreData = cloneCoreData(result);
                             recalculateRetailerDue(retailers.find(r => r.id === ret.id));
                             renderCustomerDueReport();
                             updateDashboardStats();
@@ -9366,19 +9403,51 @@ function renderStockMultiProductList() {
         // syncToFirebase() সরাসরি যেখান থেকেই ডাকা হোক, সেখানেও একই Loading Overlay
         // ও double-submit protection থাকবে। ফলে কোনো নতুন Save/Edit ফাংশন পরে যোগ হলেও
         // যদি সেটি syncToFirebase() ব্যবহার করে, স্বয়ংক্রিয়ভাবে 'অপেক্ষা করুন' দেখাবে।
+        // আগে একটা সেভ চলার সময় দ্বিতীয় সেভ এলে সেটা চুপচাপ বাদ পড়ত (কোনো
+        // বার্তা ছাড়া), অথচ তার পরিবর্তন মেমোরিতে থেকে যেত। এখন দ্বিতীয়টা
+        // লাইনে অপেক্ষা করে, প্রথমটা শেষ হলে চলে। মাঝখানে কোনো সেভ ব্যর্থ হয়ে
+        // ডাটা ফেরত গেলে (restore), অপেক্ষমাণ সেভটাও ব্যর্থ ধরা হয় — যাতে
+        // ফেরত যাওয়া পরিবর্তনকে ভুল করে "সফল" দেখানো না হয়।
         const __originalSyncToFirebase = syncToFirebase;
-        syncToFirebase = guardAgainstDoubleSubmit(__originalSyncToFirebase, 'syncToFirebase');
+        let __syncQueue = Promise.resolve();
+        syncToFirebase = function (...args) {
+            const restoreMark = __coreRestoreCount;
+            __saveBusyCount++;
+            setSaveBusyOverlay(true, 'তথ্য সংরক্ষণ করা হচ্ছে...');
+            const run = __syncQueue.then(() => {
+                if (__coreRestoreCount !== restoreMark) return false;
+                return __originalSyncToFirebase.apply(this, args);
+            });
+            __syncQueue = run.catch(() => {});
+            return run.finally(() => {
+                __saveBusyCount = Math.max(0, __saveBusyCount - 1);
+                if (__saveBusyCount === 0) setSaveBusyOverlay(false);
+            });
+        };
 
 </script>
 
 <script id="compact-mobile-dropdown-controller">
 (function () {
+  // মোবাইল/ট্যাবলেট (৯৮০px পর্যন্ত) বা যেকোনো টাচ-স্ক্রিনে ট্যাপ দিয়ে ড্রপডাউন খোলা হয়।
+  // আগে শুধু ৬৮০px পর্যন্ত কাজ করত — ফোনে পেজ একটু চওড়া দেখালে (৬৮১–৯৮০px)
+  // মেনু-বারের স্ক্রল-এলাকার ভেতরে ড্রপডাউন কেটে যেত, তাই দেখা যেত না।
   function isMobileNav() {
-    return window.matchMedia('(max-width: 680px)').matches;
+    return window.matchMedia('(max-width: 980px), (hover: none)').matches;
+  }
+  function clearDropdownPosition(li) {
+    var menu = li.querySelector('.dropdown');
+    if (!menu) return;
+    ['position', 'top', 'left', 'display', 'z-index'].forEach(function (prop) { menu.style.removeProperty(prop); });
   }
   function closeMobileDropdowns(except) {
     document.querySelectorAll('.nav-links > li.has-dropdown.mobile-dropdown-open').forEach(function (li) {
-      if (li !== except) li.classList.remove('mobile-dropdown-open');
+      if (li !== except) {
+        li.classList.remove('mobile-dropdown-open');
+        clearDropdownPosition(li);
+        var a = li.querySelector(':scope > a');
+        if (a && document.activeElement === a) a.blur();
+      }
     });
   }
   function positionDropdown(li) {
@@ -9386,15 +9455,19 @@ function renderStockMultiProductList() {
     var menu = li.querySelector('.dropdown');
     var trigger = li.querySelector(':scope > a');
     if (!menu || !trigger) return;
+    // স্ক্রিনের সাপেক্ষে (fixed) বসানো হয়, যাতে মেনু-বারের স্ক্রল-এলাকা ড্রপডাউন কেটে না দেয়
+    menu.style.setProperty('display', 'block', 'important');
+    menu.style.setProperty('position', 'fixed', 'important');
+    menu.style.setProperty('z-index', '5000', 'important');
     var r = trigger.getBoundingClientRect();
     var gap = 5;
     var left = Math.max(6, Math.min(r.left, window.innerWidth - menu.offsetWidth - 6));
     var top = r.bottom + gap;
-    menu.style.left = left + 'px';
-    menu.style.top = top + 'px';
     if (top + menu.offsetHeight > window.innerHeight - 6) {
-      menu.style.top = Math.max(6, r.top - menu.offsetHeight - gap) + 'px';
+      top = Math.max(6, r.top - menu.offsetHeight - gap);
     }
+    menu.style.setProperty('left', left + 'px', 'important');
+    menu.style.setProperty('top', top + 'px', 'important');
   }
   document.addEventListener('click', function (event) {
     if (!isMobileNav()) return;
@@ -9407,14 +9480,25 @@ function renderStockMultiProductList() {
       closeMobileDropdowns(li);
       if (willOpen) {
         li.classList.add('mobile-dropdown-open');
+        positionDropdown(li);
         requestAnimationFrame(function () { positionDropdown(li); });
       } else {
-        li.classList.remove('mobile-dropdown-open');
+        closeMobileDropdowns(null);
       }
+      return;
+    }
+    // ড্রপডাউনের কোনো অপশনে চাপ দিলে সেটার কাজ চলবে, আর ড্রপডাউনটা বন্ধ হয়ে যাবে
+    if (event.target.closest('.nav-links .dropdown a')) {
+      setTimeout(function () { closeMobileDropdowns(null); }, 0);
       return;
     }
     if (!event.target.closest('.nav-links > li.has-dropdown')) closeMobileDropdowns(null);
   }, true);
+  // মেনু-বার পাশে স্ক্রল করলে খোলা ড্রপডাউন বন্ধ হয়ে যাবে (নইলে ভুল জায়গায় ভাসত)
+  var navbarEl = document.querySelector('.navbar');
+  if (navbarEl) navbarEl.addEventListener('scroll', function () {
+    if (isMobileNav()) closeMobileDropdowns(null);
+  }, {passive:true});
   window.addEventListener('resize', function () {
     if (!isMobileNav()) { closeMobileDropdowns(null); return; }
     var open = document.querySelector('.nav-links > li.has-dropdown.mobile-dropdown-open');
