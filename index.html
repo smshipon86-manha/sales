@@ -887,6 +887,613 @@ body.edit-modal-open { overflow: hidden !important; }
 @keyframes saveBusySpin{to{transform:rotate(360deg);}}
 @media(max-width:480px){#saveBusyBox{min-width:205px;padding:24px 22px 21px;}#saveBusySpinner{width:42px;height:42px;}#saveBusyText{font-size:19px;}}
 </style>
+
+<style id="dashboard-card-visual-upgrade">
+/* ===== Dashboard summary cards — visual upgrade ===== */
+.stats-grid {
+  gap: 18px !important;
+  margin-bottom: 26px !important;
+}
+.stats-grid .stat-card {
+  position: relative;
+  overflow: hidden;
+  min-height: 126px !important;
+  padding: 20px 20px 19px !important;
+  border: 0 !important;
+  border-radius: 20px !important;
+  color: #17211d;
+  background: #fff !important;
+  box-shadow: 0 10px 28px rgba(20,52,42,.09), 0 2px 6px rgba(20,52,42,.04) !important;
+  transition: transform .22s ease, box-shadow .22s ease;
+  isolation: isolate;
+}
+.stats-grid .stat-card::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 6px;
+  background: linear-gradient(90deg, #2d6a4f, #79b84a);
+  z-index: 1;
+}
+.stats-grid .stat-card::after {
+  content: "";
+  position: absolute;
+  width: 145px; height: 145px;
+  right: -58px; top: -64px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.24);
+  box-shadow: inset 0 0 0 18px rgba(255,255,255,.10);
+  pointer-events: none;
+  z-index: 0;
+}
+.stats-grid .stat-card > * {
+  position: relative;
+  z-index: 2;
+}
+.stats-grid .stat-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 18px 38px rgba(20,52,42,.15), 0 4px 10px rgba(20,52,42,.05) !important;
+}
+.stats-grid .stat-icon {
+  width: 58px !important;
+  height: 58px !important;
+  flex: 0 0 58px !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 17px !important;
+  color: #fff !important;
+  font-size: 25px !important;
+  font-weight: 900 !important;
+  border: 1px solid rgba(255,255,255,.55) !important;
+  box-shadow: 0 8px 18px rgba(0,0,0,.13), inset 0 1px 0 rgba(255,255,255,.35) !important;
+}
+.stats-grid .stat-card:nth-child(1) {
+  background: linear-gradient(135deg, #ffffff 0%, #eefaf3 100%) !important;
+}
+.stats-grid .stat-card:nth-child(1)::before {
+  background: linear-gradient(90deg, #1f8f5f, #59c27d);
+}
+.stats-grid .stat-card:nth-child(1) .stat-icon {
+  background: linear-gradient(135deg, #16784d, #45b873) !important;
+}
+.stats-grid .stat-card:nth-child(2) {
+  background: linear-gradient(135deg, #ffffff 0%, #f0f5ff 100%) !important;
+}
+.stats-grid .stat-card:nth-child(2)::before {
+  background: linear-gradient(90deg, #386dcc, #6b93e5);
+}
+.stats-grid .stat-card:nth-child(2) .stat-icon {
+  background: linear-gradient(135deg, #315fb5, #6792e7) !important;
+}
+.stats-grid .stat-card:nth-child(3) {
+  background: linear-gradient(135deg, #ffffff 0%, #fff8e8 100%) !important;
+}
+.stats-grid .stat-card:nth-child(3)::before {
+  background: linear-gradient(90deg, #d98b00, #f3b63f);
+}
+.stats-grid .stat-card:nth-child(3) .stat-icon {
+  background: linear-gradient(135deg, #d58200, #f4b63d) !important;
+}
+.stats-grid .stat-card:nth-child(4) {
+  background: linear-gradient(135deg, #ffffff 0%, #fff0f0 100%) !important;
+}
+.stats-grid .stat-card:nth-child(4)::before {
+  background: linear-gradient(90deg, #c94242, #ef7373);
+}
+.stats-grid .stat-card:nth-child(4) .stat-icon {
+  background: linear-gradient(135deg, #c83f3f, #ed7070) !important;
+}
+.stats-grid .stat-label {
+  color: #5f6d66 !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  margin-bottom: 6px !important;
+}
+.stats-grid .stat-value {
+  color: #102a22 !important;
+  font-size: clamp(22px, 2vw, 28px) !important;
+  line-height: 1.12 !important;
+  font-weight: 900 !important;
+  letter-spacing: -.2px;
+}
+.stats-grid .stat-note {
+  color: #7b8781 !important;
+  font-size: 12px !important;
+  margin-top: 7px !important;
+  font-weight: 500;
+}
+@media (max-width: 980px) {
+  .stats-grid { gap: 13px !important; }
+  .stats-grid .stat-card { min-height: 115px !important; }
+}
+@media (max-width: 680px) {
+  .stats-grid { gap: 10px !important; }
+  .stats-grid .stat-card { min-height: 96px !important; padding: 15px !important; border-radius: 16px !important; }
+  .stats-grid .stat-icon { width: 48px !important; height: 48px !important; flex-basis: 48px !important; border-radius: 14px !important; font-size: 21px !important; }
+  .stats-grid .stat-value { font-size: 21px !important; }
+}
+</style>
+
+
+<style id="premium-header-menu-status-upgrade">
+/* ===== Premium header + navigation + live connection indicator ===== */
+.header-top {
+  background:
+    radial-gradient(circle at 76% 18%, rgba(122,191,123,.22) 0 90px, transparent 92px),
+    radial-gradient(circle at 91% 105%, rgba(244,183,64,.14) 0 150px, transparent 152px),
+    linear-gradient(125deg, #08291f 0%, #103f31 42%, #1d5b45 100%) !important;
+  border-bottom: 3px solid #e6b83f !important;
+  box-shadow: 0 10px 28px rgba(12,47,36,.18) !important;
+}
+.header-top::before {
+  width: 520px !important; height: 520px !important;
+  right: -120px !important; top: -390px !important;
+  background: transparent !important;
+  border: 80px solid rgba(255,255,255,.045);
+  border-radius: 50%;
+}
+.header-top::after {
+  content:""; position:absolute; width:390px; height:390px;
+  right:28%; top:-300px; border:70px solid rgba(183,213,107,.055);
+  border-radius:50%; pointer-events:none;
+}
+.logo-box {
+  border: 2px solid rgba(255,255,255,.62) !important;
+  box-shadow: 0 10px 25px rgba(0,0,0,.22) !important;
+}
+.brand-text h1 { text-shadow: 0 3px 16px rgba(0,0,0,.25) !important; }
+.brand-text .proprietor-info {
+  background: linear-gradient(90deg, rgba(255,255,255,.13), rgba(255,255,255,.06)) !important;
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.user-info { text-shadow: 0 2px 8px rgba(0,0,0,.16); }
+.status-badge {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255,255,255,.10) !important;
+  border: 1px solid rgba(255,255,255,.22) !important;
+  border-radius: 999px !important;
+  padding: 6px 12px !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.10), 0 5px 16px rgba(0,0,0,.10);
+  transition: .25s ease;
+}
+.status-badge .status-dot {
+  width: 10px !important; height: 10px !important;
+  background: #18e87a !important;
+  box-shadow: 0 0 0 4px rgba(24,232,122,.13), 0 0 12px rgba(24,232,122,.72) !important;
+}
+.status-badge.offline {
+  background: rgba(164,29,44,.22) !important;
+  border-color: rgba(255,115,125,.48) !important;
+}
+.status-badge.offline .status-dot {
+  background: #ff3b4f !important;
+  box-shadow: 0 0 0 4px rgba(255,59,79,.14), 0 0 12px rgba(255,59,79,.75) !important;
+}
+.navbar {
+  min-height: 64px !important;
+  padding: 5px clamp(12px,3vw,30px) !important;
+  background: linear-gradient(180deg, #ffffff 0%, #f4f8f5 100%) !important;
+  box-shadow: 0 8px 24px rgba(20,52,42,.09) !important;
+}
+.nav-links { gap: 7px !important; row-gap: 6px !important; }
+.nav-links li a, .nav-home a {
+  position: relative;
+  overflow: visible;
+  color: #234b3c !important;
+  min-height: 40px;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 14px !important;
+  border-radius: 13px !important;
+  background: linear-gradient(180deg,#ffffff,#eef5f1) !important;
+  border: 1px solid #dce8e1 !important;
+  box-shadow: 0 3px 9px rgba(20,52,42,.055), inset 0 1px 0 rgba(255,255,255,.9);
+  transition: transform .18s ease, box-shadow .18s ease, background .18s ease, color .18s ease;
+}
+.nav-links li a::after, .nav-home a::after {
+  content:""; position:absolute; left:14px; right:14px; bottom:3px; height:2px;
+  border-radius:10px; background:linear-gradient(90deg,#2d6a4f,#b7d56b);
+  transform:scaleX(0); transform-origin:center; transition:transform .18s ease;
+}
+.nav-links li:hover > a, .nav-links li a.active, .nav-home a:hover {
+  color:#fff !important;
+  background: linear-gradient(135deg,#23634a,#3f8a67) !important;
+  border-color: transparent !important;
+  transform: translateY(-2px);
+  box-shadow: 0 9px 18px rgba(45,106,79,.22), inset 0 1px 0 rgba(255,255,255,.14) !important;
+}
+.nav-links li:hover > a::after, .nav-links li a.active::after, .nav-home a:hover::after { transform:scaleX(1); }
+.nav-links li a.active { box-shadow: 0 0 0 2px #e6b83f inset, 0 9px 18px rgba(45,106,79,.20) !important; }
+.nav-links li:nth-child(8) > a {
+  background: linear-gradient(135deg,#7f1f2d,#a52f40) !important;
+  border-color: transparent !important; color:#fff !important;
+  box-shadow: 0 7px 16px rgba(127,31,45,.22) !important;
+}
+.nav-links li:nth-child(9) > a {
+  background: linear-gradient(135deg,#17683a,#2d8b52) !important;
+  border-color: transparent !important; color:#fff !important;
+  box-shadow: 0 7px 16px rgba(31,106,58,.22) !important;
+}
+.nav-links li:nth-child(8) > a:hover, .nav-links li:nth-child(9) > a:hover { transform:translateY(-2px) scale(1.015); }
+.dropdown {
+  margin-top: 5px !important;
+  border-top: 3px solid #3d8061 !important;
+  box-shadow: 0 18px 38px rgba(20,52,42,.16) !important;
+}
+.dropdown li a {
+  min-height: 36px !important;
+  display:flex !important; justify-content:flex-start !important;
+  background:transparent !important; color:#33423b !important;
+  border:0 !important; box-shadow:none !important; transform:none !important;
+}
+.dropdown li a::after { display:none !important; }
+.dropdown li a:hover {
+  background:linear-gradient(90deg,#eaf5ee,#f8fbf9) !important;
+  color:#1f6348 !important; transform:translateX(3px) !important;
+}
+.nav-home { margin-left:auto; }
+.nav-home a { padding-left:16px !important; padding-right:16px !important; }
+@media (max-width:980px) {
+  .navbar { min-height:58px !important; }
+  .nav-links { gap:5px !important; }
+  .nav-links li a,.nav-home a { min-height:36px; padding:6px 10px !important; font-size:12px !important; border-radius:11px !important; }
+}
+@media (max-width:680px) {
+  .navbar { padding:7px 10px !important; }
+  .nav-links { gap:4px !important; }
+  .nav-links li a,.nav-home a { min-height:34px; padding:5px 9px !important; font-size:11.5px !important; }
+}
+</style>
+
+
+<style id="menu-dashboard-size-fix">
+/* =========================================================
+   Menu + Dropdown + Dashboard compact/mobile refinement
+   Existing data/functionality is intentionally untouched.
+   ========================================================= */
+
+/* ---------- Desktop / Laptop navigation ---------- */
+@media (min-width: 981px) {
+  .navbar {
+    min-height: 58px !important;
+    padding: 4px clamp(10px, 2.5vw, 26px) !important;
+  }
+
+  .nav-links {
+    gap: 5px !important;
+    row-gap: 4px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .nav-links li a,
+  .nav-home a {
+    min-height: 36px !important;
+    height: 36px !important;
+    padding: 5px 11px !important;
+    font-size: 12px !important;
+    border-radius: 11px !important;
+    white-space: nowrap !important;
+  }
+
+  /* No hover-gap: the dropdown stays directly connected to its parent. */
+  .dropdown {
+    top: calc(100% + 1px) !important;
+    margin-top: 0 !important;
+    min-width: 195px !important;
+    padding: 5px !important;
+    border-top-width: 3px !important;
+    border-radius: 11px !important;
+  }
+
+  .dropdown li a {
+    min-height: 32px !important;
+    height: auto !important;
+    padding: 7px 10px !important;
+    font-size: 12px !important;
+    line-height: 1.35 !important;
+  }
+
+  /*
+    A 4px invisible hover bridge prevents the submenu from disappearing
+    while the mouse travels from the parent button to the dropdown.
+  */
+  .has-dropdown::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 5px;
+    background: transparent;
+    z-index: 999;
+  }
+
+  .nav-home a {
+    padding-left: 13px !important;
+    padding-right: 13px !important;
+  }
+}
+
+/* ---------- Tablet: keep menu compact and intact ---------- */
+@media (min-width: 681px) and (max-width: 980px) {
+  .navbar {
+    min-height: 54px !important;
+    padding: 5px 10px !important;
+    overflow-x: auto;
+  }
+
+  .nav-links {
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
+    row-gap: 0 !important;
+    flex: 0 0 auto;
+  }
+
+  .nav-links > li,
+  .nav-home {
+    flex: 0 0 auto !important;
+  }
+
+  .nav-links li a,
+  .nav-home a {
+    min-height: 34px !important;
+    height: 34px !important;
+    padding: 5px 9px !important;
+    font-size: 11.5px !important;
+    border-radius: 10px !important;
+    white-space: nowrap !important;
+  }
+
+  .dropdown {
+    top: calc(100% + 1px) !important;
+    margin-top: 0 !important;
+  }
+}
+
+/* ---------- Mobile: one clean horizontal menu, no broken wrapping ---------- */
+@media (max-width: 680px) {
+  .navbar {
+    min-height: 50px !important;
+    height: 50px !important;
+    padding: 5px 8px !important;
+    display: flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    overflow-x: auto !important;
+    overflow-y: visible !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .navbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .mobile-menu-btn {
+    display: none !important;
+  }
+
+  .nav-links {
+    display: flex !important;
+    flex-wrap: nowrap !important;
+    gap: 4px !important;
+    row-gap: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    flex: 0 0 auto !important;
+    width: max-content !important;
+    align-items: center !important;
+  }
+
+  .nav-links > li,
+  .nav-home {
+    flex: 0 0 auto !important;
+    width: auto !important;
+  }
+
+  .nav-links li a,
+  .nav-home a {
+    min-height: 32px !important;
+    height: 32px !important;
+    padding: 4px 8px !important;
+    font-size: 11px !important;
+    line-height: 1.15 !important;
+    border-radius: 9px !important;
+    white-space: nowrap !important;
+  }
+
+  .nav-home {
+    margin-left: 0 !important;
+  }
+
+  .nav-home a {
+    padding-left: 10px !important;
+    padding-right: 10px !important;
+  }
+
+  /* Touch-friendly dropdown: fixed so it is never clipped by the
+     horizontally-scrollable mobile navigation bar. */
+  .dropdown {
+    top: auto !important;
+    left: auto !important;
+    margin-top: 0 !important;
+    min-width: 185px !important;
+    max-width: min(86vw, 270px) !important;
+    padding: 4px !important;
+    border-radius: 10px !important;
+    z-index: 5000 !important;
+  }
+
+  .has-dropdown.mobile-dropdown-open .dropdown {
+    display: block !important;
+    position: fixed !important;
+  }
+
+  .dropdown li a {
+    min-height: 31px !important;
+    height: auto !important;
+    padding: 7px 9px !important;
+    font-size: 11.5px !important;
+    white-space: nowrap !important;
+  }
+
+  /* Keep the submenu open while its parent is focused/tapped. */
+  .has-dropdown:focus-within .dropdown {
+    display: block !important;
+  }
+
+  .has-dropdown::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    height: 5px;
+    background: transparent;
+    z-index: 4999;
+  }
+
+  /* Make the dashboard fit comfortably on a phone. */
+  .main-container {
+    padding: 18px 10px 30px !important;
+  }
+
+  .dashboard-welcome {
+    margin-bottom: 14px !important;
+  }
+
+  .dashboard-welcome h2 {
+    font-size: 22px !important;
+  }
+
+  .dashboard-welcome p {
+    font-size: 13px !important;
+  }
+}
+
+/* ---------- Four dashboard summary cards: smaller + polished ---------- */
+.stats-grid {
+  gap: 12px !important;
+  margin-bottom: 18px !important;
+}
+
+.stats-grid .stat-card {
+  min-height: 98px !important;
+  padding: 13px 14px !important;
+  border-radius: 15px !important;
+  gap: 11px !important;
+  box-shadow: 0 7px 20px rgba(20,52,42,.075), 0 2px 5px rgba(20,52,42,.035) !important;
+}
+
+.stats-grid .stat-card::before {
+  height: 4px !important;
+}
+
+.stats-grid .stat-card::after {
+  width: 105px !important;
+  height: 105px !important;
+  right: -45px !important;
+  top: -48px !important;
+}
+
+.stats-grid .stat-icon {
+  width: 46px !important;
+  height: 46px !important;
+  flex: 0 0 46px !important;
+  border-radius: 13px !important;
+  font-size: 21px !important;
+  box-shadow: 0 6px 14px rgba(0,0,0,.10), inset 0 1px 0 rgba(255,255,255,.35) !important;
+}
+
+.stats-grid .stat-label {
+  font-size: 12px !important;
+  margin-bottom: 3px !important;
+}
+
+.stats-grid .stat-value {
+  font-size: 21px !important;
+  line-height: 1.08 !important;
+}
+
+.stats-grid .stat-note {
+  font-size: 11px !important;
+  margin-top: 4px !important;
+}
+
+@media (max-width: 980px) {
+  .stats-grid {
+    gap: 10px !important;
+  }
+
+  .stats-grid .stat-card {
+    min-height: 92px !important;
+    padding: 12px !important;
+  }
+}
+
+@media (max-width: 680px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 9px !important;
+  }
+
+  .stats-grid .stat-card {
+    min-height: 86px !important;
+    padding: 11px !important;
+    border-radius: 13px !important;
+    gap: 9px !important;
+  }
+
+  .stats-grid .stat-icon {
+    width: 40px !important;
+    height: 40px !important;
+    flex-basis: 40px !important;
+    border-radius: 11px !important;
+    font-size: 18px !important;
+  }
+
+  .stats-grid .stat-label {
+    font-size: 11px !important;
+    margin-bottom: 2px !important;
+  }
+
+  .stats-grid .stat-value {
+    font-size: 17px !important;
+  }
+
+  .stats-grid .stat-note {
+    font-size: 9.5px !important;
+    margin-top: 3px !important;
+  }
+}
+
+@media (max-width: 380px) {
+  .stats-grid .stat-card {
+    min-height: 82px !important;
+    padding: 9px !important;
+    gap: 7px !important;
+  }
+
+  .stats-grid .stat-icon {
+    width: 36px !important;
+    height: 36px !important;
+    flex-basis: 36px !important;
+    font-size: 16px !important;
+  }
+
+  .stats-grid .stat-value {
+    font-size: 15.5px !important;
+  }
+
+  .stats-grid .stat-note {
+    font-size: 9px !important;
+  }
+}
+</style>
+
 </head>
 <body>
     <!-- Firebase-এ ইনভয়েস/কালেকশন/অন্যান্য সেভ চলাকালীন ডাবল-ক্লিক ও অন্য বাটন চাপা বন্ধ রাখে -->
@@ -1254,10 +1861,6 @@ body.edit-modal-open { overflow: hidden !important; }
                         <label>ক্যাশ জমা (Cash Deposit) : <span style="color:#c0392b;">*</span></label>
                         <input type="number" id="salesCashDeposit" placeholder="ক্যাশ ইনভয়েসে বাধ্যতামূলক">
                     </div>
-                    <div class="form-group" id="salesCreditDepositGroup" style="display:none;">
-                        <label>এখনই কত টাকা জমা দিলো (ঐচ্ছিক) :</label>
-                        <input type="number" id="salesCreditDeposit" placeholder="যেমন: মাল দেওয়ার সাথে সাথেই কিছু টাকা দিলে">
-                    </div>
                     <div class="form-group">
                         <label>বাকি নিতে পারবে (Available For Purchase) :</label>
                         <input type="text" id="salesAvailable" placeholder="বাকি নিতে পারবে" readonly style="background:#eee;">
@@ -1464,7 +2067,7 @@ body.edit-modal-open { overflow: hidden !important; }
             <button class="btn-submit" id="btnConfirmStockInfo" onclick="confirmStockInfoStep()">✅ কনফার্ম করে পণ্য সিলেক্ট করুন</button>
 
             <div class="form-group" id="stockProductListSection" style="display:none;">
-                <label>একাধিক পণ্য সিলেক্ট করুন এবং প্রতিটির পাশে পিস সংখ্যা লিখুন:</label>
+                <label>একাধিক পণ্য সিলেক্ট করুন এবং প্রতিটির পাশে কার্টুন সংখ্যা লিখুন:</label>
                 <input type="text" id="stockProductSearchInput" oninput="filterStockProductList()" placeholder="পণ্যের নাম দিয়ে খুঁজুন..." style="width:100%; padding:8px; margin-bottom:8px; border:1px solid #ccc; border-radius:6px; box-sizing:border-box;">
                 <div id="stockMultiProductList" style="max-height:300px; overflow-y:auto; border:1px solid #ddd; border-radius:8px; padding:6px 10px;"></div>
                 <div id="stockPhaseActionBar" style="margin-top:8px;"></div>
@@ -2001,8 +2604,16 @@ body.edit-modal-open { overflow: hidden !important; }
             initOperatorNameDisplay();
             document.getElementById('todayDateHeading').innerText = systemDate;
 
-            badge = document.getElementById("statusBadge");
-            text = document.getElementById("statusText");
+            const badge = document.getElementById("statusBadge");
+            const text = document.getElementById("statusText");
+            window.updateConnectionIndicator = function(online, label) {
+                if (!badge || !text) return;
+                const isOnline = Boolean(online);
+                badge.classList.toggle("offline", !isOnline);
+                text.innerText = label || (isOnline ? "অনলাইনে সংযুক্ত" : "অফলাইন");
+            };
+            window.updateConnectionIndicator(navigator.onLine && isConnectedToDB,
+                navigator.onLine ? "কানেক্ট হচ্ছে..." : "অফলাইন");
 
             unsubscribeAllFirebaseListeners();
 
@@ -2097,13 +2708,12 @@ body.edit-modal-open { overflow: hidden !important; }
                         initialDataLoaded = false;
                         alert('⚠️ Firebase-এর মূল appData ডকুমেন্ট পাওয়া যাচ্ছে না। নিরাপত্তার জন্য কোনো default/খালি ডাটা Firebase-এ লেখা হয়নি।');
                     }
-                    badge.classList.remove("offline");
-                    text.innerText = "অনলাইনে সংযুক্ত";
+                    updateConnectionIndicator(navigator.onLine && isConnectedToDB,
+                        (navigator.onLine && isConnectedToDB) ? "অনলাইনে সংযুক্ত" : "অফলাইন");
                 }, (error) => {
                     console.error("Firestore error:", error);
                     isConnectedToDB = false; // ইন্টারনেট বা ডাটাবেজ না থাকলে ফলস হবে
-                    badge.classList.add("offline");
-                    text.innerText = "অফলাইন / কানেকশন এরর";
+                    updateConnectionIndicator(false, navigator.onLine ? "ডাটাবেজ সংযোগ নেই" : "অফলাইন");
                 });
 
             // একই সেশনে listener যেন দ্বিতীয়বার attach না হয়। আগে থাকা listener
@@ -2156,7 +2766,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 .onSnapshot((snapshot) => {
                     retailerCollectionsLive = snapshot.docs.map(d => d.data());
                     collectionsFirstLoadDone = true;
-                    retailers.forEach(r => recalculateRetailerDue(r));
+                    withLedgerIndex(() => retailers.forEach(r => recalculateRetailerDue(r)));
                     renderCustomerDueReport();
                     updateDashboardStats();
                     const ridx = document.getElementById('ledgerRetailerSelect') ? document.getElementById('ledgerRetailerSelect').value : '';
@@ -2165,6 +2775,22 @@ body.edit-modal-open { overflow: hidden !important; }
                     console.error("Retailer collections listener error:", error);
                 });
         }
+
+        // ব্রাউজারের বাস্তব নেটওয়ার্ক স্ট্যাটাসও Firebase স্ট্যাটাসের সাথে মিলিয়ে দেখানো হবে।
+        window.addEventListener('online', () => {
+            if (typeof window.updateConnectionIndicator !== 'function') return;
+            if (typeof isConnectedToDB !== 'undefined' && isConnectedToDB) {
+                window.updateConnectionIndicator(true, 'অনলাইনে সংযুক্ত');
+            } else {
+                window.updateConnectionIndicator(false, 'ডাটাবেজ সংযোগ হচ্ছে...');
+            }
+        });
+        window.addEventListener('offline', () => {
+            if (typeof isConnectedToDB !== 'undefined') isConnectedToDB = false;
+            if (typeof window.updateConnectionIndicator === 'function') {
+                window.updateConnectionIndicator(false, 'অফলাইন');
+            }
+        });
 
         // ========== Firebase Authentication ==========
         function doLogin() {
@@ -2459,7 +3085,7 @@ body.edit-modal-open { overflow: hidden !important; }
             // "আজকের স্টক" রিপোর্টের মতোই, ড্যাশবোর্ডেও MRP থেকে ১৫% বাদ দিয়ে
             // দেখানো হয় — দুই জায়গায় একই হিসাব থাকার জন্য।
             const totalStockValue = totalStockValueMRP * 0.85;
-            const totalDue = (retailers || []).reduce((sum, retailer) => sum + Math.max(0, Number(recalculateRetailerDue(retailer) || 0)), 0);
+            const totalDue = withLedgerIndex(() => (retailers || []).reduce((sum, retailer) => sum + Math.max(0, Number(recalculateRetailerDue(retailer) || 0)), 0));
 
             // কম স্টকের সতর্কতা — ৩ কার্টুনের নিচে নামলে ড্যাশবোর্ডে দেখানো হয়
             const LOW_STOCK_THRESHOLD = 3;
@@ -3186,11 +3812,6 @@ body.edit-modal-open { overflow: hidden !important; }
                     // হয়নি) -- এডিট করে আবার নতুন করে এটা প্রসেস হয় না, তাই
                     // ঘরটা disabled রাখা হচ্ছে, যাতে ভুলবশত দ্বিতীয়বার কালেকশন
                     // তৈরি না হয়ে যায়।
-                    const creditDepositField = document.getElementById('salesCreditDeposit');
-                    if (creditDepositField) {
-                        creditDepositField.value = inv.creditInitialDeposit || '';
-                        creditDepositField.disabled = true;
-                    }
                     document.getElementById('salesAvailable').value = inv.available || '';
                     selectedInvoiceItems = (inv.items || []).map(it => {
                         // এডিট করার সময় এই ইনভয়েসের পুরোনো পরিমাণ এখনও স্টক থেকে বাদ দেওয়া আছে,
@@ -3234,8 +3855,6 @@ body.edit-modal-open { overflow: hidden !important; }
                 document.getElementById('salesCreditLimit').value = "";
                 document.getElementById('salesDueAmount').value = "";
                 document.getElementById('salesCashDeposit').value = "";
-                const creditDepositFieldNew = document.getElementById('salesCreditDeposit');
-                if (creditDepositFieldNew) { creditDepositFieldNew.value = ""; creditDepositFieldNew.disabled = false; }
                 document.getElementById('salesAvailable').value = "";
                 selectedInvoiceItems = [];
                 renderInvoiceItemTable();
@@ -3279,14 +3898,6 @@ body.edit-modal-open { overflow: hidden !important; }
             cash.disabled = type !== 'Cash';
             cash.style.backgroundColor = type === 'Cash' ? '' : '#eee';
             if (type !== 'Cash') cash.value = '';
-
-            // ক্রেডিট ইনভয়েসের সাথে সাথে কিছু টাকা জমা নেওয়ার (ঐচ্ছিক) ঘরটা
-            // শুধু ইনভয়েস টাইপ "Credit" হলেই দেখানো হয়।
-            const creditDepositGroup = document.getElementById('salesCreditDepositGroup');
-            if (creditDepositGroup) {
-                creditDepositGroup.style.display = type === 'Credit' ? 'block' : 'none';
-                if (type !== 'Credit') document.getElementById('salesCreditDeposit').value = '';
-            }
 
             // "তালিকায় নেই — হাতে লিখুন" চেকবক্সটা শুধু ক্যাশ ইনভয়েসে দেখানো
             // হয়। ক্যাশ থেকে সরে গেলে ওয়াক-ইন মোড স্বয়ংক্রিয়ভাবে বন্ধ করে
@@ -3844,8 +4455,6 @@ body.edit-modal-open { overflow: hidden !important; }
                 // নম্বর-সংঘর্ষের ঝুঁকিটা আগের মতোই থেকে যায়।
             }
             const cashDeposit = parseFloat(document.getElementById('salesCashDeposit').value || 0) || 0;
-            const creditDepositEl = document.getElementById('salesCreditDeposit');
-            const creditDeposit = (creditDepositEl && !creditDepositEl.disabled) ? (parseFloat(creditDepositEl.value || 0) || 0) : 0;
 
             if(selectedInvoiceItems.length === 0) { alert("কমপক্ষে একটি পণ্য যুক্ত করুন।"); return; }
 
@@ -3856,6 +4465,26 @@ body.edit-modal-open { overflow: hidden !important; }
             });
             if (missingQty) {
                 alert(`"${missingQty.name}" পণ্যের পরিমাণ দেওয়া হয়নি।\nপ্রতিটি নির্বাচিত পণ্যের কার্টুন অথবা পিসের পরিমাণ দিতে হবে।`);
+                return;
+            }
+
+            // প্রতিটি পণ্যের ছাড়% ঘর পূরণ না করা পর্যন্ত ইনভয়েস সেভ হবে না।
+            // ০% একটি বৈধভাবে বসানো ছাড়; শুধু খালি ঘরকেই ভুল ধরা হচ্ছে।
+            const missingDiscountIndex = selectedInvoiceItems.findIndex(item =>
+                item.discountPercent === '' || item.discountPercent === undefined || item.discountPercent === null
+            );
+            if (missingDiscountIndex !== -1) {
+                const missingDiscount = selectedInvoiceItems[missingDiscountIndex];
+                alert(`ইনভয়েস সেভ করা যাবে না।\n\n"${missingDiscount.name}" পণ্যের ছাড় % বসানো হয়নি।\nওই পণ্যের ছাড় % ঘরে মান লিখে আবার সেভ করুন।`);
+                renderInvoiceItemTable();
+                setTimeout(() => {
+                    const discountInput = document.querySelector(`.item-nav-input[data-row="${missingDiscountIndex}"][data-col="2"]`);
+                    if (discountInput) {
+                        discountInput.classList.add('discount-missing-field');
+                        discountInput.focus();
+                        discountInput.select();
+                    }
+                }, 0);
                 return;
             }
 
@@ -3882,7 +4511,7 @@ body.edit-modal-open { overflow: hidden !important; }
 
             // Edit করলে পুরোনো একই Credit invoice-এর টাকা আগে বাদ দিয়ে limit হিসাব
             if (oldInvoice && oldInvoice.invoiceType === "Credit" && oldInvoice.retailer === retailer) {
-                existingDueForLimit = Math.max(0, existingDueForLimit - (parseFloat(oldInvoice.totalAmount || 0) || 0));
+                existingDueForLimit = Math.max(0, existingDueForLimit - Math.round(parseFloat(oldInvoice.totalAmount || 0) || 0));
             }
 
             if(invoiceType === "Credit") {
@@ -3896,11 +4525,6 @@ body.edit-modal-open { overflow: hidden !important; }
                     alert(`ইনভয়েস সেভ করা সম্ভব নয়!\nক্রেডিট লিমিট: ${maxLimit} টাকা\nবর্তমান বাকি: ${existingDueForLimit} টাকা\nআর নিতে পারবে: ${available} টাকা\nনতুন ইনভয়েস: ${currentInvoiceTotal} টাকা`);
                     return;
                 }
-                if (creditDeposit > currentInvoiceTotal) {
-                    alert(`জমার টাকা (${creditDeposit.toLocaleString('en-US')} ৳) ইনভয়েসের মোট টাকার (${currentInvoiceTotal.toLocaleString('en-US')} ৳) চেয়ে বেশি হতে পারবে না।`);
-                    document.getElementById('salesCreditDeposit').focus();
-                    return;
-                }
             } else {
                 // ক্যাশ ইনভয়েসে ইনভয়েসের পুরো টাকাটাই "ক্যাশ জমা" ঘরে বসাতে
                 // হবে — কম-বেশি হলে ইনভয়েস সেভ হবে না, কারণ এটা যেহেতু ক্যাশ
@@ -3912,11 +4536,6 @@ body.edit-modal-open { overflow: hidden !important; }
                 }
             }
 
-            // ক্রেডিট ইনভয়েসের সাথে সাথে জমা থাকলে তার জন্য একটা আইডি এখানেই
-            // একবার তৈরি করে রাখা হচ্ছে -- এই একই আইডি নিচে ইনভয়েসের ভেতরে
-            // (রেফারেন্স হিসেবে) আর কালেকশন এন্ট্রিতে (আসল ডকুমেন্ট আইডি
-            // হিসেবে) দুই জায়গাতেই ব্যবহার হবে, যাতে দুটো নিশ্চিতভাবে মিলে।
-            const newDepositId = (!editId && invoiceType === 'Credit' && creditDeposit > 0) ? ('RCOL_' + Date.now() + '_dep') : null;
             const invoiceObj = {
                 id: editId ? editId : 'INV_' + Date.now(),
                 invoiceNo,
@@ -3932,16 +4551,11 @@ body.edit-modal-open { overflow: hidden !important; }
                 creditLimit: parseFloat(selectedRetailerData.creditLimit || 0) || 0,
                 dueAmount: invoiceType === 'Credit' ? existingDueForLimit : 0,
                 cashDeposit: invoiceType === 'Cash' ? cashDeposit : 0,
-                // ক্রেডিট ইনভয়েসের সাথে সাথে (থাকলে) যে টাকাটা তখনই জমা
-                // নেওয়া হয়েছে -- এডিট করলে আগের এন্ট্রির মানই অক্ষত থাকে,
-                // এডিট করে নতুন করে এটা বদলানো/আবার প্রসেস করা হয় না।
-                creditInitialDeposit: (!editId && invoiceType === 'Credit') ? creditDeposit : (oldInvoice?.creditInitialDeposit || 0),
-                // এই ইনভয়েসের সাথে সাথে যদি একটা কালেকশন এন্ট্রি তৈরি হয়ে
-                // থাকে, তার আইডিটাও এখানে রেখে দেওয়া হচ্ছে -- ইনভয়েসটা পরে
-                // ডিলিট করলে এই লিংক ধরেই সেই কালেকশন এন্ট্রিটাও একসাথে
-                // মুছে ফেলা যাবে, নাহলে সেটা "ভুতুড়ে" কালেকশন হয়ে বাকির
-                // হিসাব স্থায়ীভাবে ভুল করে রেখে দিত।
-                linkedCollectionId: newDepositId || (oldInvoice?.linkedCollectionId || null),
+                // পুরোনো ইনভয়েসে থাকা legacy creditInitialDeposit/linkedCollectionId
+                // থাকলে সেগুলো অক্ষত রাখা হচ্ছে, যাতে পুরোনো হিসাবের কোনো তথ্য
+                // এই UI পরিবর্তনের কারণে হারিয়ে না যায়। নতুন ইনভয়েসে এগুলো তৈরি হবে না।
+                creditInitialDeposit: oldInvoice?.creditInitialDeposit || 0,
+                linkedCollectionId: oldInvoice?.linkedCollectionId || null,
                 available: invoiceType === 'Credit' ? Math.max(0, (parseFloat(selectedRetailerData.creditLimit || 0)||0) - existingDueForLimit - currentInvoiceTotal) : 0,
                 // ক্রেতার নাম/ঠিকানা/মোবাইল সরাসরি ইনভয়েসের সাথেই সেভ করে
                 // রাখা হচ্ছে (রিটেইলার তালিকার ওপর নির্ভর না করে) — বিশেষ
@@ -3965,7 +4579,9 @@ body.edit-modal-open { overflow: hidden !important; }
             // আটকে না থাকে -- তাই মিউটেট করার ঠিক আগেই একটা ব্যাকআপ রাখা
             // হচ্ছে, ব্যর্থ হলে ঠিক আগের অবস্থায় ফিরিয়ে দেওয়া হবে।
             const stocksBackupForRollback = JSON.parse(JSON.stringify(stocks));
-            const invoicesBackupForRollback = JSON.parse(JSON.stringify(invoices));
+            // ইনভয়েস অবজেক্টগুলো এখানে বদলানো হয় না (শুধু তালিকায় বসানো/যোগ হয়),
+            // তাই পুরো ডিপ কপির বদলে তালিকার হালকা কপিই যথেষ্ট।
+            const invoicesBackupForRollback = invoices.slice();
             if (oldInvoice) {
                 // পুরোনো বিক্রি করা কার্টুন stock-এ ফেরত
                 (oldInvoice.items || []).forEach(oldItem => {
@@ -4009,24 +4625,7 @@ body.edit-modal-open { overflow: hidden !important; }
             }
             recalculateRetailerDue(selectedRetailerData);
 
-            // ক্রেডিট ইনভয়েসের সাথে সাথে জমা নেওয়া টাকা থাকলে (নতুন
-            // ইনভয়েসেই শুধু, এডিটে না), সেটার জন্য একটা কালেকশন এন্ট্রি
-            // তৈরি করে ইনভয়েসের সাথেই একই batch-এ পাঠানো হচ্ছে।
-            let linkedCollectionEntry = null;
-            if (!editId && invoiceType === 'Credit' && creditDeposit > 0) {
-                linkedCollectionEntry = {
-                    id: newDepositId,
-                    retailerId: selectedRetailerData.id || '',
-                    route: route,
-                    retailerTrader: retailer,
-                    retailerName: selectedRetailerData.name || '',
-                    date: invoiceObj.date,
-                    amount: creditDeposit,
-                    note: `ইনভয়েস ${invoiceNo}-এর সাথে সাথে জমা`,
-                    createdAt: Date.now()
-                };
-            }
-            if (!(await saveInvoiceAndSyncAtomic(invoiceObj, linkedCollectionEntry))) { stocks = stocksBackupForRollback; invoices = invoicesBackupForRollback; return; }
+            if (!(await saveInvoiceAndSyncAtomic(invoiceObj, null))) { stocks = stocksBackupForRollback; invoices = invoicesBackupForRollback; return; }
 
             // এই ইনভয়েসটা কোনো এসপিও-এর পাঠানো অনলাইন অর্ডার থেকে রূপান্তরিত
             // হলে, এখানেই সেই অর্ডারটাকে স্বয়ংক্রিয়ভাবে 'invoiced' হিসেবে
@@ -4094,29 +4693,36 @@ body.edit-modal-open { overflow: hidden !important; }
                 const d = parseBanglaOrISODate(inv.date);
                 return d && d.getFullYear() === today.getFullYear() && d.getMonth() === today.getMonth() && d.getDate() === today.getDate();
             }).sort((a,b)=> getInvoiceCreationOrder(b) - getInvoiceCreationOrder(a));
+            let todayRowsHtml = '';
             if(filtered.length === 0) { tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:#777;">আজ এখনো কোনো ইনভয়েস তৈরি করা হয়নি।</td></tr>`; return; }
             filtered.forEach(inv => {
                 const buyerRet = resolveRetailerForInvoice(inv);
                 const buyerName = buyerRet ? (buyerRet.name || '') : '';
                 const amount = Math.round(Number(inv.totalAmount || 0) || 0);
                 const avgDiscount = getInvoiceAvgDiscountPercent(inv);
-                tbody.innerHTML += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:4px 2px;"><button class="btn-action btn-view" style="padding:2px 5px;font-size:10.5px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:2px 5px;font-size:10.5px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:2px 5px;font-size:10.5px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action ${isInvoicePrinted(inv.id) ? 'print-done' : 'print-pending'}" id="printBtn_${inv.id}" style="padding:2px 5px;font-size:10.5px;" onclick="printInvoiceDirect('${inv.id}', this)">${isInvoicePrinted(inv.id) ? '🖨️প্রিন্ট হয়েছে' : '🖨️প্রিন্ট'}</button></td></tr>`;
+                todayRowsHtml += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:4px 2px;"><button class="btn-action btn-view" style="padding:2px 5px;font-size:10.5px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:2px 5px;font-size:10.5px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:2px 5px;font-size:10.5px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action ${isInvoicePrinted(inv.id) ? 'print-done' : 'print-pending'}" id="printBtn_${inv.id}" style="padding:2px 5px;font-size:10.5px;" onclick="printInvoiceDirect('${inv.id}', this)">${isInvoicePrinted(inv.id) ? '🖨️প্রিন্ট হয়েছে' : '🖨️প্রিন্ট'}</button></td></tr>`;
             });
+            tbody.innerHTML = todayRowsHtml;
         }
 
         function renderSavedInvoices() {
             const tbody = document.getElementById('salesSavedInvoiceTableBody');
             if (!tbody) return;
             tbody.innerHTML = '';
+            // প্রতিটা ইনভয়েসের তারিখ একবারই পার্স করা হয় (সর্ট করার সময় বারবার না)
+            const __dateCache = new Map();
+            const __pd = (inv) => { if (!__dateCache.has(inv)) __dateCache.set(inv, parseBanglaOrISODate(inv.date)); return __dateCache.get(inv); };
             const sorted = [...(invoices || [])].sort((a,b)=>{
-                const dateDiff = (parseBanglaOrISODate(b.date)||0)-(parseBanglaOrISODate(a.date)||0);
+                const dateDiff = (__pd(b)||0)-(__pd(a)||0);
                 if (dateDiff !== 0) return dateDiff;
                 return getInvoiceCreationOrder(b) - getInvoiceCreationOrder(a);
             });
             if (!sorted.length) { tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:#777;">কোনো ইনভয়েস নেই।</td></tr>'; return; }
+            let savedRowsHtml = '';
             sorted.forEach(inv => {
-                tbody.innerHTML += `<tr><td>${escapeHtml(inv.date) || ''}</td><td><b>${escapeHtml(inv.invoiceNo) || ''}</b></td><td>${escapeHtml(displayTraderName(inv.retailer))}</td><td>${inv.invoiceType==='Credit'?'ক্রেডিট':'ক্যাশ'}</td><td>${Number(inv.totalAmount||0).toLocaleString('en-US')} ৳</td><td style="text-align:center;"><button class="btn-action btn-view" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" onclick="openSalesModal('${inv.id}')">এডিট</button></td></tr>`;
+                savedRowsHtml += `<tr><td>${escapeHtml(inv.date) || ''}</td><td><b>${escapeHtml(inv.invoiceNo) || ''}</b></td><td>${escapeHtml(displayTraderName(inv.retailer))}</td><td>${inv.invoiceType==='Credit'?'ক্রেডিট':'ক্যাশ'}</td><td>${Number(inv.totalAmount||0).toLocaleString('en-US')} ৳</td><td style="text-align:center;"><button class="btn-action btn-view" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" onclick="openSalesModal('${inv.id}')">এডিট</button></td></tr>`;
             });
+            tbody.innerHTML = savedRowsHtml;
         }
 
         // একটা ইনভয়েসের জন্য এক কপি মেমোর সম্পূর্ণ HTML তৈরি করে। copyLabel
@@ -4202,7 +4808,7 @@ body.edit-modal-open { overflow: hidden !important; }
                             <td class="text-left"><b>${escapeHtml(item.name)}</b></td>
                             <td>${qtyText}</td>
                             <td>${priceText}</td>
-                            <td><b>${toBanglaNumber(roundedItemTotal.toLocaleString('en-US'))}</b>${discountNote}</td>
+                            <td><b>${toBanglaNumber(roundedItemTotal.toLocaleString('en-US'))} /-</b>${discountNote}</td>
                         </tr>`;
                 } else {
                     itemRowsHTML += `
@@ -4220,7 +4826,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 <tr>
                     <td colspan="2" style="text-align: right; font-weight: bold;">সর্বমোট =</td>
                     <td style="font-weight: bold;">${totalQtyText}</td>
-                    <td style="font-weight: bold;">${toBanglaNumber(Math.round(totalPriceColumnSum).toLocaleString('en-US'))}</td>
+                    <td style="font-weight: bold;">${toBanglaNumber(Math.round(totalPriceColumnSum).toLocaleString('en-US'))} /-</td>
                     <td><b>${toBanglaNumber(Math.round(Number(inv.totalAmount || 0)).toLocaleString('en-US'))} /-</b></td>
                 </tr>`;
 
@@ -4229,7 +4835,7 @@ body.edit-modal-open { overflow: hidden !important; }
             if (retObj) {
                 const currentDueVal = Math.max(0, Number(recalculateRetailerDue(retObj) || 0));
                 const previousDueVal = inv.invoiceType === 'Credit'
-                    ? Math.max(0, currentDueVal - (Number(inv.totalAmount || 0) || 0))
+                    ? Math.max(0, currentDueVal - Math.round(Number(inv.totalAmount || 0) || 0))
                     : currentDueVal;
                 const depositVal = Number(inv.creditInitialDeposit || 0) || 0;
 
@@ -4265,7 +4871,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     if (prevTxn) {
                         tableRows.push({ date: prevTxn.date || '', label: prevTxn.type, amount: getRowAmount(prevTxn) });
                     }
-                    tableRows.push({ date: inv.date || '', label: inv.invoiceType === 'Credit' ? 'ক্রেডিট ইনভয়েস' : 'ক্যাশ ইনভয়েস', amount: Number(inv.totalAmount || 0) || 0 });
+                    tableRows.push({ date: inv.date || '', label: inv.invoiceType === 'Credit' ? 'ক্রেডিট ইনভয়েস' : 'ক্যাশ ইনভয়েস', amount: Math.round(Number(inv.totalAmount || 0) || 0) });
 
                     const rowsHtml = tableRows.map(r => `<tr><td style="border:1px solid #000; padding:1px 5px;">${escapeHtml(r.date)}</td><td style="border:1px solid #000; padding:1px 5px;">${escapeHtml(r.label)}</td><td style="border:1px solid #000; padding:1px 5px; text-align:right;">${toBanglaNumber(Math.round(r.amount).toLocaleString('en-US'))} ৳</td></tr>`).join('');
                     const totalDueRowHtml = `<tr style="font-weight:bold; background:#f7f7f7;"><td colspan="2" style="border:1px solid #000; padding:1px 5px;">সর্বমোট বাকি</td><td style="border:1px solid #000; padding:1px 5px; text-align:right;">${toBanglaNumber(Math.round(currentDueVal).toLocaleString('en-US'))} ৳</td></tr>`;
@@ -4745,7 +5351,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 html += '<div style="padding:20px;text-align:center;color:#777;">এখনো কোনো অনলাইন অর্ডার আসেনি।</div>';
             } else {
                 html += pending.map(order => {
-                    const itemsHtml = (order.items || []).map(it =>
+                    const itemsHtml = (order.items || []).slice().sort((a, b) => String(a.productName || '').localeCompare(String(b.productName || ''))).map(it =>
                         `<li>${escapeHtml(it.productName)} — ${it.cartonQty ? toBanglaNumber(it.cartonQty) + ' কার্টুন' : ''}${it.cartonQty && it.pieceQty ? ' + ' : ''}${it.pieceQty ? toBanglaNumber(it.pieceQty) + ' পিস' : ''}</li>`
                     ).join('');
                     return `
@@ -4819,15 +5425,19 @@ body.edit-modal-open { overflow: hidden !important; }
             if (matchedIndex !== -1) document.getElementById('salesRetailerSelect').value = matchedIndex;
             displayCreditLimitInSales();
 
-            selectedInvoiceItems = (order.items || []).map(it => {
+            // অনলাইন অর্ডারের পণ্য ইনভয়েসে A-Z ক্রমে থাকবে।
+            // একই সঙ্গে এই রিটেইলারের প্রতিটি পণ্যের সর্বশেষ ব্যবহৃত ছাড়%
+            // থাকলে সেটি অটোমেটিক বসানো হবে।
+            selectedInvoiceItems = (order.items || []).slice().sort((a, b) => String(a.productName || '').localeCompare(String(b.productName || ''))).map(it => {
                 const product = products.find(p => p.name === it.productName);
+                const histDiscount = matchedIndex !== -1 ? getRetailerLastDiscountForProduct(matchedIndex, it.productName) : null;
                 return {
                     name: it.productName,
                     cartonQty: it.cartonQty || '',
                     pieceQty: it.pieceQty || '',
                     cartonPrice: product ? product.price : 0,
                     piecePrice: product ? getRatioBasedPiecePrice(product) : 0,
-                    discountPercent: '',
+                    discountPercent: histDiscount !== null ? histDiscount : '',
                     inventory: (stocks.find(st => st.productName === it.productName) || {}).qty || 0
                 };
             });
@@ -5096,7 +5706,10 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
 let stockSelectedIndexes = new Set();
-// প্রতিটা পণ্যের পাশে টাইপ করা পিস সংখ্যা এখানে সাথে সাথে সেভ থাকে
+// পণ্য যেভাবে টিক দেওয়া হয়েছে সেই ক্রম আলাদাভাবে রাখা হয় — Set-এর মতো
+// শুধু সদস্যতা নয়, নির্বাচনের আসল ক্রমও সংরক্ষণ করে।
+let stockSelectionOrder = [];
+// প্রতিটা পণ্যের পাশে টাইপ করা কার্টুন সংখ্যা এখানে সাথে সাথে সেভ থাকে
 // (প্রোডাক্ট ইনডেক্স অনুযায়ী) -- আগে এটা না থাকায় "নির্বাচন পরিবর্তন
 // করুন" চেপে আরেকটা পণ্য যোগ করে ফিরে এলে আগে টাইপ করা সব সংখ্যা মুছে
 // শূন্য হয়ে যেত। এখন ফিরে এলেও আগের লেখা সংখ্যাগুলো ঠিক আগের মতোই
@@ -5150,8 +5763,13 @@ function renderStockMultiProductList() {
         // (আগে শুধু "নির্বাচিত পণ্য দেখুন" চাপার সময় DOM থেকে পড়া হতো) —
         // তাই সার্চ করে তালিকা পাল্টে গেলেও আগের সিলেকশন হারায় না।
         function toggleStockProductSelection(idx, checked) {
-            if (checked) stockSelectedIndexes.add(idx);
-            else stockSelectedIndexes.delete(idx);
+            if (checked) {
+                stockSelectedIndexes.add(idx);
+                if (!stockSelectionOrder.includes(idx)) stockSelectionOrder.push(idx);
+            } else {
+                stockSelectedIndexes.delete(idx);
+                stockSelectionOrder = stockSelectionOrder.filter(i => i !== idx);
+            }
             // চেকবক্সে ক্লিক করার পর ফোকাস আবার সার্চ বক্সেই ফিরিয়ে দেওয়া
             // হচ্ছে, যাতে মাউস দিয়ে ক্লিক না করেই পরের পণ্য খোঁজা/Backspace
             // চাপা যায়।
@@ -5185,26 +5803,43 @@ function renderStockMultiProductList() {
         }
 
         function renderStockQtyPhase(container, actionBar) {
-            const indexes = Array.from(stockSelectedIndexes).sort((a, b) => products[a].name.localeCompare(products[b].name));
-            const rowsHtml = indexes.map(index => `
-                    <div class="stock-multi-row" style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:8px 4px; border-bottom:1px solid #eee;">
-                        <span style="flex:1;">${escapeHtml(products[index].name)}</span>
-                        <input type="number" class="stockMultiQty" data-index="${index}" value="${stockQtyValues[index] !== undefined ? stockQtyValues[index] : ''}" oninput="stockQtyValues[${index}] = this.value;" placeholder="পিস সংখ্যা লিখুন" min="1" step="1" style="width:150px;">
-                        <button type="button" onclick="removeStockQtyItem(${index})" title="এই পণ্যটি বাদ দিন" style="background:none; border:none; color:#c0392b; font-size:20px; font-weight:bold; cursor:pointer; padding:0 4px; line-height:1;">✕</button>
-                    </div>`).join('');
+            // এখানে A-Z নয় — ব্যবহারকারী যেভাবে টিক দিয়েছেন, ঠিক সেই ক্রমে
+            // নির্বাচিত পণ্য দেখানো হবে।
+            const indexes = stockSelectionOrder.filter(index => stockSelectedIndexes.has(index));
+            const rowsHtml = indexes.map((index, position) => {
+                const product = products[index];
+                const ppc = getPiecesPerCarton(product);
+                const cartonValue = stockQtyValues[index] !== undefined ? stockQtyValues[index] : '';
+                const piecePreview = cartonValue !== '' && Number(cartonValue) > 0 ? Math.round(Number(cartonValue) * ppc) : 0;
+                return `
+                    <div class="stock-multi-row" style="display:flex; justify-content:space-between; align-items:center; gap:10px; padding:10px 4px; border-bottom:1px solid #eee;">
+                        <div style="flex:1; min-width:0;">
+                            <div style="font-weight:bold;">${toBanglaNumber(position + 1)}. ${escapeHtml(product.name)}</div>
+                            <div style="font-size:12px;color:#666;margin-top:2px;">রেশিও: ১ কার্টুন = ${toBanglaNumber(ppc)} পিস${piecePreview > 0 ? ` · যোগ হবে ${toBanglaNumber(piecePreview)} পিস` : ''}</div>
+                        </div>
+                        <input type="number" class="stockMultiQty" data-index="${index}" value="${cartonValue}" oninput="stockQtyValues[${index}] = this.value; updateStockQtyPreview(${index}, this.value);" placeholder="কার্টুন" min="0.01" step="0.01" style="width:125px;">
+                        <button type="button" onclick="removeStockQtyItem(${index})" title="এই পণ্যটি বাদ দিন" style="background:none;border:none;color:#c0392b;font-size:20px;font-weight:bold;cursor:pointer;padding:0 4px;line-height:1;">✕</button>
+                    </div>`;
+            }).join('');
             container.innerHTML = `
-                <div style="font-size:12px; color:#666; margin-bottom:8px;">${toBanglaNumber(indexes.length)}টি পণ্য নির্বাচিত হয়েছে — প্রতিটির পাশে মোট পিস সংখ্যা লিখুন, তারপর সবচেয়ে নিচের সবুজ "সেভ করুন" বাটনে চাপুন। ভুল করে সিলেক্ট হয়ে গেলে পাশের ✕ চেপে বাদ দিন।</div>
+                <div style="font-size:12px;color:#666;margin-bottom:8px;">${toBanglaNumber(indexes.length)}টি পণ্য নির্বাচিত হয়েছে — আপনার টিক দেওয়ার ক্রমেই তালিকাটি আছে। প্রতিটির পাশে কার্টুন সংখ্যা লিখুন; রেশিও অনুযায়ী পিস স্বয়ংক্রিয়ভাবে হিসাব হবে।</div>
                 <div>${rowsHtml}</div>`;
             if (actionBar) {
                 actionBar.innerHTML = `<button type="button" class="btn-action btn-edit" style="width:100%; padding:10px;" onclick="backToStockSelection()">← আরও পণ্য যোগ করুন</button>`;
             }
         }
 
-        // পিস-সংখ্যা লেখার ধাপ থেকেই সরাসরি একটা পণ্য বাদ দেওয়ার জন্য --
+        function updateStockQtyPreview(index, value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return;
+}
+
+// পিস-সংখ্যা লেখার ধাপ থেকেই সরাসরি একটা পণ্য বাদ দেওয়ার জন্য --
         // এতে বাকি পণ্যগুলোর টাইপ করা সংখ্যা অক্ষত থেকে যায়, শুধু এই
         // একটা পণ্যই তালিকা থেকে সরে যায়।
         function removeStockQtyItem(index) {
             stockSelectedIndexes.delete(index);
+            stockSelectionOrder = stockSelectionOrder.filter(i => i !== index);
             delete stockQtyValues[index];
             if (stockSelectedIndexes.size === 0) {
                 // সব পণ্যই বাদ দিয়ে দিলে সিলেকশন ধাপে ফিরে যাওয়াই স্বাভাবিক
@@ -5233,6 +5868,7 @@ function renderStockMultiProductList() {
             stockInfoConfirmed = false;
             stockProductSearchFilter = '';
             stockSelectedIndexes = new Set();
+            stockSelectionOrder = [];
             stockQtyValues = {};
             stockMultiPhase = 'select';
         }
@@ -5285,27 +5921,29 @@ function renderStockMultiProductList() {
             }
 
             const entries = [];
-            for (const idx of stockSelectedIndexes) {
+            const orderedIndexes = stockSelectionOrder.filter(idx => stockSelectedIndexes.has(idx));
+            for (const idx of orderedIndexes) {
                 const qtyInput = document.querySelector(`.stockMultiQty[data-index="${idx}"]`);
-                const qtyPieces = parseFloat(qtyInput.value);
-                if (!Number.isFinite(qtyPieces) || qtyPieces <= 0) {
-                    alert(`"${products[idx].name}" এর জন্য সঠিক পিস সংখ্যা লিখুন।`);
+                const qtyCartons = parseFloat(qtyInput.value);
+                if (!Number.isFinite(qtyCartons) || qtyCartons <= 0) {
+                    alert(`"${products[idx].name}" এর জন্য সঠিক কার্টুন সংখ্যা লিখুন।`);
                     qtyInput.focus();
                     return;
                 }
-                entries.push({ product: products[idx], qtyPieces });
+                const ppc = getPiecesPerCarton(products[idx]);
+                const qtyPieces = qtyCartons * ppc;
+                entries.push({ product: products[idx], qtyCartons, qtyPieces });
             }
 
             const stockDate = document.getElementById('stockAddDate').value || getLocalISODate();
             const stockInvoiceRefValue = (document.getElementById('stockInvoiceRef').value || '').trim();
 
-            entries.forEach(({ product, qtyPieces }) => {
-                const ppc = getPiecesPerCarton(product);
-                // Internally stock is kept as carton-equivalent so existing sales logic remains compatible.
-                const cartonEquivalent = qtyPieces / ppc;
+            entries.forEach(({ product, qtyCartons, qtyPieces }) => {
+                // স্টক ভেতরে carton-equivalent হিসেবেই থাকে। তাই কার্টুন দিয়ে
+                // যোগ করলে ratio অনুযায়ী পিসের সমতুল্য মান ঠিকভাবে সংরক্ষিত হয়।
                 const existing = stocks.find(st => st.productName === product.name);
-                if (existing) existing.qty = (parseFloat(existing.qty || 0) || 0) + cartonEquivalent;
-                else stocks.push({ productName: product.name, qty: cartonEquivalent });
+                if (existing) existing.qty = (parseFloat(existing.qty || 0) || 0) + qtyCartons;
+                else stocks.push({ productName: product.name, qty: qtyCartons });
                 // তারিখ ও রেফারেন্স/ইনভয়েস নম্বরসহ একটা লগ এন্ট্রি রাখা হয় —
                 // পরে "স্টক যোগের ইতিহাস" রিপোর্টে দেখা/ডাউনলোড করা যাবে
                 // কবে, কোন চালান/ইনভয়েসের আওতায় কোন পণ্য এসেছিল।
@@ -5853,9 +6491,10 @@ function renderStockMultiProductList() {
             // Always calculate the headline from every customer, independent of
             // search/filter state, and refresh each due from ledger data first.
             const dueByRetailer = new Map();
-            retailers.forEach(ret => dueByRetailer.set(ret, Math.max(0, Number(recalculateRetailerDue(ret) || 0))));
+            withLedgerIndex(() => retailers.forEach(ret => dueByRetailer.set(ret, Math.max(0, Number(recalculateRetailerDue(ret) || 0)))));
             const totalSystemDue = [...dueByRetailer.values()].reduce((sum, due) => sum + due, 0);
             let count = 0;
+            let dueRowsHtml = '';
             // রুট অনুযায়ী গ্রুপ করে সাজানো হচ্ছে (routes array-এর ক্রম
             // অনুযায়ী), তারপর নাম অনুযায়ী — যাতে একই রুটের রিটেইলাররা
             // সবসময় একসাথে দেখা যায়।
@@ -5871,7 +6510,7 @@ function renderStockMultiProductList() {
                     count++;
                     const due = dueByRetailer.get(ret) || 0;
                     const opening = getExplicitOpeningDue(ret);
-                    tbody.innerHTML += `
+                    dueRowsHtml += `
                         <tr>
                             <td style="white-space:nowrap;">${count}</td><td style="white-space:nowrap;"><b>${escapeHtml(ret.route)}</b></td>
                             <td style="white-space:nowrap;">${escapeHtml(displayTraderName(ret.trader))}</td><td style="white-space:nowrap;">${escapeHtml(ret.name) || 'N/A'}</td>
@@ -5884,6 +6523,7 @@ function renderStockMultiProductList() {
                         </tr>`;
                 }
             });
+            tbody.innerHTML = dueRowsHtml;
             if(count === 0) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#777; padding:15px;">কোনো রিটেইলার পাওয়া যায়নি।</td></tr>`;
             document.getElementById('totalDueAmountSpan').innerText = `মোট বকেয়া: ${totalSystemDue.toLocaleString('en-US')} ৳`;
         }
@@ -5936,8 +6576,80 @@ function renderStockMultiProductList() {
             return candidates.length === 1 ? candidates[0] : null;
         }
 
+        // ===== গতি বাড়ানোর জন্য অস্থায়ী ইনডেক্স =====
+        // সব রিটেইলারের বাকি একসাথে হিসাব করার সময় (ড্যাশবোর্ড, বাকির রিপোর্ট)
+        // আগে প্রতিটা রিটেইলারের জন্য পুরো ইনভয়েস/কালেকশন তালিকা আলাদা করে
+        // খোঁজা হতো। এখন ওই সময়টুকুর জন্য একবারই ইনডেক্স বানিয়ে নেওয়া হয়,
+        // কাজ শেষ হলেই মুছে ফেলা হয় — তাই কখনো পুরোনো (stale) ডাটা থাকে না।
+        // মিলানোর নিয়ম হুবহু আগের মতোই (retailerId, না থাকলে একক legacy মিল)।
+        let __ledgerIndex = null;
+        function __buildLedgerIndex() {
+            const byTrader = new Map();
+            (retailers || []).forEach(r => {
+                if (!r) return;
+                if (!byTrader.has(r.trader)) byTrader.set(r.trader, []);
+                byTrader.get(r.trader).push(r);
+            });
+            const pushTo = (m, k, v) => { let a = m.get(k); if (!a) { a = []; m.set(k, a); } a.push(v); };
+            const pushNested = (m, keys, v) => {
+                let cur = m;
+                for (let i = 0; i < keys.length - 1; i++) {
+                    if (!cur.has(keys[i])) cur.set(keys[i], new Map());
+                    cur = cur.get(keys[i]);
+                }
+                pushTo(cur, keys[keys.length - 1], v);
+            };
+            const getNested = (m, keys) => {
+                let cur = m;
+                for (const k of keys) { if (!cur || !cur.has(k)) return null; cur = cur.get(k); }
+                return cur;
+            };
+            const mergePositions = (a, b) => {
+                if (!a) return b || [];
+                if (!b) return a;
+                const out = []; let i = 0, j = 0;
+                while (i < a.length && j < b.length) out.push(a[i] <= b[j] ? a[i++] : b[j++]);
+                while (i < a.length) out.push(a[i++]);
+                while (j < b.length) out.push(b[j++]);
+                return out;
+            };
+
+            const invList = invoices || [];
+            const invById = new Map(), invLegacy = new Map();
+            invList.forEach((inv, pos) => {
+                if (inv.retailerId) { pushTo(invById, inv.retailerId, pos); return; }
+                const cands = (byTrader.get(inv.retailer) || []).filter(r => (!inv.route || r.route === inv.route));
+                if (cands.length === 1) pushNested(invLegacy, [cands[0].id, inv.retailer], pos);
+            });
+
+            const colList = retailerCollectionsLive || [];
+            const colById = new Map(), colLegacy = new Map();
+            colList.forEach((c, pos) => {
+                if (c.retailerId) { pushTo(colById, c.retailerId, pos); return; }
+                const cands = (byTrader.get(c.retailerTrader) || []).filter(r => r.route === c.route);
+                if (cands.length === 1) pushNested(colLegacy, [cands[0].id, c.retailerTrader, c.route], pos);
+            });
+
+            return {
+                invoicesFor(ret) {
+                    const pos = mergePositions(invById.get(ret.id) || null, getNested(invLegacy, [ret.id, ret.trader]));
+                    return pos.map(p => invList[p]);
+                },
+                collectionsFor(ret) {
+                    const pos = mergePositions(colById.get(ret.id) || null, getNested(colLegacy, [ret.id, ret.trader, ret.route]));
+                    return pos.map(p => colList[p]);
+                }
+            };
+        }
+        function withLedgerIndex(fn) {
+            if (__ledgerIndex) return fn();
+            __ledgerIndex = __buildLedgerIndex();
+            try { return fn(); } finally { __ledgerIndex = null; }
+        }
+
         function getInvoicesForRetailer(ret) {
             if (!ret) return [];
+            if (__ledgerIndex) return __ledgerIndex.invoicesFor(ret);
             return (invoices || []).filter(inv => {
                 if (inv.retailerId) return inv.retailerId === ret.id;
                 // Legacy invoice without retailerId: only match when the trader/route
@@ -5956,6 +6668,7 @@ function renderStockMultiProductList() {
         // legacy record ধরা হবে; duplicate trader হলে কোনো retailer-এ ভুলভাবে যাবে না।
         function getRetailerCollectionsV2(ret) {
             if (!ret) return [];
+            if (__ledgerIndex) return __ledgerIndex.collectionsFor(ret);
             return (retailerCollectionsLive || []).filter(c => {
                 if (c.retailerId) return c.retailerId === ret.id;
                 if (c.retailerTrader !== ret.trader || c.route !== ret.route) return false;
@@ -6070,7 +6783,7 @@ function renderStockMultiProductList() {
             if (!ret) return 0;
             const opening = getExplicitOpeningDue(ret);
             const credit = getInvoicesForRetailer(ret).filter(inv => inv.invoiceType === 'Credit')
-                .reduce((sum, inv) => sum + (Number(inv.totalAmount || 0) || 0), 0);
+                .reduce((sum, inv) => sum + Math.round(Number(inv.totalAmount || 0) || 0), 0);
             const oldCollections = (ret.collections || []).reduce((sum, c) => sum + (Number(c.amount || 0) || 0), 0);
             const newCollections = getRetailerCollectionsV2(ret).reduce((sum, c) => sum + (Number(c.amount || 0) || 0), 0);
             // Always rebuild the balance from source transactions. Never use previous currentDue.
@@ -6643,7 +7356,10 @@ function renderStockMultiProductList() {
                     URL.revokeObjectURL(a.href);
                 });
             <\/script>
-            </body></html>`);
+            
+
+
+</body></html>`);
             w.document.close();
         }
 
@@ -7798,7 +8514,7 @@ function renderStockMultiProductList() {
                 rows.push({date: ret.openingDue.date || '', type:'আগের বাকি', ref:ret.openingDue.id || 'OPENING_DUE', sales:0, credit:Number(ret.openingDue.amount||0)||0, collection:0, cashDepositAmount:0, balanceEffect:Number(ret.openingDue.amount||0)||0, transactionType:'openingDue', id:ret.openingDue.id || 'OPENING_DUE'});
             }
             getInvoicesForRetailer(ret).forEach(inv => {
-                const amount = Number(inv.totalAmount || 0) || 0;
+                const amount = Math.round(Number(inv.totalAmount || 0) || 0);
                 rows.push({
                     date: inv.date,
                     type: inv.invoiceType === 'Credit' ? 'ক্রেডিট ইনভয়েস' : 'ক্যাশ ইনভয়েস',
@@ -8332,7 +9048,21 @@ function renderStockMultiProductList() {
                 .report-actions{text-align:center;margin-bottom:18px;}
                 .report-actions button{padding:9px 20px;border:none;border-radius:6px;font-size:14px;cursor:pointer;background:#333;color:#fff;}
                 @media print { .report-actions{display:none;} }
-            </style></head>
+            </style>
+<style id="dashboard-card-enhancement">
+  .stats-grid .stat-card { position:relative; overflow:hidden; border:1px solid rgba(45,106,79,.12); background:linear-gradient(145deg,#ffffff 0%,#f8fbf9 100%); box-shadow:0 10px 28px rgba(20,52,42,.08); transition:transform .2s ease, box-shadow .2s ease; }
+  .stats-grid .stat-card::after { content:""; position:absolute; width:110px; height:110px; right:-42px; top:-42px; border-radius:50%; background:rgba(183,213,107,.14); pointer-events:none; }
+  .stats-grid .stat-card:hover { transform:translateY(-3px); box-shadow:0 16px 34px rgba(20,52,42,.13); }
+  .stats-grid .stat-icon { width:54px; height:54px; flex-basis:54px; border-radius:16px; box-shadow:inset 0 0 0 1px rgba(0,0,0,.04),0 7px 16px rgba(20,52,42,.08); font-size:24px; }
+  .stats-grid .stat-card:nth-child(1) .stat-icon { background:linear-gradient(135deg,#dff5e8,#bfe7ce); }
+  .stats-grid .stat-card:nth-child(2) .stat-icon { background:linear-gradient(135deg,#e3ecff,#c8d8ff); }
+  .stats-grid .stat-card:nth-child(3) .stat-icon { background:linear-gradient(135deg,#fff0c9,#ffd98b); }
+  .stats-grid .stat-card:nth-child(4) .stat-icon { background:linear-gradient(135deg,#ffe0e0,#ffc0c0); }
+  .stats-grid .stat-value { font-size:25px; letter-spacing:.1px; }
+  .discount-missing-field { border:2px solid #d9534f !important; background:#fff1f1 !important; box-shadow:0 0 0 3px rgba(217,83,79,.14) !important; animation:discountMissingPulse .8s ease-in-out 2; }
+  @keyframes discountMissingPulse { 50% { transform:scale(1.02); } }
+</style>
+</head>
             <body>
             <div class="report-actions"><button id="printBtn">প্রিন্ট করুন</button></div>
             <h2>মেসার্স ধুনট সিড এন্ড এগ্রো ট্রেডার্স</h2>
@@ -8639,6 +9369,63 @@ function renderStockMultiProductList() {
         const __originalSyncToFirebase = syncToFirebase;
         syncToFirebase = guardAgainstDoubleSubmit(__originalSyncToFirebase, 'syncToFirebase');
 
+</script>
+
+<script id="compact-mobile-dropdown-controller">
+(function () {
+  function isMobileNav() {
+    return window.matchMedia('(max-width: 680px)').matches;
+  }
+  function closeMobileDropdowns(except) {
+    document.querySelectorAll('.nav-links > li.has-dropdown.mobile-dropdown-open').forEach(function (li) {
+      if (li !== except) li.classList.remove('mobile-dropdown-open');
+    });
+  }
+  function positionDropdown(li) {
+    if (!isMobileNav()) return;
+    var menu = li.querySelector('.dropdown');
+    var trigger = li.querySelector(':scope > a');
+    if (!menu || !trigger) return;
+    var r = trigger.getBoundingClientRect();
+    var gap = 5;
+    var left = Math.max(6, Math.min(r.left, window.innerWidth - menu.offsetWidth - 6));
+    var top = r.bottom + gap;
+    menu.style.left = left + 'px';
+    menu.style.top = top + 'px';
+    if (top + menu.offsetHeight > window.innerHeight - 6) {
+      menu.style.top = Math.max(6, r.top - menu.offsetHeight - gap) + 'px';
+    }
+  }
+  document.addEventListener('click', function (event) {
+    if (!isMobileNav()) return;
+    var trigger = event.target.closest('.nav-links > li.has-dropdown > a');
+    if (trigger) {
+      event.preventDefault();
+      event.stopPropagation();
+      var li = trigger.parentElement;
+      var willOpen = !li.classList.contains('mobile-dropdown-open');
+      closeMobileDropdowns(li);
+      if (willOpen) {
+        li.classList.add('mobile-dropdown-open');
+        requestAnimationFrame(function () { positionDropdown(li); });
+      } else {
+        li.classList.remove('mobile-dropdown-open');
+      }
+      return;
+    }
+    if (!event.target.closest('.nav-links > li.has-dropdown')) closeMobileDropdowns(null);
+  }, true);
+  window.addEventListener('resize', function () {
+    if (!isMobileNav()) { closeMobileDropdowns(null); return; }
+    var open = document.querySelector('.nav-links > li.has-dropdown.mobile-dropdown-open');
+    if (open) positionDropdown(open);
+  }, {passive:true});
+  window.addEventListener('scroll', function () {
+    if (!isMobileNav()) return;
+    var open = document.querySelector('.nav-links > li.has-dropdown.mobile-dropdown-open');
+    if (open) positionDropdown(open);
+  }, {passive:true});
+})();
 </script>
 
     <!-- কাস্টমারের লেজার -->
