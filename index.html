@@ -6648,6 +6648,7 @@ function renderStockMultiProductList() {
             // ইনভয়েসের ক্ষেত্রে শুধু এই নির্দিষ্ট রিটেইলারেরটাই বদলানো হয়।
             // retailerId ছাড়া পুরোনো ইনভয়েসে (যেখানে নাম-ই একমাত্র সূত্র)
             // আগের পদ্ধতিতেই নাম মিলিয়ে বদলানো হয়।
+            const invoiceNamesBackup = snapshotInvoiceRetailerNames();
             if (editIndex !== -1 && old.trader && old.trader !== trader) {
                 invoices.forEach(inv => {
                     if (inv.retailerId) {
@@ -6659,10 +6660,27 @@ function renderStockMultiProductList() {
                 retailerData.collections.forEach(c => { if (c.retailer === old.trader) c.retailer = trader; });
             }
             if(editIndex === -1) retailers.push(retailerData); else retailers[editIndex] = retailerData;
-            if (!(await syncToFirebase())) return;
+            if (!(await syncToFirebase())) { restoreInvoiceRetailerNames(invoiceNamesBackup); return; }
             renderRetailerDropdowns(); filterRetailersByRoute(); renderRetailerReport(); renderCustomerDueReport();
             resetRetailerForm();
             if (editIndex >= 0) { closeModal('retailerModal'); showSaveToast('রিটেইলারের তথ্য সফলভাবে আপডেট হয়েছে'); }
+        }
+
+        // [সংশোধন] রিটেইলারের নাম বদলানোর সময় মেমোরিতে ইনভয়েসগুলোর দোকানের নামও বদলায়।
+        // সেভ ব্যর্থ হলে রিটেইলার আগের অবস্থায় ফেরে, তাই ইনভয়েসের নামও যেন ফেরে — এই
+        // দুটো ফাংশন দিয়ে আগের নামগুলোর কপি রাখা ও ফিরিয়ে দেওয়া হয় (শুধু মেমোরি;
+        // Firebase-এ কিছু লেখা বা মোছা হয় না)।
+        function snapshotInvoiceRetailerNames() {
+            const m = new Map();
+            (invoices || []).forEach(inv => { if (inv && inv.id) m.set(inv.id, inv.retailer); });
+            return m;
+        }
+        function restoreInvoiceRetailerNames(backup) {
+            if (!backup) return;
+            (invoices || []).forEach(inv => {
+                if (inv && inv.id && backup.has(inv.id) && inv.retailer !== backup.get(inv.id)) inv.retailer = backup.get(inv.id);
+            });
+            try { renderTodayInvoices(); renderSavedInvoices(); } catch (e) { console.error('Invoice name restore render failed:', e); }
         }
 
         function editRetailer(index) {
@@ -6684,6 +6702,7 @@ function renderStockMultiProductList() {
                     if (!values.route) { showUniversalEditError('রুট নির্বাচন করুন।'); return false; }
                     if (!values.trader.trim()) { showUniversalEditError('ট্রেডার্সের নাম লিখুন।'); return false; }
                     const oldTrader = ret.trader;
+                    const invoiceNamesBackup = snapshotInvoiceRetailerNames();
                     Object.assign(ret, {route:values.route, name:values.name, trader:values.trader.trim(), address:values.address, mobile:values.mobile});
                     if (oldTrader && oldTrader !== ret.trader) {
                         // retailerId থাকা history: শুধুমাত্র এই retailer-এর ID-তেই update হবে।
@@ -6710,7 +6729,7 @@ function renderStockMultiProductList() {
                         });
                     }
                     recalculateRetailerDue(ret);
-                    if (!(await syncToFirebase())) return false;
+                    if (!(await syncToFirebase())) { restoreInvoiceRetailerNames(invoiceNamesBackup); return false; }
                     renderRetailerDropdowns(); filterRetailersByRoute(); renderRetailerReport(); renderCustomerDueReport();
                     return true;
                 }
