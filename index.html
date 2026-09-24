@@ -5456,7 +5456,8 @@ body.edit-modal-open { overflow: hidden !important; }
                 subtitle: 'পণ্যের তথ্য পরিবর্তন করে আপডেট করুন',
                 fields: [
                     {name:'name', label:'পণ্যের সম্পূর্ণ নাম', value:product.name, required:true},
-                    {name:'price', label:'কার্টুন মূল্য (টাকা) — প্রতি পিস মূল্য নিজে থেকে হিসাব হবে', type:'number', value:product.price || '', min:0, step:0.01, required:true}
+                    {name:'price', label:'কার্টুন মূল্য (টাকা) — প্রতি পিস মূল্য নিজে থেকে হিসাব হবে', type:'number', value:product.price || '', min:0, step:0.01, required:true},
+                    {name:'aliasName', label:'এই পণ্যের পুরোনো নাম যোগ করুন (ঐচ্ছিক) — পুরোনো ইনভয়েসে যে নামে আছে', value:'', required:false, placeholder:(Array.isArray(product.previousNames) && product.previousNames.length) ? ('আগে যোগ করা: ' + product.previousNames.join(', ')) : 'যেমন: আগে ভিন্ন বানানে লেখা নাম'}
                 ],
                 successMessage: 'পণ্যের তথ্য সফলভাবে আপডেট হয়েছে',
                 async onSave(values) {
@@ -5466,6 +5467,15 @@ body.edit-modal-open { overflow: hidden !important; }
                     if (!name) { showUniversalEditError('পণ্যের সম্পূর্ণ নাম লিখুন।'); return false; }
                     if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(enteredPiecePrice) || enteredPiecePrice < 0) { showUniversalEditError('সঠিক কার্টুন মূল্য লিখুন (০-এর বেশি)।'); return false; }
                     if (isProductNameTaken(name, index)) { showUniversalEditError('এই নামে একটি পণ্য আগে থেকেই আছে (নিষ্ক্রিয় বা আগের নাম হিসেবেও থাকতে পারে)।'); return false; }
+                    // পুরোনো নাম (alias) যোগ: পুরোনো ইনভয়েসে থাকা ভিন্ন নামটাকে এই পণ্যের
+                    // সাথে যুক্ত করা হয়। সেটা যেন অন্য কোনো পণ্যের নাম বা আগের নাম না হয়।
+                    const aliasName = String(values.aliasName || '').trim();
+                    if (aliasName) {
+                        if (normalizeProductKey(aliasName) === normalizeProductKey(name)) { showUniversalEditError('পুরোনো নাম আর বর্তমান নাম একই — পুরোনো নামের ঘরটা ফাঁকা রাখুন।'); return false; }
+                        if (isProductNameTaken(aliasName, index)) { showUniversalEditError(`"${aliasName}" নামে এখন অন্য একটি পণ্য আছে (বা অন্য পণ্যের আগের নাম)। তাই এটাকে এই পণ্যের পুরোনো নাম হিসেবে যোগ করা যাবে না।`); return false; }
+                        const invCount = (invoices || []).filter(inv => (inv.items || []).some(it => it && normalizeProductKey(it.name) === normalizeProductKey(aliasName))).length;
+                        if (!confirm(`"${aliasName}" নামটা "${name}"-এর পুরোনো নাম হিসেবে যোগ হবে।\n\nএই নামে ${invCount}টি ইনভয়েস পাওয়া গেছে — সেগুলোতে পণ্যের নাম "${name}" হয়ে যাবে (টাকা/পরিমাণ/তারিখ বদলাবে না, আগের নামটাও রেখে দেওয়া হবে)।\n\nনিশ্চিত?`)) return false;
+                    }
                     const oldName = product.name;
                     const piecesPerCarton = getPiecesPerCarton({...product, name});
                     const piecePrice = getRatioBasedPiecePrice({name, price, piecesPerCarton, piecePrice:enteredPiecePrice});
@@ -5476,6 +5486,20 @@ body.edit-modal-open { overflow: hidden !important; }
                     products[index] = {...product, name, price, piecesPerCarton, piecePrice};
                     const renamed = oldName !== name;
                     if (renamed) applyProductRenameLocal(products[index], oldName, name);
+                    let aliasAdded = false;
+                    if (aliasName) {
+                        const prev = Array.isArray(products[index].previousNames) ? products[index].previousNames.slice() : [];
+                        if (!prev.some(n => normalizeProductKey(n) === normalizeProductKey(aliasName))) prev.push(aliasName);
+                        products[index].previousNames = prev;
+                        // স্টক-লগে ওই পুরোনো নামে কিছু থাকলে সেগুলোতেও বর্তমান নাম (আগেরটা রেখে)
+                        (stockLogs || []).forEach(log => {
+                            if (log && normalizeProductKey(log.productName) === normalizeProductKey(aliasName)) {
+                                if (!log.originalProductName) log.originalProductName = log.productName;
+                                log.productName = name;
+                            }
+                        });
+                        aliasAdded = true;
+                    }
                     if (!(await syncToFirebase())) {
                         products = productsBackup;
                         stocks = stocksBackup;
@@ -5484,7 +5508,7 @@ body.edit-modal-open { overflow: hidden !important; }
                         renderProducts(); renderStocks(); renderSavedInvoices();
                         return false;
                     }
-                    if (renamed) await runRenameRepairAfterSave();
+                    if (renamed || aliasAdded) await runRenameRepairAfterSave();
                     renderProducts(); renderStocks(); renderSavedInvoices();
                     return true;
                 }
