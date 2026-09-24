@@ -2016,8 +2016,8 @@ body.edit-modal-open { overflow: hidden !important; }
                 <input type="number" id="prodPrice" placeholder="যেমন: ১১০০০" oninput="updateProductPiecePricePreview()">
             </div>
             <div class="form-group">
-                <label>প্রতি পিস মূল্য (টাকা):</label>
-                <input type="number" id="prodPiecePrice" placeholder="যেমন: ৫৫০">
+                <label>প্রতি পিস মূল্য (টাকা): <span style="font-size:12px; color:#666; font-weight:normal;">(স্বয়ংক্রিয় — কার্টুন মূল্য ÷ কার্টুনের পিস)</span></label>
+                <input type="number" id="prodPiecePrice" placeholder="নাম ও কার্টুন মূল্য দিলে নিজে বসবে" readonly tabindex="-1" style="background:#f1f3f2; color:#333; cursor:not-allowed;">
             </div>
 
             <button class="btn-submit" id="btnSaveProduct" onclick="saveProduct()">সেভ করুন</button>
@@ -2695,6 +2695,7 @@ body.edit-modal-open { overflow: hidden !important; }
                         renderCustomerDueReport();
                         updateDashboardStats();
                         lastServerCoreData = cloneCoreData({ routes, routeCodes, products, stocks, stockLogs, retailers });
+                        scheduleRenamedProductRepair();
                         // One-time migration: store ratio-based per-piece prices for
                         // existing products that were previously carton-price only.
                         if (productPricingChanged || retailerIdsAdded) syncToFirebase();
@@ -2759,6 +2760,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 .onSnapshot((snapshot) => {
                     invoices = snapshot.docs.map(d => d.data());
                     invoicesFirstLoadDone = true;
+                    scheduleRenamedProductRepair();
                     renderTodayInvoices();
                     renderSavedInvoices();
                     renderCustomerDueReport();
@@ -3004,7 +3006,13 @@ body.edit-modal-open { overflow: hidden !important; }
                             return Number.isFinite(n) && n > max ? n : max;
                         }, 0);
                     }
-                    const next = current + 1;
+                    // [সংশোধন ১৬ক] কাউন্টার কোনো কারণে পিছিয়ে থাকলেও (যেমন আগে ফলব্যাকে
+                    // বানানো নম্বর) বিদ্যমান সবচেয়ে বড় নম্বরের পরেরটাই দেওয়া হয়।
+                    const localMax = (invoices || []).reduce((max, inv) => {
+                        const n = parseInt(String(inv.invoiceNo || '').replace(/\D/g, ''), 10);
+                        return Number.isFinite(n) && n > max ? n : max;
+                    }, 0);
+                    const next = Math.max(current, localMax) + 1;
                     transaction.set(counterRef, { lastNumber: next }, { merge: true });
                     return next;
                 });
@@ -3080,6 +3088,11 @@ body.edit-modal-open { overflow: hidden !important; }
         // ইউজারের টাইপ করা টেক্সট (রিটেইলারের নাম, ঠিকানা, রুট, পণ্যের নাম ইত্যাদি)
         // সরাসরি innerHTML-এ বসানোর আগে এই ফাংশন দিয়ে escape করা হয়, যাতে কেউ
         // ইচ্ছাকৃত/ভুলবশত <script> বা HTML ট্যাগ টাইপ করলেও তা রান না হয় (stored XSS প্রতিরোধ)।
+        // [সংশোধন ১৫] onclick-এর ভেতরে বাইরের (এসআর/এসপিও অ্যাপ থেকে আসা) আইডি
+        // নিরাপদে বসানোর জন্য — আইডিতে ' বা " থাকলেও বাটন ভাঙবে না, কোডও চলবে না।
+        function jsArg(value) {
+            return escapeHtml(JSON.stringify(String(value ?? '')));
+        }
         function escapeHtml(value) {
             const str = String(value ?? '');
             return str
@@ -3757,7 +3770,7 @@ body.edit-modal-open { overflow: hidden !important; }
             }
         }
 
-        function saveCreditLimit() {
+        async function saveCreditLimit() {
             if (!checkConnectionOrAlert()) return;
             const index = document.getElementById('creditLimitRetailerSelect').value;
             const limitAmount = document.getElementById('retailerCreditLimitValue').value;
@@ -3765,8 +3778,11 @@ body.edit-modal-open { overflow: hidden !important; }
             if (index === "") { alert("দয়া করে রিটেইলার সিলেক্ট করুন।"); return; }
             if (limitAmount === "" || limitAmount < 0) { alert("সঠিক ক্রেডিট লিমিট টাকার পরিমাণ লিখুন।"); return; }
 
+            if (!retailers[index]) { alert("রিটেইলার পাওয়া যায়নি, আবার সিলেক্ট করুন।"); return; }
             retailers[index].creditLimit = parseFloat(limitAmount);
-            syncToFirebase();
+            // [সংশোধন ১২] আগে সেভ শেষ হওয়ার আগেই "সফল" দেখাত। এখন Firebase-এ
+            // সেভ নিশ্চিত হলে তবেই সফল বার্তা; ব্যর্থ হলে আগের লিমিটে ফিরে যায়।
+            if (!(await syncToFirebase())) return;
             alert("ক্রেডিট লিমিট সফলভাবে সেট করা হয়েছে!");
             closeModal('creditLimitModal');
         }
@@ -3851,8 +3867,8 @@ body.edit-modal-open { overflow: hidden !important; }
                     selectedInvoiceItems = (inv.items || []).map(it => {
                         // এডিট করার সময় এই ইনভয়েসের পুরোনো পরিমাণ এখনও স্টক থেকে বাদ দেওয়া আছে,
                         // তাই বর্তমান স্টকের সাথে সেই পুরোনো পরিমাণ যোগ করে প্রকৃত উপলব্ধ স্টক বের করা হচ্ছে
-                        const currentStock = parseFloat((stocks.find(st => st.productName === it.name) || {}).qty || 0) || 0;
-                        const ppc = getPiecesPerCarton(products.find(p => p.name === it.name));
+                        const currentStock = getProductStockQty(it.name);
+                        const ppc = getPiecesPerCarton(findProductForItem(it.name));
                         const oldCartons = parseFloat(it.cartonQty ?? it.qty ?? 0) || 0;
                         const oldPieces = parseFloat(it.pieceQty || 0) || 0;
                         return {
@@ -3904,7 +3920,7 @@ body.edit-modal-open { overflow: hidden !important; }
 
             retailers.forEach((ret, idx) => {
                 if(ret.route === selectedRoute) {
-                    retailerSelect.innerHTML += `<option value="${idx}">${displayTraderName(ret.trader)} (${ret.name || ''})</option>`;
+                    retailerSelect.innerHTML += `<option value="${idx}">${escapeHtml(displayTraderName(ret.trader))} (${escapeHtml(ret.name || '')})</option>`;
                 }
             });
             document.getElementById('salesCreditLimit').value = "";
@@ -4090,6 +4106,154 @@ body.edit-modal-open { overflow: hidden !important; }
 
         function normalizeProductKey(name) {
             return String(name || '').trim().replace(/\s+/g, ' ').toUpperCase();
+        }
+
+        // [সংশোধন ৪] একই নামে (বড়-ছোট হাতের অক্ষর/বাড়তি স্পেস আলাদা ধরা হয় না)
+        // দ্বিতীয় পণ্য তৈরি হওয়া আটকানো হয় — নিষ্ক্রিয় পণ্য এবং অন্য পণ্যের
+        // আগের নামও (নাম বদলের ইতিহাস) এর মধ্যে ধরা হয়।
+        function isProductNameTaken(name, exceptIndex) {
+            const key = normalizeProductKey(name);
+            if (!key) return false;
+            return (products || []).some((p, i) => i !== exceptIndex && p && (
+                normalizeProductKey(p.name) === key ||
+                (Array.isArray(p.previousNames) && p.previousNames.some(n => normalizeProductKey(n) === key))
+            ));
+        }
+
+        // [সংশোধন ৬] পণ্যের নাম বদলালে: পণ্যে আগের নামটা previousNames-এ জমা
+        // থাকে (মোছে না), স্টক ও স্টক-লগে নতুন নাম বসে (লগে আগের নামটাও
+        // originalProductName হিসেবে থেকে যায়)। ইনভয়েসে নাম বসানো হয় Firebase
+        // সেভ সফল হওয়ার পরে, আলাদাভাবে (নিচের ফাংশন)।
+        function applyProductRenameLocal(product, oldName, newName) {
+            if (!product || !oldName || oldName === newName) return;
+            const prev = Array.isArray(product.previousNames) ? product.previousNames.slice() : [];
+            if (!prev.some(n => normalizeProductKey(n) === normalizeProductKey(oldName))) prev.push(oldName);
+            product.previousNames = prev.filter(n => normalizeProductKey(n) !== normalizeProductKey(newName));
+            (stocks || []).forEach(st => { if (st && st.productName === oldName) st.productName = newName; });
+            (stockLogs || []).forEach(log => {
+                if (log && log.productName === oldName) {
+                    if (!log.originalProductName) log.originalProductName = oldName;
+                    log.productName = newName;
+                }
+            });
+        }
+
+        // পুরোনো নামে থাকা ইনভয়েসের পণ্যের নাম Firebase-এ নতুন নামে বসানো হয়।
+        // শুধু ইনভয়েসের items অংশ আপডেট হয় (merge), ইনভয়েসের অন্য কোনো তথ্যে
+        // হাত পড়ে না, আর প্রতিটা পণ্য-সারিতে আগের নামটা nameBeforeRename হিসেবে
+        // থেকে যায়। কোনো কারণে মাঝপথে ব্যর্থ হলে পরের বার অ্যাপ খুললে নিজে
+        // থেকে আবার চেষ্টা হয় (একই কাজ দুইবার হলেও কোনো ক্ষতি নেই)।
+        async function syncRenamedProductNamesToInvoices() {
+            if (!db || !Array.isArray(products) || !Array.isArray(invoices)) return { updated: 0 };
+            const currentKeys = new Set(products.map(p => normalizeProductKey(p && p.name)));
+            const alias = new Map();
+            products.forEach(p => {
+                if (!p || !Array.isArray(p.previousNames)) return;
+                p.previousNames.forEach(old => {
+                    const k = normalizeProductKey(old);
+                    if (!k || currentKeys.has(k)) return;          // এখন অন্য পণ্যের নাম হলে ছোঁয়া হবে না
+                    if (alias.has(k) && alias.get(k) !== p.name) alias.set(k, null); // দ্ব্যর্থক — বাদ
+                    else alias.set(k, p.name);
+                });
+            });
+            if (!alias.size) return { updated: 0 };
+            const updates = [];
+            invoices.forEach(inv => {
+                if (!inv || !inv.id || !Array.isArray(inv.items)) return;
+                let changed = false;
+                const items = inv.items.map(it => {
+                    if (!it) return it;
+                    const target = alias.get(normalizeProductKey(it.name));
+                    if (!target || it.name === target) return it;
+                    changed = true;
+                    return { ...it, name: target, nameBeforeRename: it.nameBeforeRename || it.name };
+                });
+                if (changed) updates.push({ id: inv.id, items });
+            });
+            let updated = 0;
+            for (let i = 0; i < updates.length; i += 400) {
+                const batch = db.batch();
+                const chunk = updates.slice(i, i + 400);
+                chunk.forEach(u => batch.set(db.collection('sales_invoices').doc(u.id), { items: u.items }, { merge: true }));
+                await batch.commit();
+                updated += chunk.length;
+            }
+            return { updated };
+        }
+        // [সংশোধন ১৬ঙ] ইনভয়েসের তারিখ ডিভাইসের ঘড়ি থেকে নেওয়া হয়। ফোন/কম্পিউটারের
+        // তারিখ-সময় ভুল থাকলে ইনভয়েস ভুল তারিখে সেভ হতো, কেউ টেরও পেত না। এখন
+        // অ্যাপ খোলার সময় ওয়েবসাইটের সার্ভারের সময়ের সাথে মিলিয়ে দেখা হয়;
+        // ১০ মিনিটের বেশি গরমিল হলে একবার সতর্ক করা হয়। শুধু দেখায়, কিছু সেভ বা বদলায় না।
+        async function checkDeviceClockAgainstServer() {
+            try {
+                if (!/^https?:$/.test(location.protocol)) return;
+                const res = await fetch(location.href.split('#')[0], { method: 'HEAD', cache: 'no-store' });
+                const serverDateHeader = res.headers.get('Date');
+                if (!serverDateHeader) return;
+                const ageSec = parseFloat(res.headers.get('Age') || '0') || 0; // ক্যাশ থেকে এলে তার বয়স যোগ
+                const serverMs = new Date(serverDateHeader).getTime() + ageSec * 1000;
+                if (!Number.isFinite(serverMs)) return;
+                const diffMin = Math.abs(Date.now() - serverMs) / 60000;
+                if (diffMin > 10) {
+                    const fmt = d => d.toLocaleString('en-GB', { timeZone: 'Asia/Dhaka', hour12: true });
+                    alert(`⚠️ এই ডিভাইসের তারিখ/সময় ঠিক নেই মনে হচ্ছে।\n\nডিভাইসের সময়: ${fmt(new Date())}\nসার্ভারের সময়: ${fmt(new Date(serverMs))}\n\nইনভয়েসের তারিখ ডিভাইসের ঘড়ি থেকে নেওয়া হয়। ভুল তারিখে ইনভয়েস এড়াতে ফোন/কম্পিউটারের সেটিংসে "স্বয়ংক্রিয় তারিখ ও সময়" চালু করুন।`);
+                }
+            } catch (e) { /* ইন্টারনেট না থাকলে চুপচাপ বাদ */ }
+        }
+        setTimeout(checkDeviceClockAgainstServer, 4000);
+
+        let __renamedProductRepairDone = false;
+        function scheduleRenamedProductRepair() {
+            if (__renamedProductRepairDone) return;
+            if (!initialDataLoaded || !serverDataWasLoaded || !invoicesFirstLoadDone) return;
+            __renamedProductRepairDone = true;
+            setTimeout(() => {
+                syncRenamedProductNamesToInvoices()
+                    .catch(err => { console.error('Renamed product repair failed:', err); __renamedProductRepairDone = false; });
+            }, 1500);
+        }
+        async function runRenameRepairAfterSave() {
+            try { await syncRenamedProductNamesToInvoices(); }
+            catch (err) {
+                console.error('Invoice product rename failed:', err);
+                alert('পণ্যের নাম বদল সেভ হয়েছে, কিন্তু পুরোনো কিছু ইনভয়েসে নতুন নাম বসানো যায়নি (ইন্টারনেট সমস্যা হতে পারে)। কোনো ডাটা হারায়নি — পরের বার অ্যাপ খুললে নিজে থেকে আবার চেষ্টা হবে।');
+            }
+        }
+
+        // [সংশোধন ৭] স্টক যাচাই আর স্টক কাটা/ফেরতের জন্য একই নিয়ম: আগে হুবহু
+        // নাম মেলানো হয়, না পেলে বড়-ছোট হাতের অক্ষর আর বাড়তি স্পেস উপেক্ষা করে।
+        // আগে যাচাই পাস করত কিন্তু নামে সামান্য পার্থক্য থাকলে স্টক একটুও কমত না।
+        function findProductForItem(name) {
+            return (products || []).find(p => p && p.name === name) || findProductByName(name);
+        }
+        function getStockRowsForName(name) {
+            const exact = (stocks || []).filter(st => st && st.productName === name);
+            const key = normalizeProductKey(name);
+            const loose = (stocks || []).filter(st => st && st.productName !== name && normalizeProductKey(st.productName) === key);
+            return exact.concat(loose);
+        }
+        function findStockEntry(name) {
+            return getStockRowsForName(name)[0];
+        }
+        // স্টক থেকে কাটা: প্রথম মিলে যাওয়া সারি থেকে, সেখানে কম পড়লে একই পণ্যের
+        // পরের সারি থেকে (যাচাইয়ের সময় সব সারির যোগফল ধরা হয়, তাই কাটাও মিলবে)।
+        function deductStockByName(name, cartonEquivalent) {
+            const rows = getStockRowsForName(name);
+            if (!rows.length) return;
+            let remaining = cartonEquivalent;
+            rows.forEach((st, idx) => {
+                if (remaining <= 0 && idx > 0) return;
+                const cur = parseFloat(st.qty || 0) || 0;
+                const take = (idx === rows.length - 1) ? remaining : Math.min(cur, remaining);
+                let newQty = Math.max(0, cur - take);
+                if (newQty < 0.0001) newQty = 0;
+                st.qty = newQty;
+                remaining -= take;
+            });
+        }
+        function addBackStockByName(name, cartonEquivalent) {
+            const st = findStockEntry(name);
+            if (st) st.qty = (parseFloat(st.qty || 0) || 0) + cartonEquivalent;
         }
 
         function findProductByName(name) {
@@ -4484,14 +4648,23 @@ body.edit-modal-open { overflow: hidden !important; }
             // সাংঘর্ষিক (duplicate) না হয়।
             if (!editId) {
                 const claimedNum = await claimNextInvoiceNumber();
-                if (claimedNum !== null) {
+                // নম্বর নেওয়া ব্যর্থ হলে নিচের ফলব্যাক (সবচেয়ে বড় নম্বর + ১) ব্যবহার হয়।
+                if (claimedNum === null) {
+                    // [জরুরি সংশোধন] Firebase-এ "invoiceCounter" ডকুমেন্টে লেখা/পড়ার অনুমতি
+                    // না থাকলে (Rules) নম্বর নেওয়া সবসময় ব্যর্থ হয়। তখন ইনভয়েস আটকে না
+                    // রেখে আগের মতো সবচেয়ে বড় বিদ্যমান ইনভয়েস নম্বরের পরেরটা ব্যবহার হয়
+                    // (ফর্মে আগে দেখানো পুরোনো সংখ্যা না — এই মুহূর্তের তালিকা থেকে নতুন করে)।
+                    const fallbackMax = (invoices || []).reduce((max, inv) => {
+                        const n = parseInt(String(inv.invoiceNo || '').replace(/\D/g, ''), 10);
+                        return Number.isFinite(n) && n > max ? n : max;
+                    }, 0);
+                    console.warn('Invoice counter unavailable; using max+1 fallback.');
+                    invoiceNo = 'INV-' + String(fallbackMax + 1).padStart(3, '0');
+                    document.getElementById('salesInvoiceNo').value = invoiceNo;
+                } else {
                     invoiceNo = 'INV-' + String(claimedNum).padStart(3, '0');
                     document.getElementById('salesInvoiceNo').value = invoiceNo;
                 }
-                // claimedNum null হলে (যেমন সাময়িক সংযোগ সমস্যা) আগের
-                // পদ্ধতিতে ফর্মে দেখানো নম্বরটাই ব্যবহার হবে -- এটা আগের
-                // চেয়ে খারাপ না, শুধু এই একটা বিরল ফলব্যাক অবস্থায়
-                // নম্বর-সংঘর্ষের ঝুঁকিটা আগের মতোই থেকে যায়।
             }
             const cashDeposit = parseFloat(document.getElementById('salesCashDeposit').value || 0) || 0;
 
@@ -4624,12 +4797,11 @@ body.edit-modal-open { overflow: hidden !important; }
             if (oldInvoice) {
                 // পুরোনো বিক্রি করা কার্টুন stock-এ ফেরত
                 (oldInvoice.items || []).forEach(oldItem => {
-                    const st = stocks.find(x => x.productName === oldItem.name);
-                    const prod = products.find(x => x.name === oldItem.name);
+                    const prod = findProductForItem(oldItem.name);
                     const ppc = getPiecesPerCarton(prod);
                     const oldCartons = parseFloat(oldItem.cartonQty || oldItem.qty || 0) || 0;
                     const oldPieces = parseFloat(oldItem.pieceQty || 0) || 0;
-                    if (st) st.qty = (parseFloat(st.qty||0)||0) + oldCartons + (oldPieces / ppc);
+                    addBackStockByName(oldItem.name, oldCartons + (oldPieces / ppc));
                 });
                 const ix = invoices.findIndex(i => i.id === editId);
                 if (ix !== -1) invoices[ix] = invoiceObj;
@@ -4641,19 +4813,11 @@ body.edit-modal-open { overflow: hidden !important; }
             selectedInvoiceItems.forEach(item => {
                 const cq = parseFloat(item.cartonQty || 0) || 0;
                 const pq = parseFloat(item.pieceQty || 0) || 0;
-                const prod = products.find(x => x.name === item.name);
+                const prod = findProductForItem(item.name);
                 const ppc = getPiecesPerCarton(prod);
                 const cartonEquivalent = cq + (pq / ppc);
-                const st = stocks.find(x => x.productName === item.name);
-                if (st) {
-                    let newQty = Math.max(0, (parseFloat(st.qty||0)||0) - cartonEquivalent);
-                    // ভাসমান-বিন্দু (floating point) হিসাবের ক্ষুদ্র ভগ্নাংশ ত্রুটি
-                    // (যেমন 0.0000000000003) থেকে গেলে সেটাকে সরাসরি ০ ধরে নেওয়া
-                    // হচ্ছে — নাহলে স্টক আসলে শেষ হয়ে গেলেও সিস্টেম "স্টকে আছে"
-                    // ধরে নিয়ে ইনভয়েসে সিলেক্ট করার সুযোগ দিয়ে ফেলত।
-                    if (newQty < 0.0001) newQty = 0;
-                    st.qty = newQty;
-                }
+                // ভাসমান-বিন্দু ত্রুটি (যেমন 0.0000000000003) ০ ধরা হয় — deductStockByName-এর ভেতরে
+                deductStockByName(item.name, cartonEquivalent);
             });
 
             // Recalculate after the invoice array has been replaced. This also
@@ -4707,7 +4871,7 @@ body.edit-modal-open { overflow: hidden !important; }
             document.getElementById('invoiceSuccessTitle').innerText = wasEdited ? 'ইনভয়েস আপডেট হয়েছে' : 'ইনভয়েস সফল হয়েছে';
             document.getElementById('invoiceSuccessDetails').innerHTML =
                 `<div><b>তারিখ:</b> ${inv.date}</div>
-                 <div><b>ইনভয়েস নাম্বার:</b> ${inv.invoiceNo}</div>
+                 <div><b>ইনভয়েস নাম্বার:</b> ${escapeHtml(inv.invoiceNo)}</div>
                  <div><b>ইনভয়েস টাইপ:</b> ${inv.invoiceType === 'Cash' ? 'ক্যাশ' : 'ক্রেডিট'}</div>
                  ${totalHtml}`;
             popup.style.display = 'flex';
@@ -4804,6 +4968,25 @@ body.edit-modal-open { overflow: hidden !important; }
             let totalPiecesSum = 0;
             let totalPriceColumnSum = 0;
             const totalRows = (inv.items || []).length;
+            // [সংশোধন ৩] প্রতিটা সারি আলাদাভাবে রাউন্ড করলে সারির যোগফল আর
+            // "সর্বমোট" ১-২ টাকা অমিল হতে পারত (যেমন ১০০.৫০ + ১০০.৫০ → ১০১ + ১০১ = ২০২,
+            // অথচ সর্বমোট ২০১)। এখন সর্বমোট (সেভ করা totalAmount — বাকি/লেজারে যা যায়)
+            // একদম আগের মতোই থাকে; শুধু সারিগুলোর রাউন্ডিং এমনভাবে ভাগ করা হয় যাতে
+            // সারির যোগফল ঠিক সর্বমোটের সমান হয় (বড় ভগ্নাংশের সারি আগে উপরে রাউন্ড হয়)।
+            // কোনো সেভ করা ডাটা বদলায় না — শুধু মেমোতে দেখানো সংখ্যা।
+            const displayLineTotals = (() => {
+                const nets = (inv.items || []).map(it => it ? (Number(getItemLineAmounts(it).netTotal) || 0) : 0);
+                const plain = nets.map(v => Math.round(v));
+                const target = Math.round(Number(inv.totalAmount || 0) || 0);
+                const floors = nets.map(v => Math.floor(v));
+                const extra = target - floors.reduce((a, b) => a + b, 0);
+                if (!(extra >= 0 && extra <= nets.length)) return plain;
+                const order = nets.map((v, i) => ({ i, frac: v - Math.floor(v) }))
+                    .sort((a, b) => (b.frac - a.frac) || (a.i - b.i));
+                const out = floors.slice();
+                for (let k = 0; k < extra; k++) out[order[k].i] += 1;
+                return out;
+            })();
             let itemRowsHTML = '';
             for (let i = 0; i < totalRows; i++) {
                 const item = inv.items[i];
@@ -4825,7 +5008,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     let priceText = '';
                     if (dispCartons > 0) priceText += toBanglaNumber(cartonPrice) + ' (কার্টুন)';
                     if (dispPieces > 0) priceText += (priceText ? '<br>' : '') + toBanglaNumber(piecePrice.toFixed(2)) + ' (পিস)';
-                    const roundedItemTotal = Math.round(netTotal);
+                    const roundedItemTotal = displayLineTotals[i];
                     // নিচে "সর্বমোট" সারিতে কয়েকটা যোগফল বসে:
                     // ১) পরিমাণ কলামে — মোট কত কার্টুন ও মোট কত পিস, আলাদা
                     //    আলাদাভাবে যোগ করে (মিশিয়ে ফেলা হয় না)।
@@ -5056,8 +5239,13 @@ body.edit-modal-open { overflow: hidden !important; }
             try { return new Set(JSON.parse(localStorage.getItem('printed_invoice_ids') || '[]')); }
             catch (e) { return new Set(); }
         }
+        // [সংশোধন ১৬গ] প্রিন্ট হয়েছে কি না এখন Firebase-এর ইনভয়েসেও (printed: true)
+        // চিহ্ন দিয়ে রাখা হয় — তাই অন্য ডিভাইসেও "প্রিন্ট হয়েছে" দেখাবে। ইনভয়েসের
+        // অন্য কোনো তথ্যে হাত পড়ে না (update — ইনভয়েস না থাকলে নতুন কিছু তৈরিও হয় না)। আগের মতো এই ডিভাইসেও মনে রাখা হয়।
         function isInvoicePrinted(id) {
-            return getPrintedInvoiceIds().has(id);
+            if (getPrintedInvoiceIds().has(id)) return true;
+            const inv = (invoices || []).find(i => i && i.id === id);
+            return !!(inv && inv.printed === true);
         }
         function markInvoicePrinted(id) {
             try {
@@ -5065,6 +5253,15 @@ body.edit-modal-open { overflow: hidden !important; }
                 s.add(id);
                 localStorage.setItem('printed_invoice_ids', JSON.stringify(Array.from(s)));
             } catch (e) { /* localStorage না থাকলেও অ্যাপ চলতে থাকবে, শুধু স্থায়ীভাবে মনে থাকবে না */ }
+            try {
+                const inv = (invoices || []).find(i => i && i.id === id);
+                if (inv && inv.printed !== true && typeof db !== 'undefined' && db) {
+                    inv.printed = true;
+                    db.collection('sales_invoices').doc(id)
+                        .update({ printed: true, printedAt: Date.now() })
+                        .catch(err => console.warn('Printed flag save failed (local mark kept):', err));
+                }
+            } catch (e) { console.warn('Printed flag save skipped:', e); }
         }
 
         // দাশবোর্ডের "আজকের ইনভয়েস" তালিকা থেকে সরাসরি প্রিন্ট ডায়ালগে
@@ -5130,12 +5327,11 @@ body.edit-modal-open { overflow: hidden !important; }
                 const invoicesBackupForDelete = JSON.parse(JSON.stringify(invoices));
                 if(inv) {
                     (inv.items || []).forEach(item => {
-                        const st = stocks.find(x => x.productName === item.name);
-                        const prod = products.find(x => x.name === item.name);
+                        const prod = findProductForItem(item.name);
                         const ppc = getPiecesPerCarton(prod);
                         const cq = parseFloat(item.cartonQty || item.qty || 0) || 0;
                         const pq = parseFloat(item.pieceQty || 0) || 0;
-                        if (st) st.qty = (parseFloat(st.qty||0)||0) + cq + (pq / ppc);
+                        addBackStockByName(item.name, cq + (pq / ppc));
                     });
                 }
                 // Remove first, then recalculate so the deleted credit invoice
@@ -5219,29 +5415,33 @@ body.edit-modal-open { overflow: hidden !important; }
             const enteredPiecePrice = document.getElementById('prodPiecePrice').value.trim();
             const editIndex = parseInt(document.getElementById('editProductIndex').value);
             if(name === "") { alert("পণ্যের সম্পূর্ণ নাম দিন।"); return; }
+            const priceNum = Number(price);
+            if (!price || !Number.isFinite(priceNum) || priceNum <= 0) { alert("সঠিক কার্টুন মূল্য দিন (০-এর বেশি)।"); return; }
+            if (isProductNameTaken(name, editIndex >= 0 ? editIndex : -1)) { alert(`"${name}" নামে একটি পণ্য আগে থেকেই আছে (নিষ্ক্রিয় বা আগের নাম হিসেবেও থাকতে পারে)। একই নামে দ্বিতীয় পণ্য যোগ করা যাবে না।`); return; }
             const old = editIndex >= 0 && products[editIndex] ? products[editIndex] : {};
             const piecesPerCarton = getPiecesPerCarton({name, piecesPerCarton: old.piecesPerCarton});
-            const piecePrice = getRatioBasedPiecePrice({name, price, piecesPerCarton, piecePrice:enteredPiecePrice});
-            const prodData = { name, price, piecePrice, piecesPerCarton, code: old.code || generateProductCode(), active: old.active !== false };
+            const piecePrice = getRatioBasedPiecePrice({name, price: priceNum, piecesPerCarton, piecePrice:enteredPiecePrice});
+            const prodData = { ...old, name, price: priceNum, piecePrice, piecesPerCarton, code: old.code || generateProductCode(), active: old.active !== false };
             const productsBackup = JSON.parse(JSON.stringify(products));
             const stocksBackup = JSON.parse(JSON.stringify(stocks));
             const invoicesBackup = JSON.parse(JSON.stringify(invoices));
+            const stockLogsBackup = JSON.parse(JSON.stringify(stockLogs));
+            let renamed = false;
             if(editIndex === -1) products.push(prodData);
             else {
                 const oldName = products[editIndex].name;
                 products[editIndex] = prodData;
-                if (oldName !== name) {
-                    stocks.forEach(st => { if(st.productName === oldName) st.productName = name; });
-                    invoices.forEach(inv => (inv.items || []).forEach(it => { if(it.name === oldName) it.name = name; }));
-                }
+                if (oldName !== name) { applyProductRenameLocal(prodData, oldName, name); renamed = true; }
             }
             if (!(await syncToFirebase())) {
                 products = productsBackup;
                 stocks = stocksBackup;
                 invoices = invoicesBackup;
+                stockLogs = stockLogsBackup;
                 renderProducts(); renderStocks(); renderSavedInvoices();
                 return;
             }
+            if (renamed) await runRenameRepairAfterSave();
             renderProducts(); renderStocks(); renderSavedInvoices();
             resetProductForm();
             if (editIndex >= 0) { closeModal('productModal'); showSaveToast('পণ্যের তথ্য সফলভাবে আপডেট হয়েছে'); }
@@ -5256,8 +5456,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 subtitle: 'পণ্যের তথ্য পরিবর্তন করে আপডেট করুন',
                 fields: [
                     {name:'name', label:'পণ্যের সম্পূর্ণ নাম', value:product.name, required:true},
-                    {name:'price', label:'কার্টুন মূল্য (টাকা)', type:'number', value:product.price || '', min:0, step:0.01, required:true},
-                    {name:'piecePrice', label:'প্রতি পিস মূল্য (টাকা)', type:'number', value:product.piecePrice || '', min:0, step:0.01}
+                    {name:'price', label:'কার্টুন মূল্য (টাকা) — প্রতি পিস মূল্য নিজে থেকে হিসাব হবে', type:'number', value:product.price || '', min:0, step:0.01, required:true}
                 ],
                 successMessage: 'পণ্যের তথ্য সফলভাবে আপডেট হয়েছে',
                 async onSave(values) {
@@ -5265,25 +5464,27 @@ body.edit-modal-open { overflow: hidden !important; }
                     const price = Number(values.price);
                     const enteredPiecePrice = Number(values.piecePrice || 0);
                     if (!name) { showUniversalEditError('পণ্যের সম্পূর্ণ নাম লিখুন।'); return false; }
-                    if (!Number.isFinite(price) || price < 0 || !Number.isFinite(enteredPiecePrice) || enteredPiecePrice < 0) { showUniversalEditError('সঠিক মূল্য লিখুন।'); return false; }
+                    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(enteredPiecePrice) || enteredPiecePrice < 0) { showUniversalEditError('সঠিক কার্টুন মূল্য লিখুন (০-এর বেশি)।'); return false; }
+                    if (isProductNameTaken(name, index)) { showUniversalEditError('এই নামে একটি পণ্য আগে থেকেই আছে (নিষ্ক্রিয় বা আগের নাম হিসেবেও থাকতে পারে)।'); return false; }
                     const oldName = product.name;
                     const piecesPerCarton = getPiecesPerCarton({...product, name});
                     const piecePrice = getRatioBasedPiecePrice({name, price, piecesPerCarton, piecePrice:enteredPiecePrice});
                     const productsBackup = JSON.parse(JSON.stringify(products));
                     const stocksBackup = JSON.parse(JSON.stringify(stocks));
                     const invoicesBackup = JSON.parse(JSON.stringify(invoices));
+                    const stockLogsBackup = JSON.parse(JSON.stringify(stockLogs));
                     products[index] = {...product, name, price, piecesPerCarton, piecePrice};
-                    if (oldName !== name) {
-                        stocks.forEach(st => { if (st.productName === oldName) st.productName = name; });
-                        invoices.forEach(inv => (inv.items || []).forEach(it => { if (it.name === oldName) it.name = name; }));
-                    }
+                    const renamed = oldName !== name;
+                    if (renamed) applyProductRenameLocal(products[index], oldName, name);
                     if (!(await syncToFirebase())) {
                         products = productsBackup;
                         stocks = stocksBackup;
                         invoices = invoicesBackup;
+                        stockLogs = stockLogsBackup;
                         renderProducts(); renderStocks(); renderSavedInvoices();
                         return false;
                     }
+                    if (renamed) await runRenameRepairAfterSave();
                     renderProducts(); renderStocks(); renderSavedInvoices();
                     return true;
                 }
@@ -5402,8 +5603,8 @@ body.edit-modal-open { overflow: hidden !important; }
                                     <div style="font-size:12px; color:#777;">তারিখ: ${escapeHtml(order.date || '')} | পাঠিয়েছেন: ${escapeHtml(order.srName || 'এসআর')}</div>
                                 </div>
                                 <div>
-                                    <button class="btn-action btn-view" onclick="convertOnlineOrderToInvoice('${order.id}')">📝 ইনভয়েস করুন</button>
-                                    <button class="btn-action btn-delete" onclick="markOnlineOrderStatus('${order.id}', 'rejected')">❌ বাতিল করুন</button>
+                                    <button class="btn-action btn-view" onclick="convertOnlineOrderToInvoice(${jsArg(order.id)})">📝 ইনভয়েস করুন</button>
+                                    <button class="btn-action btn-delete" onclick="markOnlineOrderStatus(${jsArg(order.id)}, 'rejected')">❌ বাতিল করুন</button>
                                 </div>
                             </div>
                             <ul style="margin:0; padding-left:20px;">${itemsHtml}</ul>
@@ -5424,7 +5625,7 @@ body.edit-modal-open { overflow: hidden !important; }
                                 ${order.retailerName ? ` (${escapeHtml(order.retailerName)})` : ''}
                                 <div style="font-size:12px; color:#777;">তারিখ: ${escapeHtml(order.date || '')} | পাঠিয়েছেন: ${escapeHtml(order.srName || 'এসআর')} | ${statusLabel}</div>
                             </div>
-                            <button class="btn-action btn-delete" onclick="deleteOnlineOrderEntry('${order.id}')">🗑️ মুছে ফেলুন</button>
+                            <button class="btn-action btn-delete" onclick="deleteOnlineOrderEntry(${jsArg(order.id)})">🗑️ মুছে ফেলুন</button>
                         </div>`;
                     }).join('')}
                     </div>
@@ -5477,7 +5678,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     cartonPrice: product ? product.price : 0,
                     piecePrice: product ? getRatioBasedPiecePrice(product) : 0,
                     discountPercent: histDiscount !== null ? histDiscount : '',
-                    inventory: (stocks.find(st => st.productName === it.productName) || {}).qty || 0
+                    inventory: getProductStockQty(it.productName)
                 };
             });
             renderInvoiceItemTable();
@@ -5541,8 +5742,8 @@ body.edit-modal-open { overflow: hidden !important; }
                                 ${req.note ? `<div style="font-size:12px; color:#555;">নোট: ${escapeHtml(req.note)}</div>` : ''}
                             </div>
                             <div>
-                                <button class="btn-action btn-view" onclick="openCollectionModalForApproval('${req.id}')">✅ অ্যাপ্রুভ করুন</button>
-                                <button class="btn-action btn-delete" onclick="rejectOnlineCollection('${req.id}')">❌ বাতিল করুন</button>
+                                <button class="btn-action btn-view" onclick="openCollectionModalForApproval(${jsArg(req.id)})">✅ অ্যাপ্রুভ করুন</button>
+                                <button class="btn-action btn-delete" onclick="rejectOnlineCollection(${jsArg(req.id)})">❌ বাতিল করুন</button>
                             </div>
                         </div>
                     </div>`).join('');
@@ -5561,7 +5762,7 @@ body.edit-modal-open { overflow: hidden !important; }
                                 ${req.retailerName ? ` (${escapeHtml(req.retailerName)})` : ''}
                                 <div style="font-size:12px; color:#777;">তারিখ: ${escapeHtml(req.date || '')} | পাঠিয়েছেন: ${escapeHtml(req.srName || 'এসপিও')} | ৳${Number(req.amount||0).toLocaleString('en-US')} | ${statusLabel}</div>
                             </div>
-                            <button class="btn-action btn-delete" onclick="deleteOnlineCollectionEntry('${req.id}')">🗑️ মুছে ফেলুন</button>
+                            <button class="btn-action btn-delete" onclick="deleteOnlineCollectionEntry(${jsArg(req.id)})">🗑️ মুছে ফেলুন</button>
                         </div>`;
                     }).join('')}
                     </div>
@@ -5980,7 +6181,7 @@ function renderStockMultiProductList() {
             entries.forEach(({ product, qtyCartons, qtyPieces }) => {
                 // স্টক ভেতরে carton-equivalent হিসেবেই থাকে। তাই কার্টুন দিয়ে
                 // যোগ করলে ratio অনুযায়ী পিসের সমতুল্য মান ঠিকভাবে সংরক্ষিত হয়।
-                const existing = stocks.find(st => st.productName === product.name);
+                const existing = findStockEntry(product.name);
                 if (existing) existing.qty = (parseFloat(existing.qty || 0) || 0) + qtyCartons;
                 else stocks.push({ productName: product.name, qty: qtyCartons });
                 // তারিখ ও রেফারেন্স/ইনভয়েস নম্বরসহ একটা লগ এন্ট্রি রাখা হয় —
@@ -7352,7 +7553,7 @@ function renderStockMultiProductList() {
                 totalAfterDiscount += amountAfterDiscount;
                 sNo++;
                 const cartonDisplay = Math.round(qtyCarton * 100) / 100;
-                rows += `<tr><td>${sNo}</td><td><b>${st.productName}</b></td><td style="text-align:right;">${cartonPrice.toLocaleString('en-US')} ৳</td><td style="text-align:right;">${cartonDisplay}</td><td style="text-align:right;">${qtyPiece}</td><td style="text-align:right;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:right;">${Math.round(amountAfterDiscount).toLocaleString('en-US')} ৳</td></tr>`;
+                rows += `<tr><td>${sNo}</td><td><b>${escapeHtml(st.productName)}</b></td><td style="text-align:right;">${cartonPrice.toLocaleString('en-US')} ৳</td><td style="text-align:right;">${cartonDisplay}</td><td style="text-align:right;">${qtyPiece}</td><td style="text-align:right;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:right;">${Math.round(amountAfterDiscount).toLocaleString('en-US')} ৳</td></tr>`;
                 csvRows.push([sNo, st.productName, cartonPrice, cartonDisplay, qtyPiece, amount, Math.round(amountAfterDiscount)]);
             });
             if (!rows) rows = `<tr><td colspan="7" style="text-align:center;">${isToday ? 'আজ কোনো স্টক নেই।' : 'ওই তারিখে কোনো স্টক ছিল না (হিসাব অনুযায়ী)।'}</td></tr>`;
@@ -7506,11 +7707,12 @@ function renderStockMultiProductList() {
                     skipped++; skippedRows.push(i + 1);
                     return;
                 }
-                if (products.some(p => p.name.trim().toUpperCase() === name.toUpperCase())) {
+                if (isProductNameTaken(name, -1)) {
                     skipped++; skippedRows.push(i + 1);
                     return;
                 }
-                products.push({ name, price, code: csvCode || generateProductCode() });
+                const csvPpc = getPiecesPerCarton({ name });
+                products.push({ name, price, piecesPerCarton: csvPpc, piecePrice: getRatioBasedPiecePrice({ name, price, piecesPerCarton: csvPpc }), code: csvCode || generateProductCode() });
                 added++;
             });
 
@@ -7646,8 +7848,14 @@ function renderStockMultiProductList() {
             let rows = parseSimpleCSV(text);
             if (rows.length && !routes.includes((rows[0][1] || '').trim())) rows = rows.slice(1);
 
+            // [সংশোধন ১০] আগে কোনো প্রশ্ন ছাড়াই সাথে সাথে সব আগের বাকি বদলে যেত।
+            // এখন প্রথমে শুধু হিসাব করে কী কী বদলাবে তার সারাংশ দেখানো হয়; আপনি
+            // নিশ্চিত করলে তবেই বসানো হয়। যেসব রিটেইলারের আগের বাকি বদলাচ্ছে,
+            // তাদের পুরোনো মানটা openingDueHistory-তে জমা থাকে (মোছে না)।
             let updated = 0, skipped = 0;
             const skippedRows = [];
+            const planned = [];
+            const plannedRetailers = new Set();
             rows.forEach((row, i) => {
                 const id = (row[0] || '').trim();
                 const route = (row[1] || '').trim();
@@ -7656,15 +7864,46 @@ function renderStockMultiProductList() {
                 const amount = Math.round(parseFloat(row[4]));
                 const ret = (id && retailers.find(r => r.id === id)) ||
                     retailers.find(r => r.route === route && r.trader.trim().toUpperCase() === trader.toUpperCase());
-                if (!ret || !Number.isFinite(amount) || amount < 0) {
+                if (!ret || !Number.isFinite(amount) || amount < 0 || plannedRetailers.has(ret)) {
                     skipped++; skippedRows.push(i + 1);
                     return;
                 }
-                // তারিখ যেকোনো পরিচিত ফরম্যাটে থাকলে সেটা বুঝে নেওয়া হয়; একদমই
-                // বুঝতে না পারলে আজকের তারিখ বসিয়ে দেওয়া হয় — শুধু তারিখের
-                // ফরম্যাটের কারণে টাকার অংক সেট করা আটকাবে না।
                 const isoDate = parseFlexibleDateToISO(dateStr) || getLocalISODate();
-                ret.openingDue = { id: (ret.openingDue && ret.openingDue.id) || ('OPEN_' + Date.now() + '_' + i), date: isoToSystemDate(isoDate), amount };
+                const newDate = isoToSystemDate(isoDate);
+                const old = ret.openingDue || null;
+                const oldAmount = old ? (Number(old.amount || 0) || 0) : null;
+                if (old && oldAmount === amount && old.date === newDate) return; // কোনো পরিবর্তন নেই
+                plannedRetailers.add(ret);
+                planned.push({ ret, i, amount, newDate, old, oldAmount });
+            });
+
+            if (!planned.length) {
+                document.getElementById('openingDueCsvInput').value = '';
+                alert(`CSV-তে বদলানোর মতো কিছু পাওয়া যায়নি।${skipped > 0 ? ` ${skipped}টি সারি বাদ (রিটেইলার/টাকা ঠিক নেই বা একই রিটেইলার একাধিকবার) — সারি নং: ${skippedRows.join(', ')}` : ''}`);
+                return;
+            }
+            const changedExisting = planned.filter(pl => pl.old);
+            const newOnes = planned.length - changedExisting.length;
+            const previewLines = changedExisting.slice(0, 15).map(pl =>
+                `• ${displayTraderName(pl.ret.trader)}: ${pl.oldAmount.toLocaleString('en-US')} → ${pl.amount.toLocaleString('en-US')} ৳`);
+            const previewMsg = `আগের বাকির CSV — নিশ্চিত করুন:\n\n` +
+                `নতুন করে আগের বাকি বসবে: ${newOnes} জনের\n` +
+                `আগের বাকি বদলাবে: ${changedExisting.length} জনের\n` +
+                (previewLines.length ? `\n${previewLines.join('\n')}${changedExisting.length > 15 ? `\n... আরও ${changedExisting.length - 15} জন` : ''}\n` : '') +
+                (skipped > 0 ? `\nবাদ যাবে ${skipped}টি সারি (সারি নং: ${skippedRows.join(', ')})\n` : '') +
+                `\n(পুরোনো মানগুলো মুছবে না, ইতিহাস হিসেবে রাখা থাকবে)\n\nচালিয়ে যেতে চান?`;
+            if (!confirm(previewMsg)) {
+                document.getElementById('openingDueCsvInput').value = '';
+                return;
+            }
+            const todayText = getSystemDateString();
+            planned.forEach(({ ret, i, amount, newDate, old }) => {
+                if (old) {
+                    const hist = Array.isArray(ret.openingDueHistory) ? ret.openingDueHistory.slice() : [];
+                    hist.push({ ...old, replacedOn: todayText, replacedBy: 'CSV' });
+                    ret.openingDueHistory = hist;
+                }
+                ret.openingDue = { id: (old && old.id) || ('OPEN_' + Date.now() + '_' + i), date: newDate, amount };
                 recalculateRetailerDue(ret);
                 updated++;
             });
@@ -7977,8 +8216,16 @@ function renderStockMultiProductList() {
 
         // পূর্ণ ব্যাকআপ ডাউনলোড — appData-এর সব মূল অ্যারে, প্লাস sales_invoices
         // ও retailer_collections কালেকশনের সব ডকুমেন্ট, একটা JSON ফাইলে।
-        function downloadFullDataBackup() {
+        async function downloadFullDataBackup() {
             if (!checkConnectionOrAlert()) return;
+            // [সংশোধন ১৬ঘ] ব্যাকআপে এখন অনলাইন অর্ডার, কালেকশন রিকোয়েস্ট আর ইনভয়েস
+            // কাউন্টারও থাকে। (রিস্টোর আগের মতোই শুধু মূল ডাটা ফেরত আনে — এগুলো
+            // শুধু রেকর্ড হিসেবে ফাইলে রাখা থাকে।)
+            let invoiceCounterData = null;
+            try {
+                const counterSnap = await db.collection('sales_system').doc('invoiceCounter').get();
+                invoiceCounterData = counterSnap.exists ? counterSnap.data() : null;
+            } catch (e) { console.warn('Invoice counter backup read failed:', e); }
             const backup = {
                 backupTakenAt: new Date().toISOString(),
                 routes: routes || [],
@@ -7988,7 +8235,10 @@ function renderStockMultiProductList() {
                 stockLogs: stockLogs || [],
                 retailers: retailers || [],
                 invoices: invoices || [],
-                retailerCollections: retailerCollectionsLive || []
+                retailerCollections: retailerCollectionsLive || [],
+                onlineOrders: onlineOrders || [],
+                onlineCollections: onlineCollections || [],
+                invoiceCounter: invoiceCounterData
             };
             const json = JSON.stringify(backup, null, 2);
             const blob = new Blob([json], { type: 'application/json' });
@@ -8025,10 +8275,10 @@ function renderStockMultiProductList() {
                 const avgDiscount = getInvoiceAvgDiscountPercent(inv);
                 rows+=`<tr>
                     <td style="white-space:nowrap;">${i+1}</td>
-                    <td style="white-space:nowrap;">${inv.invoiceNo||''}</td>
-                    <td style="white-space:nowrap;">${inv.date||''}</td>
-                    <td style="white-space:nowrap;">${inv.route||''}</td>
-                    <td style="white-space:nowrap;">${displayTraderName(inv.retailer)}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(inv.invoiceNo||'')}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(inv.date||'')}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(inv.route||'')}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(displayTraderName(inv.retailer))}</td>
                     <td style="white-space:nowrap;">${escapeHtml(buyerName)}</td>
                     <td style="white-space:nowrap;">${inv.invoiceType==='Credit'?'ক্রেডিট':'ক্যাশ'}</td>
                     <td style="text-align:right; white-space:nowrap;">${Math.round(invMrp).toLocaleString('en-US')} ৳</td>
@@ -8662,6 +8912,17 @@ function renderStockMultiProductList() {
                         const newAmount = Number(values.amount);
                         if (!Number.isFinite(newAmount) || newAmount <= 0) { showUniversalEditError('সঠিক কালেকশন টাকার পরিমাণ লিখুন।'); return false; }
                         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) { showUniversalEditError('সঠিক তারিখ নির্বাচন করুন।'); return false; }
+                        // [সংশোধন ৯] এডিট করে কালেকশন এমন বাড়ানো যাবে না যাতে বাকি শূন্যের নিচে
+                        // নামে — আগে বাড়তি টাকাটা হিসাব থেকে নিঃশব্দে হারিয়ে যেত (বাকি ০ দেখাত)।
+                        {
+                            const dueNowForEdit = Math.max(0, Number(recalculateRetailerDue(ret) || 0));
+                            const oldAmtForEdit = Number(c.amount || 0) || 0;
+                            const maxAllowedForEdit = Math.round((oldAmtForEdit + dueNowForEdit) * 100) / 100;
+                            if (newAmount > maxAllowedForEdit + 0.001) {
+                                showUniversalEditError(`এই কালেকশন সর্বোচ্চ ${maxAllowedForEdit.toLocaleString('en-US')} টাকা হতে পারে (বর্তমান বাকি ${dueNowForEdit.toLocaleString('en-US')} + এই কালেকশনের আগের অংক ${oldAmtForEdit.toLocaleString('en-US')})। এর বেশি দিলে বাকি শূন্যের নিচে চলে যাবে।`);
+                                return false;
+                            }
+                        }
                         // Firebase-এ সফলভাবে লেখা শেষ না হওয়া পর্যন্ত আসল local object বদলানো হবে না।
                         // এতে save ব্যর্থ হলে স্ক্রিনে এমন data পড়ে থাকবে না যা Firebase-এ নেই।
                         const oldDate = c.date;
@@ -8730,6 +8991,17 @@ function renderStockMultiProductList() {
                         const newAmount = Number(values.amount);
                         if (!Number.isFinite(newAmount) || newAmount <= 0) { showUniversalEditError('সঠিক কালেকশন টাকার পরিমাণ লিখুন।'); return false; }
                         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) { showUniversalEditError('সঠিক তারিখ নির্বাচন করুন।'); return false; }
+                        // [সংশোধন ৯] এডিট করে কালেকশন এমন বাড়ানো যাবে না যাতে বাকি শূন্যের নিচে
+                        // নামে — আগে বাড়তি টাকাটা হিসাব থেকে নিঃশব্দে হারিয়ে যেত (বাকি ০ দেখাত)।
+                        {
+                            const dueNowForEdit = Math.max(0, Number(recalculateRetailerDue(ret) || 0));
+                            const oldAmtForEdit = Number(c.amount || 0) || 0;
+                            const maxAllowedForEdit = Math.round((oldAmtForEdit + dueNowForEdit) * 100) / 100;
+                            if (newAmount > maxAllowedForEdit + 0.001) {
+                                showUniversalEditError(`এই কালেকশন সর্বোচ্চ ${maxAllowedForEdit.toLocaleString('en-US')} টাকা হতে পারে (বর্তমান বাকি ${dueNowForEdit.toLocaleString('en-US')} + এই কালেকশনের আগের অংক ${oldAmtForEdit.toLocaleString('en-US')})। এর বেশি দিলে বাকি শূন্যের নিচে চলে যাবে।`);
+                                return false;
+                            }
+                        }
                         const newDate = isoToSystemDate(values.date);
                         const newNote = (values.note || '').trim();
                         const oldDate = c.date, oldAmount = c.amount, oldNote = c.note;
@@ -9047,7 +9319,7 @@ function renderStockMultiProductList() {
             }
 
             document.getElementById('ledgerResult').innerHTML=`
-              <div style="font-weight:bold;margin-bottom:8px;">${displayTraderName(ret.trader)}${ret.name ? ` (${escapeHtml(ret.name)})` : ''} | ${rangeLabel} | মোট লেনদেন: ${rows.length}টি</div>
+              <div style="font-weight:bold;margin-bottom:8px;">${escapeHtml(displayTraderName(ret.trader))}${ret.name ? ` (${escapeHtml(ret.name)})` : ''} | ${rangeLabel} | মোট লেনদেন: ${rows.length}টি</div>
               <div class="ledger-table-wrap"><table class="data-table" id="ledgerResultTable">
                 <thead><tr>
                     <th>ক্রম</th><th>তারিখ</th><th>লেনদেন</th><th>রেফারেন্স</th>
@@ -9276,17 +9548,41 @@ function renderStockMultiProductList() {
                 createdAt: Date.now()
             };
             try {
-                // Collection record + SPO approval status একসাথে batch commit হবে।
-                // ফলে collection save হয়ে approval status না বদলানোর partial state হবে না।
-                const batch = db.batch();
-                batch.set(db.collection('retailer_collections').doc(newEntry.id), newEntry);
                 if (pendingApprovalReqId) {
-                    batch.set(db.collection('online_collections').doc(pendingApprovalReqId), { status: 'approved' }, { merge: true });
+                    // [সংশোধন ১৩] এসপিও রিকোয়েস্ট অ্যাপ্রুভ: Firebase-এ রিকোয়েস্টটা এখনো
+                    // "pending" আছে কি না যাচাই করে তবেই কালেকশন লেখা হয় (transaction)।
+                    // আর কালেকশনের আইডি রিকোয়েস্টের আইডি থেকে বানানো হয়, তাই দুই ডিভাইস
+                    // থেকে একসাথে অ্যাপ্রুভ করলেও কালেকশন দুইবার তৈরি হতে পারে না।
+                    const reqId = pendingApprovalReqId;
+                    newEntry.id = 'RCOL_REQ_' + reqId;
+                    newEntry.onlineRequestId = reqId;
+                    const reqRef = db.collection('online_collections').doc(reqId);
+                    const colRef = db.collection('retailer_collections').doc(newEntry.id);
+                    await db.runTransaction(async transaction => {
+                        const reqSnap = await transaction.get(reqRef);
+                        const colSnap = await transaction.get(colRef);
+                        const st = reqSnap.exists ? (reqSnap.data().status || 'pending') : 'missing';
+                        if (st !== 'pending' || colSnap.exists) throw new Error('__ALREADY_HANDLED__:' + st);
+                        transaction.set(colRef, newEntry);
+                        transaction.set(reqRef, { status: 'approved', approvedCollectionId: newEntry.id }, { merge: true });
+                    });
+                } else {
+                    // সরাসরি এডমিন থেকে কালেকশন — আগের মতোই
+                    const batch = db.batch();
+                    batch.set(db.collection('retailer_collections').doc(newEntry.id), newEntry);
+                    await batch.commit();
                 }
-                await batch.commit();
             } catch (e) {
                 console.error('Atomic collection save failed:', e);
-                alert('কালেকশন সংরক্ষণ সম্পূর্ণ হয়নি। নিরাপত্তার জন্য কোনো আংশিক পরিবর্তন গ্রহণ করা হয়নি।');
+                if (e && String(e.message || '').startsWith('__ALREADY_HANDLED__')) {
+                    const st = String(e.message).split(':')[1] || '';
+                    alert(st === 'approved' ? 'এই কালেকশন রিকোয়েস্টটা আগেই অ্যাপ্রুভ হয়ে গেছে (হয়তো অন্য ডিভাইস থেকে)। তাই আবার কালেকশন যোগ করা হয়নি।'
+                        : (st === 'rejected' ? 'এই রিকোয়েস্টটা আগেই বাতিল করা হয়েছে। কালেকশন যোগ করা হয়নি।' : 'এই রিকোয়েস্টটা আর পাওয়া যাচ্ছে না বা আগেই প্রসেস হয়েছে। কালেকশন যোগ করা হয়নি।'));
+                    pendingApprovalReqId = null;
+                    renderOnlineCollectionsList();
+                    return;
+                }
+                alert('কালেকশন সংরক্ষণ সম্পূর্ণ হয়নি। নিরাপত্তার জন্য কোনো আংশিক পরিবর্তন গ্রহণ করা হয়নি।');
                 return;
             }
             if (pendingApprovalReqId) {
@@ -9335,8 +9631,17 @@ function renderStockMultiProductList() {
                 `পরিশোধ: ${toBanglaNumber(amount.toLocaleString('en-US'))} ৳\n` +
                 `বর্তমান বাকি: ${toBanglaNumber(due.toLocaleString('en-US'))} ৳\n` +
                 `পরিবেশক: সিনজেনটা, ধুনট, বগুড়া`;
-            const mobileDigits = String(ret.mobile).trim();
-            const dialNumber = mobileDigits.startsWith('0') ? mobileDigits : ('0' + mobileDigits);
+            // [সংশোধন ১৬খ] বাংলা অঙ্ক, স্পেস/ড্যাশ, আর +৮৮০/৮৮০ দিয়ে সেভ করা নম্বরও
+            // ঠিকভাবে ০১XXXXXXXXX আকারে আনা হয় (আগে "0+880..." হয়ে ভুল নম্বরে যেত)।
+            const mobileDigits = String(ret.mobile).trim()
+                .replace(/[০-৯]/g, d => String('০১২৩৪৫৬৭৮৯'.indexOf(d)))
+                .replace(/\D/g, '');
+            let dialNumber = mobileDigits;
+            if (dialNumber.startsWith('880')) dialNumber = '0' + dialNumber.slice(3).replace(/^0+/, '');
+            else if (!dialNumber.startsWith('0')) dialNumber = '0' + dialNumber;
+            if (!/^01\d{9}$/.test(dialNumber)) {
+                if (!confirm(`মোবাইল নম্বরটা (${ret.mobile}) সঠিক ১১ অঙ্কের বাংলাদেশি নম্বর মনে হচ্ছে না। তবুও মেসেজ অ্যাপ খুলবেন?`)) return;
+            }
             window.location.href = `sms:${dialNumber}?body=${encodeURIComponent(message)}`;
         }
 
