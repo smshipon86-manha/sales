@@ -3047,27 +3047,67 @@ body.edit-modal-open { overflow: hidden !important; }
         // আপডেট হয়নি)। এখন একটামাত্র Firestore batch দিয়ে দুটো লেখাই
         // একসাথে পাঠানো হয় — batch হয় সম্পূর্ণ সফল হবে, নয়তো সম্পূর্ণ
         // ব্যর্থ হবে (আংশিক অবস্থায় কখনো থাকবে না)।
-        function saveInvoiceAndSyncAtomic(invoiceObj, linkedCollectionEntry) {
+        // [সংশোধন ১] সেভ-নিশ্চিতকরণ: Firebase সেভ করে ফেলার পর উত্তর আসার আগেই ইন্টারনেট
+        // গেলে আগে "সংরক্ষণ হয়নি" দেখাত, অথচ আসলে সেভ হয়ে যেত — আবার সেভ চাপলে একই
+        // বিক্রি দুইবার হতো। এখন প্রতিটা সেভে একটা অনন্য saveToken ইনভয়েসে লেখা হয়;
+        // ব্যর্থতা দেখা দিলে Firebase থেকে ইনভয়েসটা পড়ে দেখা হয় এই token বসেছে কি না।
+        async function verifyInvoiceCommitted(invoiceRef, token) {
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const snap = await invoiceRef.get({ source: 'server' });
+                    return (snap.exists && snap.data() && snap.data().saveToken === token) ? 'yes' : 'no';
+                } catch (e) {
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+            }
+            return 'unknown';
+        }
+
+        function saveInvoiceAndSyncAtomic(invoiceObj, linkedCollectionEntry, onlineOrderId) {
             if (!checkConnectionOrAlert()) return Promise.resolve(false);
             if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি — ডাটা হারানোর ঝুঁকি এড়াতে ইনভয়েস Save বন্ধ রাখা হয়েছে।'); return Promise.resolve(false); }
             updateDashboardStats();
             const appDataRef = db.collection('sales_system').doc('appData');
             const invoiceRef = db.collection('sales_invoices').doc(invoiceObj.id);
             const collectionRef = linkedCollectionEntry ? db.collection('retailer_collections').doc(linkedCollectionEntry.id) : null;
+            // [সংশোধন ৩] এসপিও অর্ডার থেকে ইনভয়েস হলে অর্ডারের "invoiced" চিহ্ন একই transaction-এ
+            const orderRef = onlineOrderId ? db.collection('online_orders').doc(onlineOrderId) : null;
+            invoiceObj.saveToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
             const expectedHash = lastServerCoreHash;
             const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
             const payloadCoreSnapshot = cloneCoreData(payload);
             return db.runTransaction(async transaction => {
                 const appSnap = await transaction.get(appDataRef);
+                const orderSnap = orderRef ? await transaction.get(orderRef) : null;
                 if (!appSnap.exists) throw new Error('__APPDATA_MISSING__');
                 if (getCoreDataHash(appSnap.data()) !== expectedHash) throw new Error('__EXTERNAL_CHANGE__');
+                if (orderSnap && orderSnap.exists && orderSnap.data() && orderSnap.data().status === 'invoiced') throw new Error('__ORDER_ALREADY_INVOICED__');
+                // [সংশোধন ১] অন্য সব সেভের মতো ইনভয়েস সেভেও যাচাই: Firebase-এ থাকা কোনো
+                // রুট/পণ্য/স্টক/স্টক-লগ/রিটেইলার যেন এই সেভের সাথে বাদ না পড়ে যায়।
+                if (!checkNoCoreDeletion(appSnap.data(), payload)) throw new Error('__DATA_DELETE_BLOCKED__');
                 transaction.set(invoiceRef, invoiceObj);
                 transaction.set(appDataRef, payload, { merge: true });
                 if (collectionRef) transaction.set(collectionRef, linkedCollectionEntry);
+                if (orderRef && orderSnap && orderSnap.exists) transaction.set(orderRef, { status: 'invoiced', invoiceId: invoiceObj.id, invoiceNo: invoiceObj.invoiceNo }, { merge: true });
             }).then(() => { lastServerCoreHash = getCoreDataHash(payload); lastServerCoreData = payloadCoreSnapshot; return true;
-            }).catch(error => {
+            }).catch(async error => {
                 console.error('Atomic invoice safe save error:', error);
-                if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                const knownRejection = error && ['__DATA_DELETE_BLOCKED__', '__EXTERNAL_CHANGE__', '__APPDATA_MISSING__', '__ORDER_ALREADY_INVOICED__'].includes(error.message);
+                if (!knownRejection) {
+                    const state = await verifyInvoiceCommitted(invoiceRef, invoiceObj.saveToken);
+                    if (state === 'yes') {
+                        // আসলে সেভ হয়ে গেছে — সফল ধরা হচ্ছে (স্টক/বাকি/অর্ডার চিহ্ন সব একসাথেই সেভ হয়েছে)
+                        lastServerCoreHash = getCoreDataHash(payload); lastServerCoreData = payloadCoreSnapshot;
+                        return true;
+                    }
+                    if (state === 'unknown') {
+                        alert('⚠️ ইন্টারনেট সমস্যার কারণে নিশ্চিত হওয়া যায়নি ইনভয়েসটা সেভ হয়েছে কি না।\n\nআবার সেভ চাপার আগে ইন্টারনেট ঠিক হলে পেজ রিফ্রেশ করে "আজকের ইনভয়েস" তালিকায় দেখে নিন ইনভয়েসটা আছে কি না — থাকলে আর সেভ করবেন না (নইলে একই বিক্রি দুইবার হবে)।');
+                        return false;
+                    }
+                }
+                if (error && error.message === '__ORDER_ALREADY_INVOICED__') { alert('এই অনলাইন অর্ডারটা আগেই ইনভয়েস হয়ে গেছে। তাই আবার ইনভয়েস সেভ করা হয়নি — কিছুই বদলায়নি।'); return false; }
+                if (error && error.message === '__DATA_DELETE_BLOCKED__') blockPermanentDelete('কোনো বিদ্যমান রেকর্ড');
+                else if (error && error.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
                 else if (error && error.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData ডকুমেন্ট পাওয়া যাচ্ছে না। ইনভয়েস Save করা হয়নি।');
                 else alert('ইনভয়েস ও স্টক/বাকির পরিবর্তন একসাথে সংরক্ষণ করা যায়নি।');
                 return false;
@@ -4308,6 +4348,22 @@ body.edit-modal-open { overflow: hidden !important; }
             return null;
         }
 
+        function getOldInvoiceQtyForProductInEdit(productName) {
+            const editIdEl = document.getElementById('editInvoiceId');
+            const editId = editIdEl ? editIdEl.value : '';
+            if (!editId) return 0;
+            const oldInv = (invoices || []).find(i => i && i.id === editId);
+            if (!oldInv) return 0;
+            const key = normalizeProductKey(productName);
+            return (oldInv.items || []).reduce((sum, it) => {
+                if (!it || normalizeProductKey(it.name) !== key) return sum;
+                const ppc = getPiecesPerCarton(findProductForItem(it.name));
+                const cq = parseFloat(it.cartonQty ?? it.qty ?? 0) || 0;
+                const pq = parseFloat(it.pieceQty || 0) || 0;
+                return sum + cq + (pq / ppc);
+            }, 0);
+        }
+
         function addSelectedProductsToInvoice() {
             if (!checkConnectionOrAlert()) return;
             if (selectedProductIndexesForInvoice.size === 0) {
@@ -4322,7 +4378,10 @@ body.edit-modal-open { overflow: hidden !important; }
                 if (!p) return;
                 let exists = selectedInvoiceItems.find(item => item.name === p.name);
                 if(!exists) {
-                    const stockQty = getProductStockQty(p.name);
+                    // [সংশোধন ৪] ইনভয়েস এডিটের সময় কোনো পণ্য মুছে আবার যোগ করলে, ওই
+                    // ইনভয়েসের পুরোনো পরিমাণ (যা এখনো স্টক থেকে বাদ দেওয়া আছে) উপলব্ধ
+                    // স্টকে যোগ করে ধরা হয় — এডিট খোলার সময় যেভাবে হিসাব হয়, ঠিক সেভাবে।
+                    const stockQty = getProductStockQty(p.name) + getOldInvoiceQtyForProductInEdit(p.name);
                     const histDiscount = retailerIndex !== null ? getRetailerLastDiscountForProduct(retailerIndex, p.name) : null;
                     if (histDiscount !== null) autoFilledCount++;
                     selectedInvoiceItems.push({
@@ -4649,22 +4708,16 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!editId) {
                 const claimedNum = await claimNextInvoiceNumber();
                 // নম্বর নেওয়া ব্যর্থ হলে নিচের ফলব্যাক (সবচেয়ে বড় নম্বর + ১) ব্যবহার হয়।
+                // [সংশোধন ২] কাউন্টার এখন Firebase Rules-এ অনুমোদিত ও চালু। তাই নম্বর নেওয়া
+                // ব্যর্থ হলে (যেমন ইন্টারনেট সমস্যা) অনুমান করে নম্বর না বসিয়ে ইনভয়েস সেভ
+                // বন্ধ রাখা হয় — দুই ডিভাইসে একই নম্বর হওয়ার কোনো সুযোগ থাকে না।
+                // এই অবস্থায় কিছুই বদলায় না (স্টক/বাকি/ইনভয়েস কোনোটাই)।
                 if (claimedNum === null) {
-                    // [জরুরি সংশোধন] Firebase-এ "invoiceCounter" ডকুমেন্টে লেখা/পড়ার অনুমতি
-                    // না থাকলে (Rules) নম্বর নেওয়া সবসময় ব্যর্থ হয়। তখন ইনভয়েস আটকে না
-                    // রেখে আগের মতো সবচেয়ে বড় বিদ্যমান ইনভয়েস নম্বরের পরেরটা ব্যবহার হয়
-                    // (ফর্মে আগে দেখানো পুরোনো সংখ্যা না — এই মুহূর্তের তালিকা থেকে নতুন করে)।
-                    const fallbackMax = (invoices || []).reduce((max, inv) => {
-                        const n = parseInt(String(inv.invoiceNo || '').replace(/\D/g, ''), 10);
-                        return Number.isFinite(n) && n > max ? n : max;
-                    }, 0);
-                    console.warn('Invoice counter unavailable; using max+1 fallback.');
-                    invoiceNo = 'INV-' + String(fallbackMax + 1).padStart(3, '0');
-                    document.getElementById('salesInvoiceNo').value = invoiceNo;
-                } else {
-                    invoiceNo = 'INV-' + String(claimedNum).padStart(3, '0');
-                    document.getElementById('salesInvoiceNo').value = invoiceNo;
+                    alert('ইনভয়েস নম্বর নেওয়া যায়নি (ইন্টারনেট/ডাটাবেজ সংযোগ সমস্যা)। ইনভয়েস সেভ হয়নি, কিছুই বদলায়নি — সংযোগ ঠিক হলে আবার সেভ চাপুন।');
+                    return;
                 }
+                invoiceNo = 'INV-' + String(claimedNum).padStart(3, '0');
+                document.getElementById('salesInvoiceNo').value = invoiceNo;
             }
             const cashDeposit = parseFloat(document.getElementById('salesCashDeposit').value || 0) || 0;
 
@@ -4701,16 +4754,29 @@ body.edit-modal-open { overflow: hidden !important; }
             }
 
             // বর্তমান স্টক অতিক্রম না করার মৌলিক যাচাই
-            for (const item of selectedInvoiceItems) {
-                const cq = parseFloat(item.cartonQty || 0) || 0;
-                const pq = parseFloat(item.pieceQty || 0) || 0;
-                const availableCartons = parseFloat(item.inventory || 0) || 0;
-                const prod = products.find(x => x.name === item.name);
-                const ppc = getPiecesPerCarton(prod);
-                const requestedCartons = cq + (pq / ppc);
-                if (requestedCartons > availableCartons + 1e-9) {
-                    alert(`${item.name}-এর বর্তমান স্টক ${availableCartons} কার্টুন (${availableCartons * ppc} পিস)। আপনি যত পরিমাণ দিতে চাচ্ছেন তা স্টকের বেশি।`);
-                    return;
+            // [সংশোধন ২] একই পণ্য একাধিক সারিতে থাকলে (যেমন এসপিও অর্ডারে ভুলে দুইবার)
+            // সব সারির পরিমাণ যোগ করে তারপর স্টকের সাথে মেলানো হয় — আগে প্রতিটা সারি
+            // আলাদাভাবে পাস করে গিয়ে মোট মিলে স্টকের বেশি বিক্রি হয়ে যেত।
+            {
+                const requestedByProduct = new Map();
+                for (const item of selectedInvoiceItems) {
+                    const cq = parseFloat(item.cartonQty || 0) || 0;
+                    const pq = parseFloat(item.pieceQty || 0) || 0;
+                    const prod = findProductForItem(item.name);
+                    const ppc = getPiecesPerCarton(prod);
+                    const key = normalizeProductKey(item.name);
+                    const entry = requestedByProduct.get(key) || { name: item.name, ppc, requested: 0, available: 0, rows: 0 };
+                    entry.requested += cq + (pq / ppc);
+                    entry.available = Math.max(entry.available, parseFloat(item.inventory || 0) || 0);
+                    entry.rows += 1;
+                    requestedByProduct.set(key, entry);
+                }
+                for (const entry of requestedByProduct.values()) {
+                    if (entry.requested > entry.available + 1e-9) {
+                        const rowsNote = entry.rows > 1 ? `\n(এই পণ্য ইনভয়েসে ${entry.rows}টি সারিতে আছে — সব সারি মিলিয়ে মোট ${Math.round(entry.requested * entry.ppc)} পিস)` : '';
+                        alert(`${entry.name}-এর বর্তমান স্টক ${entry.available} কার্টুন (${entry.available * entry.ppc} পিস)। আপনি যত পরিমাণ দিতে চাচ্ছেন তা স্টকের বেশি।${rowsNote}`);
+                        return;
+                    }
                 }
             }
 
@@ -4722,7 +4788,10 @@ body.edit-modal-open { overflow: hidden !important; }
             let existingDueForLimit = parseFloat(selectedRetailerData.currentDue || 0) || 0;
 
             // Edit করলে পুরোনো একই Credit invoice-এর টাকা আগে বাদ দিয়ে limit হিসাব
-            if (oldInvoice && oldInvoice.invoiceType === "Credit" && oldInvoice.retailer === retailer) {
+            const sameRetailerAsOld = oldInvoice && ((oldInvoice.retailerId && selectedRetailerData.id)
+                ? oldInvoice.retailerId === selectedRetailerData.id
+                : oldInvoice.retailer === retailer);
+            if (oldInvoice && oldInvoice.invoiceType === "Credit" && sameRetailerAsOld) {
                 existingDueForLimit = Math.max(0, existingDueForLimit - Math.round(parseFloat(oldInvoice.totalAmount || 0) || 0));
             }
 
@@ -4746,6 +4815,27 @@ body.edit-modal-open { overflow: hidden !important; }
                     document.getElementById('salesCashDeposit').focus();
                     return;
                 }
+            }
+
+            // [সংশোধন ৫] এডিট করে ক্রেডিট ইনভয়েসের টাকা এত কমলে (বা ক্যাশ/অন্য রিটেইলারে
+            // সরালে) যে কাস্টমারের মোট জমা তার বাকির চেয়ে বেশি হয়ে যায়, সেভের আগে
+            // সতর্ক করা হয় — অ্যাপ অগ্রিম দেখায় না (বাকি ০ দেখায়), তাই আগে এমন বাড়তি
+            // টাকা চুপচাপ হিসাবের বাইরে চলে যেত। নিশ্চিত করলে আগের মতোই সেভ হবে।
+            if (oldInvoice && oldInvoice.invoiceType === 'Credit') {
+                const affected = [];
+                if (retailers.includes(selectedRetailerData)) affected.push(selectedRetailerData);
+                const oldRetObj = resolveRetailerForInvoice(oldInvoice);
+                if (oldRetObj && retailers.includes(oldRetObj) && !affected.includes(oldRetObj)) affected.push(oldRetObj);
+                const warnings = [];
+                affected.forEach(r => {
+                    const before = getRetailerRawBalance(r, null);
+                    let after = getRetailerRawBalance(r, editId);
+                    if (invoiceType === 'Credit' && r === selectedRetailerData) after += currentInvoiceTotal;
+                    if (after < -0.5 && after < before - 0.5) {
+                        warnings.push(`• ${displayTraderName(r.trader)}${r.name ? ' (' + r.name + ')' : ''}: জমা বাকির চেয়ে ${Math.round(-after).toLocaleString('en-US')} ৳ বেশি হয়ে যাবে`);
+                    }
+                });
+                if (warnings.length && !confirm(`⚠️ সতর্কতা: এই এডিটের পর —\n\n${warnings.join('\n')}\n\nঅ্যাপে অগ্রিম দেখানো হয় না, বাকি ০ দেখাবে এবং এই বাড়তি টাকা হিসাবে চোখে পড়বে না। প্রয়োজনে কাস্টমারকে ফেরত দিন বা কালেকশন ঠিক করুন।\n\nতবুও সেভ করবেন?`)) return;
             }
 
             const invoiceObj = {
@@ -4828,20 +4918,26 @@ body.edit-modal-open { overflow: hidden !important; }
             }
             recalculateRetailerDue(selectedRetailerData);
 
-            if (!(await saveInvoiceAndSyncAtomic(invoiceObj, null))) { stocks = stocksBackupForRollback; invoices = invoicesBackupForRollback; return; }
+            const onlineOrderIdForThisSave = (!editId && currentConvertingOnlineOrderId) ? currentConvertingOnlineOrderId : null;
+            if (!(await saveInvoiceAndSyncAtomic(invoiceObj, null, onlineOrderIdForThisSave))) {
+                stocks = stocksBackupForRollback;
+                invoices = invoicesBackupForRollback;
+                // [সংশোধন ৩] রিটেইলারদের বাকিও আগের (সঠিক) অবস্থায় আবার হিসাব করে
+                // স্ক্রিন হালনাগাদ — পেজ রিফ্রেশ ছাড়াই সব সংখ্যা ঠিক থাকে।
+                try {
+                    withLedgerIndex(() => (retailers || []).forEach(r => recalculateRetailerDue(r)));
+                    renderStocks(); renderProductSelectionList(); renderCustomerDueReport(); updateDashboardStats();
+                } catch (e) { console.error('Rollback re-render failed:', e); }
+                return;
+            }
 
             // এই ইনভয়েসটা কোনো এসপিও-এর পাঠানো অনলাইন অর্ডার থেকে রূপান্তরিত
             // হলে, এখানেই সেই অর্ডারটাকে স্বয়ংক্রিয়ভাবে 'invoiced' হিসেবে
             // চিহ্নিত করে দেওয়া হচ্ছে — আলাদা করে ক্লিক করা লাগবে না, আর
             // এসপিও অ্যাপে সাথে সাথেই "✅ সফল হয়েছে" দেখাবে।
-            if (currentConvertingOnlineOrderId) {
-                try {
-                    await db.collection('online_orders').doc(currentConvertingOnlineOrderId).set({ status: 'invoiced' }, { merge: true });
-                } catch (e) {
-                    console.error('Online order auto-mark failed:', e);
-                }
-                currentConvertingOnlineOrderId = null;
-            }
+            // অনলাইন অর্ডারের "invoiced" চিহ্ন এখন ইনভয়েস সেভের একই transaction-এ বসে যায়
+            // (উপরে saveInvoiceAndSyncAtomic) — আলাদা করে লিখতে হয় না, তাই আধা-সম্পন্ন থাকার সুযোগ নেই।
+            currentConvertingOnlineOrderId = null;
 
             closeModal('salesModal');
             renderTodayInvoices();
@@ -6792,6 +6888,17 @@ function renderStockMultiProductList() {
             document.getElementById('totalDueAmountSpan').innerText = `মোট বকেয়া: ${totalSystemDue.toLocaleString('en-US')} ৳`;
         }
 
+        // বাকির আসল হিসাব (শূন্যের নিচেও) — excludeInvoiceId দিলে সেই ইনভয়েস বাদ দিয়ে
+        function getRetailerRawBalance(ret, excludeInvoiceId) {
+            if (!ret) return 0;
+            const opening = getExplicitOpeningDue(ret);
+            const credit = getInvoicesForRetailer(ret)
+                .filter(inv => inv.invoiceType === 'Credit' && (!excludeInvoiceId || inv.id !== excludeInvoiceId))
+                .reduce((sum, inv) => sum + Math.round(Number(inv.totalAmount || 0) || 0), 0);
+            const oldCollections = (ret.collections || []).reduce((sum, c) => sum + (Number(c.amount || 0) || 0), 0);
+            const newCollections = getRetailerCollectionsV2(ret).reduce((sum, c) => sum + (Number(c.amount || 0) || 0), 0);
+            return opening + credit - oldCollections - newCollections;
+        }
         function getExplicitOpeningDue(ret) {
             return Number((ret && ret.openingDue && ret.openingDue.amount) || 0) || 0;
         }
