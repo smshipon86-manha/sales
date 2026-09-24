@@ -4317,10 +4317,14 @@ body.edit-modal-open { overflow: hidden !important; }
 
         function getPiecesPerCarton(product) {
             const stored = parseFloat(product?.piecesPerCarton || product?.pieces || product?.cartonPieces || 0) || 0;
-            const name = String(product?.name || '').toUpperCase().replace(/\s+/g, '');
+            // আগে নাম থেকে সব স্পেস মুছে তারপর খোঁজা হতো — ফলে "NH 7720 30X1KG"
+            // হয়ে যেত "NH772030X1KG", আর কার্টুনে ৩০ পিসের বদলে ৭৭২০৩০ পিস ধরা হতো।
+            // এখন স্পেস রেখেই খোঁজা হয়, আর প্যাকেট-সংখ্যার ঠিক আগে অন্য কোনো অঙ্ক
+            // লেগে থাকতে পারবে না। ছোট হাতের x, × চিহ্ন আর X-এর দুপাশে স্পেসও চলবে।
+            const name = String(product?.name || '').toUpperCase().replace(/×/g, 'X');
             // Packaging rule: 30X100GM => 30 pcs/carton, 20X500ML => 20 pcs/carton,
             // 4X10X10GM => 4*10 = 40 pcs/carton.
-            const matches = name.match(/(\d+(?:\.\d+)?)X(\d+(?:\.\d+)?)(?:X(\d+(?:\.\d+)?))?/);
+            const matches = name.match(/(?:^|[^0-9.])(\d+(?:\.\d+)?)\s*X\s*(\d+(?:\.\d+)?)(?:\s*X\s*(\d+(?:\.\d+)?))?/);
             if (matches) {
                 const first = parseFloat(matches[1]) || 0;
                 const second = parseFloat(matches[2]) || 0;
