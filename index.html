@@ -1722,12 +1722,13 @@ body.edit-modal-open { overflow: hidden !important; }
             <input type="hidden" id="editCashExpenseId" value="">
             <div class="form-group">
                 <label>খরচের ধরন:</label>
-                <select id="cashExpenseCategory">
+                <select id="cashExpenseCategory" onchange="updateCashExpenseCategoryHint()">
                     <option value="purchase">পণ্য কেনা</option>
                     <option value="company_payment">কোম্পানিকে পেমেন্ট দেওয়া</option>
                     <option value="owner_withdrawal">মালিককে দেওয়া</option>
                     <option value="daily_expense">দৈনিক খরচ</option>
                 </select>
+                <div id="cashExpenseCategoryHint" style="font-size:12px; color:#666; margin-top:4px;"></div>
             </div>
             <div class="form-group">
                 <label>তারিখ:</label>
@@ -10000,9 +10001,26 @@ function renderStockMultiProductList() {
         { value: 'owner_withdrawal', label: 'মালিককে দেওয়া' },
         { value: 'daily_expense', label: 'দৈনিক খরচ' }
     ];
+    // [হালনাগাদ] নগদ ব্যালেন্স থেকে কোন দুটো ধরন বাদ যাবে না, তা এখানে ঠিক করা —
+    // ব্যবহারকারীর সিদ্ধান্ত অনুযায়ী: "পণ্য কেনা" আর "মালিককে দেওয়া" শুধু রেকর্ড
+    // রাখার জন্য, নগদ ব্যালেন্সের হিসাবে ধরা হবে না। বাকি দুটো ("দৈনিক খরচ",
+    // "কোম্পানিকে পেমেন্ট") নগদ থেকে বাদ যাবে।
+    const CASH_BALANCE_DEDUCT_CATEGORIES = ['daily_expense', 'company_payment'];
+    const CASH_EXPENSE_CATEGORY_HINTS = {
+        purchase: 'এই টাকাটা নগদ ব্যালেন্স থেকে বাদ যাবে না — শুধু রেকর্ড থাকবে (কোম্পানিকে পেমেন্ট দেওয়ার এন্ট্রিতেই টাকাটা বাদ যায়)।',
+        company_payment: 'এই টাকাটা নগদ ব্যালেন্স থেকে বাদ যাবে।',
+        owner_withdrawal: 'এই টাকাটা নগদ ব্যালেন্স থেকে বাদ যাবে না — শুধু রেকর্ড থাকবে, "ক্যাশ ফ্লো রিপোর্ট"-এ তারিখ দিয়ে দেখা যাবে।',
+        daily_expense: 'এই টাকাটা নগদ ব্যালেন্স থেকে বাদ যাবে।'
+    };
     function cashExpenseCategoryLabel(v) {
         const f = CASH_EXPENSE_CATEGORIES.find(c => c.value === v);
         return f ? f.label : (v || '');
+    }
+    function updateCashExpenseCategoryHint() {
+        const sel = document.getElementById('cashExpenseCategory');
+        const hintEl = document.getElementById('cashExpenseCategoryHint');
+        if (!sel || !hintEl) return;
+        hintEl.innerText = CASH_EXPENSE_CATEGORY_HINTS[sel.value] || '';
     }
 
     // মূল initAppData()-কে "wrap" করে ওপরে আরেকটা লাইভ লিসেনার জুড়ে দেওয়া হলো —
@@ -10016,6 +10034,7 @@ function renderStockMultiProductList() {
             .onSnapshot((snapshot) => {
                 cashExpenses = snapshot.docs.map(d => d.data());
                 cashExpensesFirstLoadDone = true;
+                if (document.getElementById('cashFlowReportModal') && document.getElementById('cashFlowReportModal').style.display === 'flex') renderCashFlowReport();
             }, (error) => {
                 console.error('Cash expenses listener error:', error);
             });
@@ -10042,6 +10061,7 @@ function renderStockMultiProductList() {
         document.getElementById('cashExpenseParty').value = entry ? (entry.party || '') : '';
         document.getElementById('cashExpenseNote').value = entry ? (entry.note || '') : '';
         document.getElementById('cashExpenseModal').style.display = 'flex';
+        updateCashExpenseCategoryHint();
     }
 
     async function saveCashExpense() {
@@ -10055,6 +10075,9 @@ function renderStockMultiProductList() {
         if (!category) { alert('খরচের ধরন নির্বাচন করুন।'); return; }
         if (!dateISO) { alert('তারিখ নির্বাচন করুন।'); return; }
         if (!Number.isFinite(amount) || amount <= 0) { alert('সঠিক টাকার পরিমাণ লিখুন (০-এর বেশি)।'); return; }
+        if ((category === 'company_payment' || category === 'purchase') && !party) {
+            if (!confirm('কোম্পানির নাম লেখা হয়নি। নাম না দিলে এই এন্ট্রিটা "কোম্পানিভিত্তিক হিসাব"-এ হিসাব করা যাবে না।\n\nনাম ছাড়াই সংরক্ষণ করবেন?')) return;
+        }
         const id = editId || ('CFLOW_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
         const entry = {
             id, type: 'expense', category,
@@ -10134,21 +10157,28 @@ function renderStockMultiProductList() {
         return (cashExpenses || []).find(e => e && e.type === 'opening_balance') || null;
     }
 
-    // ক্যাশ ইনভয়েসের বিক্রি + সব কালেকশন (পুরোনো embedded ও নতুন retailer_collections,
-    // বিদ্যমান getAllCollectionsInRange() পুনর্ব্যবহার করে) — একই তারিখ-পার্সিং যা
-    // বাকি সব রিপোর্টে ব্যবহৃত হয়, তাই হিসাব সামঞ্জস্যপূর্ণ থাকে।
-    function getCashInTotalInRange(fromISO, toISO) {
-        let cashSales = 0;
+    // [হালনাগাদ] "মোট বিক্রি" এখন ক্যাশ + ক্রেডিট দুটো ইনভয়েসই ধরে (আগে শুধু ক্যাশ
+    // ধরা হতো) — ব্যবহারকারীর হিসাব-পদ্ধতি অনুযায়ী: পুরো বিক্রি নগদে যোগ হয়, তারপর
+    // যত টাকা এখনো বাকি (ক্রেডিট, আদায় হয়নি) তা আলাদাভাবে বাদ দেওয়া হয়
+    // (getCurrentTotalDueLive দিয়ে) — নিচে renderCashFlowReport-এ।
+    function getAllInvoiceSalesTotal(fromISO, toISO) {
+        let total = 0;
         (invoices || []).forEach(inv => {
-            if (!inv || inv.invoiceType !== 'Cash') return;
+            if (!inv) return;
             const d = parseBanglaOrISODate(inv.date || '');
             if (!d) return;
             const iso = toLocalISODate(d);
-            if (iso >= fromISO && iso <= toISO) cashSales += Number(inv.totalAmount || 0) || 0;
+            if (iso >= fromISO && iso <= toISO) total += Number(inv.totalAmount || 0) || 0;
         });
-        const collectionsRows = getAllCollectionsInRange(fromISO, toISO, '');
-        const collections = collectionsRows.reduce((s, r) => s + (Number(r.amount) || 0), 0);
-        return { cashSales, collections, total: cashSales + collections };
+        return total;
+    }
+
+    // সব রিটেইলারের এই মুহূর্তের মোট বাকি — ড্যাশবোর্ডের "মোট কাস্টমার বাকি" কার্ডে
+    // যেভাবে হিসাব হয় ঠিক সেভাবেই (withLedgerIndex পুনর্ব্যবহার করে)। এটা সবসময়
+    // "এখনকার" হিসাব — অতীতের কোনো তারিখের বাকি এই অ্যাপে সংরক্ষিত নেই, তাই
+    // "তারিখ পর্যন্ত" অতীতের কোনো তারিখ বাছলেও এই সংখ্যাটা আজকের বাকিই দেখাবে।
+    function getCurrentTotalDueLive() {
+        return withLedgerIndex(() => (retailers || []).reduce((sum, ret) => sum + Math.max(0, Number(recalculateRetailerDue(ret) || 0)), 0));
     }
 
     // opening_balance ছাড়া বাকি সব খরচ এন্ট্রি — বাতিল হওয়া এন্ট্রিও ফেরত দেয় (তালিকায়
@@ -10161,6 +10191,39 @@ function renderStockMultiProductList() {
             const iso = toLocalISODate(d);
             return iso >= fromISO && iso <= toISO;
         });
+    }
+
+    // নগদ ব্যালেন্স থেকে বাদ যাওয়ার কথা শুধু "দৈনিক খরচ" আর "কোম্পানিকে পেমেন্ট" —
+    // "পণ্য কেনা" আর "মালিককে দেওয়া" রেকর্ড থাকে কিন্তু নগদ থেকে বাদ যায় না।
+    function getCashOutForBalanceInRange(fromISO, toISO) {
+        return getCashExpenseEntriesInRange(fromISO, toISO, '')
+            .filter(e => !e.voided && CASH_BALANCE_DEDUCT_CATEGORIES.includes(e.category))
+            .reduce((s, e) => s + (Number(e.amount) || 0), 0);
+    }
+
+    // [নতুন] কোম্পানিভিত্তিক হিসাব — "কোম্পানিকে পেমেন্ট দেওয়া" (দিয়েছি) আর
+    // "পণ্য কেনা" (মাল নিয়েছি, একই কোম্পানির নামে) মিলিয়ে কার কাছে কত পাওনা/দেনা
+    // তা হিসাব করে। কোম্পানির নাম "কার কাছে/কোন প্রতিষ্ঠান" ঘর থেকে নেওয়া হয়,
+    // বড়-ছোট হাতের অক্ষর ও বাড়তি স্পেস উপেক্ষা করে মেলানো হয়।
+    function normalizeCompanyKey(name) {
+        return String(name || '').trim().replace(/\s+/g, ' ').toUpperCase();
+    }
+    function getCompanyLedgerInRange(fromISO, toISO) {
+        const rows = getCashExpenseEntriesInRange(fromISO, toISO, '').filter(e =>
+            !e.voided && (e.category === 'company_payment' || e.category === 'purchase') && String(e.party || '').trim());
+        const map = new Map();
+        rows.forEach(e => {
+            const key = normalizeCompanyKey(e.party);
+            if (!map.has(key)) map.set(key, { name: String(e.party).trim(), paid: 0, received: 0 });
+            const rec = map.get(key);
+            if (e.category === 'company_payment') rec.paid += Number(e.amount) || 0;
+            else rec.received += Number(e.amount) || 0;
+        });
+        const skipped = getCashExpenseEntriesInRange(fromISO, toISO, '').filter(e =>
+            !e.voided && (e.category === 'company_payment' || e.category === 'purchase') && !String(e.party || '').trim()).length;
+        const list = Array.from(map.values()).map(r => ({ ...r, balance: r.paid - r.received }));
+        list.sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
+        return { list, skipped };
     }
 
     function openCashFlowReportModal() {
@@ -10187,48 +10250,62 @@ function renderStockMultiProductList() {
         if (!from || !to) { alert('দুটি তারিখ নির্বাচন করুন।'); return; }
         if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
 
-        const cashIn = getCashInTotalInRange(from, to);
+        // ===== ১. নগদ ব্যালেন্স (প্রারম্ভিক ব্যালেন্স থেকে "তারিখ পর্যন্ত") =====
+        const opening = getCashOpeningBalanceEntry();
+        let balanceHtml;
+        if (opening) {
+            const openingDate = parseBanglaOrISODate(opening.date);
+            const openingISO = openingDate ? toLocalISODate(openingDate) : to;
+            const openingAmt = Number(opening.amount) || 0;
+            const totalSales = getAllInvoiceSalesTotal(openingISO, to);
+            const totalDueNow = getCurrentTotalDueLive();
+            const dailyExpTotal = getCashExpenseEntriesInRange(openingISO, to, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            const companyPayTotal = getCashExpenseEntriesInRange(openingISO, to, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            const runningBalance = openingAmt + totalSales - totalDueNow - dailyExpTotal - companyPayTotal;
+            const todayISO = getLocalISODate();
+            const dueNote = to !== todayISO
+                ? '<div style="font-size:11px; color:#a06a00; margin-top:6px;">⚠️ "বর্তমান মোট বাকি" সবসময় আজকের হিসাব — অতীতের কোনো তারিখের বাকি এই অ্যাপে সংরক্ষিত নেই, তাই আজকের তারিখ ছাড়া অন্য "তারিখ পর্যন্ত" বাছলে এই একটা লাইন সঠিক অতীত ছবি দেখাতে পারবে না।</div>'
+                : '';
+            balanceHtml = `<div style="background:#fff8e1; border:1px solid #f0c419; border-radius:10px; padding:14px; margin-bottom:14px;">
+                <div style="font-size:13px; color:#555; margin-bottom:8px;">নগদ ব্যালেন্স — ${escapeHtml(opening.date)} তারিখে প্রারম্ভিক ${openingAmt.toLocaleString('en-US')} ৳ ধরে, ${escapeHtml(isoToSystemDate(to))} তারিখ পর্যন্ত:</div>
+                <div style="font-size:13px; line-height:1.9; color:#555;">
+                    প্রারম্ভিক ব্যালেন্স &nbsp; <b>${openingAmt.toLocaleString('en-US')} ৳</b><br>
+                    + মোট বিক্রি (ক্যাশ + ক্রেডিট) &nbsp; <b style="color:#1e7e34;">${totalSales.toLocaleString('en-US')} ৳</b><br>
+                    − বর্তমান মোট বাকি (সব কাস্টমার) &nbsp; <b style="color:#c0392b;">${totalDueNow.toLocaleString('en-US')} ৳</b><br>
+                    − দৈনিক খরচ &nbsp; <b style="color:#c0392b;">${dailyExpTotal.toLocaleString('en-US')} ৳</b><br>
+                    − কোম্পানিকে পেমেন্ট &nbsp; <b style="color:#c0392b;">${companyPayTotal.toLocaleString('en-US')} ৳</b>
+                </div>
+                <div style="font-size:24px; font-weight:bold; color:#7a5c00; margin-top:8px;">= ${runningBalance.toLocaleString('en-US')} ৳</div>
+                ${dueNote}
+            </div>`;
+        } else {
+            balanceHtml = `<div style="background:#f5f5f5; border-radius:10px; padding:10px; margin-bottom:14px; font-size:13px; color:#777;">প্রারম্ভিক ব্যালেন্স সেট করা নেই — তাই নগদ ব্যালেন্স এখনো হিসাব করা যাচ্ছে না। উপরের বাটনে চেপে একবার সেট করে দিন।</div>`;
+        }
+
+        // ===== ২. এই সময়ে (তারিখ থেকে-পর্যন্ত) খরচের ধরন অনুযায়ী তালিকা — শুধু রেকর্ড দেখার জন্য =====
         const outEntriesAll = getCashExpenseEntriesInRange(from, to, catFilter);
         const outEntriesActive = outEntriesAll.filter(e => !e.voided);
         const outTotal = outEntriesActive.reduce((s, e) => s + (Number(e.amount) || 0), 0);
         const byCategory = {};
         CASH_EXPENSE_CATEGORIES.forEach(c => { byCategory[c.value] = 0; });
         outEntriesActive.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + (Number(e.amount) || 0); });
-        const net = cashIn.total - outTotal;
 
         const summaryHtml = `
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px,1fr)); gap:10px; margin-bottom:14px;">
                 <div style="background:#eafaf1; border-radius:10px; padding:12px;">
-                    <div style="font-size:12px; color:#555;">টাকা ঢুকেছে (এই সময়ে)</div>
-                    <div style="font-size:20px; font-weight:bold; color:#1e7e34;">${cashIn.total.toLocaleString('en-US')} ৳</div>
-                    <div style="font-size:11px; color:#777; margin-top:4px;">ক্যাশ বিক্রি: ${cashIn.cashSales.toLocaleString('en-US')} ৳ · কালেকশন: ${cashIn.collections.toLocaleString('en-US')} ৳</div>
+                    <div style="font-size:12px; color:#555;">এই সময়ে মোট বিক্রি</div>
+                    <div style="font-size:20px; font-weight:bold; color:#1e7e34;">${getAllInvoiceSalesTotal(from, to).toLocaleString('en-US')} ৳</div>
                 </div>
                 <div style="background:#fdecea; border-radius:10px; padding:12px;">
-                    <div style="font-size:12px; color:#555;">টাকা বেরিয়েছে (এই সময়ে)</div>
+                    <div style="font-size:12px; color:#555;">এই সময়ে মোট খরচ (৪ ধরন মিলে)</div>
                     <div style="font-size:20px; font-weight:bold; color:#c0392b;">${outTotal.toLocaleString('en-US')} ৳</div>
                     <div style="font-size:11px; color:#777; margin-top:4px;">${CASH_EXPENSE_CATEGORIES.map(c => `${escapeHtml(c.label)}: ${(byCategory[c.value] || 0).toLocaleString('en-US')} ৳`).join(' · ')}</div>
                 </div>
-                <div style="background:${net >= 0 ? '#eaf3fb' : '#fdecea'}; border-radius:10px; padding:12px;">
-                    <div style="font-size:12px; color:#555;">নিট (ঢোকা − বেরোনো)</div>
-                    <div style="font-size:20px; font-weight:bold; color:${net >= 0 ? '#2c5f8a' : '#c0392b'};">${net.toLocaleString('en-US')} ৳</div>
+                <div style="background:#eaf3fb; border-radius:10px; padding:12px;">
+                    <div style="font-size:12px; color:#555;">বর্তমান মোট বাকি (সব কাস্টমার)</div>
+                    <div style="font-size:20px; font-weight:bold; color:#2c5f8a;">${getCurrentTotalDueLive().toLocaleString('en-US')} ৳</div>
                 </div>
             </div>`;
-
-        const opening = getCashOpeningBalanceEntry();
-        let balanceHtml;
-        if (opening) {
-            const openingDate = parseBanglaOrISODate(opening.date);
-            const openingISO = openingDate ? toLocalISODate(openingDate) : from;
-            const runningIn = getCashInTotalInRange(openingISO, to).total;
-            const runningOut = getCashExpenseEntriesInRange(openingISO, to, '').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-            const runningBalance = (Number(opening.amount) || 0) + runningIn - runningOut;
-            balanceHtml = `<div style="background:#fff8e1; border:1px solid #f0c419; border-radius:10px; padding:12px; margin-bottom:14px;">
-                <div style="font-size:12px; color:#555;">প্রারম্ভিক ব্যালেন্স ${escapeHtml(opening.date)} তারিখে ${(Number(opening.amount) || 0).toLocaleString('en-US')} ৳ ধরে, ${escapeHtml(isoToSystemDate(to))} তারিখ পর্যন্ত হাতে থাকার কথা:</div>
-                <div style="font-size:22px; font-weight:bold; color:#7a5c00;">${runningBalance.toLocaleString('en-US')} ৳</div>
-            </div>`;
-        } else {
-            balanceHtml = `<div style="background:#f5f5f5; border-radius:10px; padding:10px; margin-bottom:14px; font-size:13px; color:#777;">প্রারম্ভিক ব্যালেন্স সেট করা নেই — তাই মোট হাতে থাকার কথা কত, তা এখনো হিসাব করা যাচ্ছে না। উপরের বাটনে চেপে একবার সেট করে দিন।</div>`;
-        }
 
         const rowsHtml = outEntriesAll.slice().sort((a, b) => {
             const da = parseBanglaOrISODate(a.date), dbb = parseBanglaOrISODate(b.date);
@@ -10246,12 +10323,39 @@ function renderStockMultiProductList() {
                 </td>
             </tr>`).join('');
 
-        document.getElementById('cashFlowResult').innerHTML = summaryHtml + balanceHtml + `
-            <div style="overflow-x:auto;">
+        // ===== ৩. কোম্পানিভিত্তিক হিসাব (একই তারিখ সীমার মধ্যে) =====
+        const ledger = getCompanyLedgerInRange(from, to);
+        const companyRowsHtml = ledger.list.map(r => {
+            const bal = r.balance;
+            const balLabel = bal > 0.5 ? `পাব ${Math.round(bal).toLocaleString('en-US')} ৳` : (bal < -0.5 ? `দেব ${Math.round(-bal).toLocaleString('en-US')} ৳` : 'মিলে গেছে');
+            const balColor = bal > 0.5 ? '#1e7e34' : (bal < -0.5 ? '#c0392b' : '#555');
+            return `<tr>
+                <td style="word-break:break-word;">${escapeHtml(r.name)}</td>
+                <td style="text-align:right; white-space:nowrap;">${Math.round(r.paid).toLocaleString('en-US')} ৳</td>
+                <td style="text-align:right; white-space:nowrap;">${Math.round(r.received).toLocaleString('en-US')} ৳</td>
+                <td style="text-align:right; white-space:nowrap; font-weight:bold; color:${balColor};">${balLabel}</td>
+            </tr>`;
+        }).join('');
+        const companyNote = ledger.skipped > 0
+            ? `<div style="font-size:12px; color:#a06a00; margin-top:6px;">${ledger.skipped}টি এন্ট্রিতে কোম্পানির নাম লেখা নেই, তাই সেগুলো এই হিসাবে ধরা হয়নি।</div>` : '';
+
+        document.getElementById('cashFlowResult').innerHTML = balanceHtml + summaryHtml + `
+            <div style="overflow-x:auto; margin-bottom:20px;">
                 <table class="data-table" style="width:100%;">
                     <thead><tr><th>তারিখ</th><th>ধরন</th><th>টাকা</th><th>কার কাছে/কোম্পানি</th><th>নোট</th><th>অ্যাকশন</th></tr></thead>
                     <tbody>${rowsHtml || '<tr><td colspan="6" style="text-align:center; color:#777; padding:15px;">এই সময়ে কোনো খরচ এন্ট্রি নেই।</td></tr>'}</tbody>
                 </table>
+            </div>
+            <h4 style="margin:0 0 8px; font-size:15px; color:#333;">কোম্পানিভিত্তিক হিসাব (${escapeHtml(isoToSystemDate(from))} — ${escapeHtml(isoToSystemDate(to))})</h4>
+            <div style="overflow-x:auto;">
+                <table class="data-table" style="width:100%;">
+                    <thead><tr><th>কোম্পানির নাম</th><th>পেমেন্ট দিয়েছি</th><th>মাল নিয়েছি</th><th>ব্যালেন্স</th></tr></thead>
+                    <tbody>${companyRowsHtml || '<tr><td colspan="4" style="text-align:center; color:#777; padding:15px;">এই সময়ে কোনো কোম্পানির এন্ট্রি নেই।</td></tr>'}</tbody>
+                </table>
+            </div>
+            ${companyNote}
+            <div style="margin-top:10px;">
+                <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadCompanyLedgerCSV('${from}','${to}')">কোম্পানিভিত্তিক হিসাব CSV ডাউনলোড করুন</button>
             </div>`;
     }
 
@@ -10261,18 +10365,33 @@ function renderStockMultiProductList() {
         const catFilter = document.getElementById('cashFlowCategoryFilter').value;
         if (!from || !to) { alert('দুটি তারিখ নির্বাচন করুন।'); return; }
         if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
-        const cashIn = getCashInTotalInRange(from, to);
         const outEntriesActive = getCashExpenseEntriesInRange(from, to, catFilter).filter(e => !e.voided);
         const outTotal = outEntriesActive.reduce((s, e) => s + (Number(e.amount) || 0), 0);
         const csvRows = [['বিবরণ', 'তারিখ', 'খরচের ধরন', 'টাকা', 'কার কাছে/কোম্পানি', 'নোট']];
-        csvRows.push(['টাকা ঢুকেছে - ক্যাশ বিক্রি', '', '', cashIn.cashSales, '', '']);
-        csvRows.push(['টাকা ঢুকেছে - কালেকশন', '', '', cashIn.collections, '', '']);
+        csvRows.push(['এই সময়ে মোট বিক্রি', '', '', getAllInvoiceSalesTotal(from, to), '', '']);
+        csvRows.push(['বর্তমান মোট বাকি (আজকের হিসাব)', '', '', getCurrentTotalDueLive(), '', '']);
         outEntriesActive.forEach(e => csvRows.push(['খরচ', e.date, cashExpenseCategoryLabel(e.category), e.amount, e.party || '', e.note || '']));
         csvRows.push([]);
-        csvRows.push(['সর্বমোট ঢুকেছে', '', '', cashIn.total, '', '']);
-        csvRows.push(['সর্বমোট বেরিয়েছে', '', '', outTotal, '', '']);
-        csvRows.push(['নিট', '', '', cashIn.total - outTotal, '', '']);
+        csvRows.push(['এই সময়ে মোট খরচ (৪ ধরন মিলে)', '', '', outTotal, '', '']);
+        const opening = getCashOpeningBalanceEntry();
+        if (opening) {
+            const openingDate = parseBanglaOrISODate(opening.date);
+            const openingISO = openingDate ? toLocalISODate(openingDate) : to;
+            const totalSales = getAllInvoiceSalesTotal(openingISO, to);
+            const totalDueNow = getCurrentTotalDueLive();
+            const dailyExpTotal = getCashExpenseEntriesInRange(openingISO, to, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            const companyPayTotal = getCashExpenseEntriesInRange(openingISO, to, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            const runningBalance = (Number(opening.amount) || 0) + totalSales - totalDueNow - dailyExpTotal - companyPayTotal;
+            csvRows.push(['নগদ ব্যালেন্স (প্রারম্ভিক থেকে এই তারিখ পর্যন্ত)', '', '', runningBalance, '', '']);
+        }
         downloadCSVFile(csvRows, `cash_flow_${from}_to_${to}.csv`, 'ক্যাশ ফ্লো রিপোর্ট');
+    }
+
+    function downloadCompanyLedgerCSV(from, to) {
+        const ledger = getCompanyLedgerInRange(from, to);
+        const csvRows = [['কোম্পানির নাম', 'পেমেন্ট দিয়েছি', 'মাল নিয়েছি', 'ব্যালেন্স (+ পাব / − দেব)']];
+        ledger.list.forEach(r => csvRows.push([r.name, Math.round(r.paid), Math.round(r.received), Math.round(r.balance)]));
+        downloadCSVFile(csvRows, `company_ledger_${from}_to_${to}.csv`, 'কোম্পানিভিত্তিক হিসাব');
     }
 </script>
 
