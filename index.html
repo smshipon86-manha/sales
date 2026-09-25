@@ -6917,7 +6917,13 @@ function renderStockMultiProductList() {
                 }
             });
             if (count === 0) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#777; padding:15px;">কোনো রিটেইলার পাওয়া যায়নি।</td></tr>`;
-            document.getElementById('totalRetailerCount').innerText = `মোট রিটেইলার: ${retailers.length} জন`;
+            // [সংশোধন] আগে এখানে সবসময় সব রিটেইলারের মোট সংখ্যা দেখাত, রুট/খোঁজ
+            // যা-ই বাছা থাকুক। এখন উপরে যে সারিগুলো দেখানো হলো তার সংখ্যাই
+            // (count) দেখানো হয় — রুট সিলেক্ট করলে সেই রুটেরটাই, "সব রুট"
+            // থাকলে সবগুলোর মোট।
+            document.getElementById('totalRetailerCount').innerText = routeFilter
+                ? `${escapeHtml(routeFilter)} রুটে রিটেইলার: ${count} জন`
+                : `মোট রিটেইলার: ${count} জন`;
         }
 
         function filterReportTable() {
@@ -6968,7 +6974,10 @@ function renderStockMultiProductList() {
             // search/filter state, and refresh each due from ledger data first.
             const dueByRetailer = new Map();
             withLedgerIndex(() => retailers.forEach(ret => dueByRetailer.set(ret, Math.max(0, Number(recalculateRetailerDue(ret) || 0)))));
-            const totalSystemDue = [...dueByRetailer.values()].reduce((sum, due) => sum + due, 0);
+            // [সংশোধন] আগে এখানে সব রিটেইলার মিলিয়ে (totalSystemDue) হিসাব হতো,
+            // রুট/খোঁজ ফিল্টার যা-ই থাকুক। এখন নিচের লুপে যাদের সারি আসলে
+            // দেখানো হচ্ছে, শুধু তাদের বাকি যোগ হয় (filteredTotalDue)।
+            let filteredTotalDue = 0;
             let count = 0;
             let dueRowsHtml = '';
             // রুট অনুযায়ী গ্রুপ করে সাজানো হচ্ছে (routes array-এর ক্রম
@@ -6985,6 +6994,7 @@ function renderStockMultiProductList() {
                 if(filterText === '' || searchStr.includes(filterText.toLowerCase())) {
                     count++;
                     const due = dueByRetailer.get(ret) || 0;
+                    filteredTotalDue += due;
                     const opening = getExplicitOpeningDue(ret);
                     dueRowsHtml += `
                         <tr>
@@ -7001,7 +7011,9 @@ function renderStockMultiProductList() {
             });
             tbody.innerHTML = dueRowsHtml;
             if(count === 0) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#777; padding:15px;">কোনো রিটেইলার পাওয়া যায়নি।</td></tr>`;
-            document.getElementById('totalDueAmountSpan').innerText = `মোট বকেয়া: ${totalSystemDue.toLocaleString('en-US')} ৳`;
+            document.getElementById('totalDueAmountSpan').innerText = routeFilter
+                ? `${escapeHtml(routeFilter)} রুটে মোট বকেয়া: ${filteredTotalDue.toLocaleString('en-US')} ৳`
+                : `মোট বকেয়া: ${filteredTotalDue.toLocaleString('en-US')} ৳`;
         }
 
         // বাকির আসল হিসাব (শূন্যের নিচেও) — excludeInvoiceId দিলে সেই ইনভয়েস বাদ দিয়ে
@@ -7628,6 +7640,13 @@ function renderStockMultiProductList() {
 
         function downloadDueReportCSV() {
             const q = document.getElementById('dueReportSearchInput').value.toLowerCase();
+            // [সংশোধন] স্ক্রিনে যে রুট ফিল্টার বাছা আছে, ডাউনলোডও এখন সেটাই মানবে
+            // (আগে রুট ফিল্টার ধরাই হতো না)। আর "বর্তমান মোট বাকি" আগে পুরোনো
+            // ret.currentDue (স্টেইল হতে পারে এমন একটা ক্যাশ করা মান) থেকে নিত;
+            // এখন স্ক্রিনে যে অংক দেখানো হয় সেই লাইভ হিসাব (recalculateRetailerDue)
+            // থেকে নেওয়া হয়, তাই স্ক্রিন আর ডাউনলোড সবসময় মিলবে।
+            const routeFilterEl = document.getElementById('dueReportRouteFilter');
+            const routeFilter = routeFilterEl ? routeFilterEl.value : '';
             const rows = [['ক্রমিক','রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','মোবাইল','আগের বাকি','বর্তমান মোট বাকি']];
             let n=0;
             // রুট অনুযায়ী গ্রুপ করে সাজানো, তারপর নাম অনুযায়ী — যাতে একই
@@ -7637,16 +7656,27 @@ function renderStockMultiProductList() {
                 if (ia !== ib) return ia - ib;
                 return displayTraderName(a.trader).localeCompare(displayTraderName(b.trader));
             });
-            sorted.forEach(ret=>{
-                const searchStr=`${ret.route} ${ret.trader} ${ret.name}`.toLowerCase();
-                if(q && !searchStr.includes(q)) return;
-                n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',ret.mobile||'',getExplicitOpeningDue(ret),Number(ret.currentDue||0)||0]);
+            withLedgerIndex(() => {
+                sorted.forEach(ret=>{
+                    if (routeFilter && ret.route !== routeFilter) return;
+                    const searchStr=`${ret.route} ${ret.trader} ${ret.name}`.toLowerCase();
+                    if(q && !searchStr.includes(q)) return;
+                    const liveDue = Math.max(0, Number(recalculateRetailerDue(ret) || 0));
+                    n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',ret.mobile||'',getExplicitOpeningDue(ret),liveDue]);
+                });
             });
-            downloadCSVFile(rows,'customer_due_report.csv','রিটেইলার বাকি');
+            const fname = routeFilter ? `customer_due_report_${routeFilter}.csv` : 'customer_due_report.csv';
+            const title = routeFilter ? `রিটেইলার বাকি (${routeFilter})` : 'রিটেইলার বাকি';
+            downloadCSVFile(rows,fname,title);
         }
 
         function downloadRetailerReportCSV() {
             const q = document.getElementById('reportSearchInput').value.toLowerCase();
+            // [সংশোধন] স্ক্রিনে যে রুট ফিল্টার বাছা আছে, ডাউনলোডও এখন ঠিক সেটাই মানবে —
+            // আগে এখানে রুট ফিল্টার একদমই ধরা হতো না, তাই "সব রুট" নাকি নির্দিষ্ট
+            // একটা রুট বাছা থাকুক, ডাউনলোডে সবসময় সবাই চলে যেত।
+            const routeFilterEl = document.getElementById('retailerReportRouteFilter');
+            const routeFilter = routeFilterEl ? routeFilterEl.value : '';
             const rows = [['ক্রমিক','রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','ঠিকানা / বাজার','মোবাইল নম্বর']];
             let n=0;
             const sorted = retailers.slice().sort((a, b) => {
@@ -7655,11 +7685,14 @@ function renderStockMultiProductList() {
                 return displayTraderName(a.trader).localeCompare(displayTraderName(b.trader));
             });
             sorted.forEach(ret=>{
+                if (routeFilter && ret.route !== routeFilter) return;
                 const searchStr=`${ret.route} ${ret.trader} ${ret.name} ${ret.address} ${ret.mobile}`.toLowerCase();
                 if(q && !searchStr.includes(q)) return;
                 n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',addressWithBazar(ret.address)||'',ret.mobile||'']);
             });
-            downloadCSVFile(rows,'retailer_list.csv','রিটেইলার তালিকা');
+            const fname = routeFilter ? `retailer_list_${routeFilter}.csv` : 'retailer_list.csv';
+            const title = routeFilter ? `রিটেইলার তালিকা (${routeFilter})` : 'রিটেইলার তালিকা';
+            downloadCSVFile(rows,fname,title);
         }
 
         // যেকোনো CSV ডাউনলোডের উপরে "বিসমিল্লাহির রহমানির রাহিম" +
