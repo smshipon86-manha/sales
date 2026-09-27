@@ -279,6 +279,22 @@
            সবসময় সবার উপরে দেখা যাবে — বন্ধ করলে নিচের পপ-আপে ফিরে যাবে। */
         #customerLedgerModal { z-index: 2100; }
 
+        /* [নতুন] ক্যাশ ফ্লো রিপোর্ট খোলা অবস্থায় কোনো খরচ "এডিট" করতে গেলে বা
+           প্রারম্ভিক ব্যালেন্স বদলাতে গেলে সেই পপ-আপ যেন রিপোর্টের নিচে চলে না
+           যায় (DOM-এ আগে থাকায় আগে একই z-index হওয়ায় নিচে চলে যেত), তাই এই
+           দুটোকে রিপোর্ট মোডালের চেয়ে বেশি z-index দেওয়া হলো। */
+        #cashExpenseModal, #cashOpeningBalanceModal { z-index: 2100; }
+
+        /* [নতুন] "আজকের সেলস / তারিখ অনুযায়ী রিপোর্ট" বা "কাস্টমারের লেজার"
+           পপ-আপ খোলা অবস্থায় কোনো ইনভয়েসে "এডিট" চাপলে ইনভয়েস মোডাল যেন সবসময়
+           সবার উপরে দেখা যায় (আগে সমস্যা ছিল, কারণ দুটোই একই z-index-এ ছিল),
+           তাই ইনভয়েস মোডালকে সবচেয়ে বেশি z-index দেওয়া হলো। productSelectModal
+           (ইনভয়েসের ভেতর থেকেই "একাধিক পণ্য সিলেক্ট করুন" বাটনে খোলে) কে তার
+           চেয়েও বেশি z-index দেওয়া হলো, যাতে ইনভয়েস মোডালের ভেতরে খোলা এই
+           পপ-আপটাও ঠিকমতো উপরে দেখা যায় — অন্য কিছুর হিসাব বদলানো হয়নি। */
+        #salesModal { z-index: 2200; }
+        #productSelectModal { z-index: 2300; }
+
         .modal-box {
             background: #fff;
             width: 950px;
@@ -1739,7 +1755,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 <input type="number" id="cashExpenseAmount" placeholder="যেমন: ৫০০০">
             </div>
             <div class="form-group">
-                <label>কার কাছে / কোন প্রতিষ্ঠান (ঐচ্ছিক):</label>
+                <label id="cashExpensePartyLabel">কার কাছে / কোন প্রতিষ্ঠান (ঐচ্ছিক):</label>
                 <input type="text" id="cashExpenseParty" placeholder="যেমন: সিনজেনটা বাংলাদেশ, বা কর্মচারীর নাম">
             </div>
             <div class="form-group">
@@ -10342,6 +10358,22 @@ function renderStockMultiProductList() {
         const hintEl = document.getElementById('cashExpenseCategoryHint');
         if (!sel || !hintEl) return;
         hintEl.innerText = CASH_EXPENSE_CATEGORY_HINTS[sel.value] || '';
+        // [নতুন] খরচের ধরন অনুযায়ী "কার কাছে/কোন প্রতিষ্ঠান" ঘরের লেবেল ও
+        // উদাহরণ বদলে যায় — যাতে প্রতিটা ধরনের জন্য সঠিক তথ্য চাওয়া হয়
+        // (পণ্য কেনায় ইনভয়েস/চালান নম্বর, কোম্পানিকে পেমেন্টে ব্যাংকের নাম,
+        // দৈনিক খরচে খরচের ধরন — "মালিককে দেওয়া"-তে আগের মতোই থাকছে)।
+        const partyLabelEl = document.getElementById('cashExpensePartyLabel');
+        const partyInputEl = document.getElementById('cashExpenseParty');
+        if (partyLabelEl && partyInputEl) {
+            const fieldConfig = {
+                purchase: { label: 'ইনভয়েস বা চালান নম্বর (ঐচ্ছিক):', placeholder: 'যেমন: INV-1234 বা চালান নম্বর' },
+                company_payment: { label: 'কোন ব্যাংকে (ঐচ্ছিক):', placeholder: 'যেমন: ইসলামী ব্যাংক, ধুনট শাখা' },
+                daily_expense: { label: 'খরচের ধরন (ঐচ্ছিক):', placeholder: 'যেমন: চা-নাস্তা, যাতায়াত, কারেন্ট বিল' }
+            };
+            const cfg = fieldConfig[sel.value] || { label: 'কার কাছে / কোন প্রতিষ্ঠান (ঐচ্ছিক):', placeholder: 'যেমন: সিনজেনটা বাংলাদেশ, বা কর্মচারীর নাম' };
+            partyLabelEl.innerText = cfg.label;
+            partyInputEl.placeholder = cfg.placeholder;
+        }
     }
 
     // মূল initAppData()-কে "wrap" করে ওপরে আরেকটা লাইভ লিসেনার জুড়ে দেওয়া হলো —
@@ -10396,9 +10428,6 @@ function renderStockMultiProductList() {
         if (!category) { alert('খরচের ধরন নির্বাচন করুন।'); return; }
         if (!dateISO) { alert('তারিখ নির্বাচন করুন।'); return; }
         if (!Number.isFinite(amount) || amount <= 0) { alert('সঠিক টাকার পরিমাণ লিখুন (০-এর বেশি)।'); return; }
-        if ((category === 'company_payment' || category === 'purchase') && !party) {
-            if (!confirm('কোম্পানির নাম লেখা হয়নি। নাম না দিলে এই এন্ট্রিটা "কোম্পানিভিত্তিক হিসাব"-এ হিসাব করা যাবে না।\n\nনাম ছাড়াই সংরক্ষণ করবেন?')) return;
-        }
         const id = editId || ('CFLOW_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
         const entry = {
             id, type: 'expense', category,
@@ -10553,29 +10582,36 @@ function renderStockMultiProductList() {
             .reduce((s, e) => s + (Number(e.amount) || 0), 0);
     }
 
-    // [নতুন] কোম্পানিভিত্তিক হিসাব — "কোম্পানিকে পেমেন্ট দেওয়া" (দিয়েছি) আর
-    // "পণ্য কেনা" (মাল নিয়েছি, একই কোম্পানির নামে) মিলিয়ে কার কাছে কত পাওনা/দেনা
-    // তা হিসাব করে। কোম্পানির নাম "কার কাছে/কোন প্রতিষ্ঠান" ঘর থেকে নেওয়া হয়,
-    // বড়-ছোট হাতের অক্ষর ও বাড়তি স্পেস উপেক্ষা করে মেলানো হয়।
-    function normalizeCompanyKey(name) {
-        return String(name || '').trim().replace(/\s+/g, ' ').toUpperCase();
-    }
+    // [হালনাগাদ] কোম্পানিভিত্তিক হিসাব — ব্যবহারকারীর একটাই কোম্পানি আছে
+    // (দ্বিতীয় কোনো কোম্পানি নেই, ব্যবহারকারীর নিজের কথায় নিশ্চিত করা), তাই
+    // এখন আর "কার কাছে/কোন প্রতিষ্ঠান" ঘরের লেখা দিয়ে কোম্পানি মেলানো হয় না
+    // (ওই ঘর এখন পণ্য কেনায় ইনভয়েস/চালান নম্বর আর কোম্পানিকে পেমেন্টে ব্যাংকের
+    // নাম রাখার জন্য ব্যবহৃত হচ্ছে)। বদলে "কোম্পানিকে পেমেন্ট দেওয়া" আর
+    // "পণ্য কেনা" — এই দুই ধরনের সব এন্ট্রি একটাই স্থির কোম্পানির নামে যোগ হয়।
+    const SINGLE_COMPANY_NAME = 'সিনজেনটা বাংলাদেশ লিমিটেড';
     function getCompanyLedgerInRange(fromISO, toISO) {
         const rows = getCashExpenseEntriesInRange(fromISO, toISO, '').filter(e =>
-            !e.voided && (e.category === 'company_payment' || e.category === 'purchase') && String(e.party || '').trim());
-        const map = new Map();
+            !e.voided && (e.category === 'company_payment' || e.category === 'purchase'));
+        const rec = { name: SINGLE_COMPANY_NAME, paid: 0, received: 0 };
         rows.forEach(e => {
-            const key = normalizeCompanyKey(e.party);
-            if (!map.has(key)) map.set(key, { name: String(e.party).trim(), paid: 0, received: 0 });
-            const rec = map.get(key);
             if (e.category === 'company_payment') rec.paid += Number(e.amount) || 0;
             else rec.received += Number(e.amount) || 0;
         });
-        const skipped = getCashExpenseEntriesInRange(fromISO, toISO, '').filter(e =>
-            !e.voided && (e.category === 'company_payment' || e.category === 'purchase') && !String(e.party || '').trim()).length;
-        const list = Array.from(map.values()).map(r => ({ ...r, balance: r.paid - r.received }));
-        list.sort((a, b) => Math.abs(b.balance) - Math.abs(a.balance));
-        return { list, skipped };
+        const list = (rec.paid || rec.received) ? [{ ...rec, balance: rec.paid - rec.received }] : [];
+        return { list, skipped: 0 };
+    }
+
+    // [নতুন] খরচের ধরন অনুযায়ী "কার কাছে/কোন প্রতিষ্ঠান" ঘরের তথ্য এখন আলাদা আলাদা
+    // জিনিস রাখে (পণ্য কেনায় ইনভয়েস/চালান নম্বর, কোম্পানিকে পেমেন্টে ব্যাংকের নাম,
+    // দৈনিক খরচে খরচের ধরন) — তাই রিপোর্টের কলাম-নামও ফিল্টার অনুযায়ী বদলায়।
+    function cashFlowPartyColumnLabel(catFilter) {
+        const labels = {
+            purchase: 'ইনভয়েস/চালান নম্বর',
+            company_payment: 'কোন ব্যাংকে',
+            owner_withdrawal: 'কার কাছে/কোন প্রতিষ্ঠান',
+            daily_expense: 'খরচের ধরন'
+        };
+        return labels[catFilter] || 'কার কাছে/কোম্পানি';
     }
 
     function openCashFlowReportModal() {
@@ -10694,7 +10730,7 @@ function renderStockMultiProductList() {
         document.getElementById('cashFlowResult').innerHTML = balanceHtml + summaryHtml + `
             <div style="overflow-x:auto; margin-bottom:20px;">
                 <table class="data-table" style="width:100%;">
-                    <thead><tr><th>তারিখ</th><th>ধরন</th><th>টাকা</th><th>কার কাছে/কোম্পানি</th><th>নোট</th><th>অ্যাকশন</th></tr></thead>
+                    <thead><tr><th>তারিখ</th><th>ধরন</th><th>টাকা</th><th>${escapeHtml(cashFlowPartyColumnLabel(catFilter))}</th><th>নোট</th><th>অ্যাকশন</th></tr></thead>
                     <tbody>${rowsHtml || '<tr><td colspan="6" style="text-align:center; color:#777; padding:15px;">এই সময়ে কোনো খরচ এন্ট্রি নেই।</td></tr>'}</tbody>
                 </table>
             </div>
@@ -10719,7 +10755,7 @@ function renderStockMultiProductList() {
         if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
         const outEntriesActive = getCashExpenseEntriesInRange(from, to, catFilter).filter(e => !e.voided);
         const outTotal = outEntriesActive.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-        const csvRows = [['বিবরণ', 'তারিখ', 'খরচের ধরন', 'টাকা', 'কার কাছে/কোম্পানি', 'নোট']];
+        const csvRows = [['বিবরণ', 'তারিখ', 'খরচের ধরন', 'টাকা', cashFlowPartyColumnLabel(catFilter), 'নোট']];
         csvRows.push(['এই সময়ে মোট বিক্রি', '', '', getAllInvoiceSalesTotal(from, to), '', '']);
         csvRows.push(['বর্তমান মোট বাকি (আজকের হিসাব)', '', '', getCurrentTotalDueLive(), '', '']);
         outEntriesActive.forEach(e => csvRows.push(['খরচ', e.date, cashExpenseCategoryLabel(e.category), e.amount, e.party || '', e.note || '']));
