@@ -2931,6 +2931,38 @@ body.edit-modal-open { overflow: hidden !important; }
             }
         });
 
+        // [নতুন] ইনভয়েস/কালেকশন/ক্যাশ খরচের ফর্মে কিছু টাইপ করা অবস্থায় (এখনো
+        // সেভ করা হয়নি) কেউ ভুল করে পেজ রিফ্রেশ/বন্ধ করতে গেলে ব্রাউজার নিজে
+        // থেকেই একটা সতর্কবার্তা দেখাবে ("আপনার পরিবর্তনগুলো সংরক্ষণ নাও হতে
+        // পারে") — যাতে ভুলে টাইপ করা তথ্য হারিয়ে না যায়। এটা ফর্মের ডাটা
+        // আলাদাভাবে সংরক্ষণ (draft) করে না, শুধু সতর্ক করে ও বন্ধ হওয়া
+        // থামানোর সুযোগ দেয়।
+        window.addEventListener('beforeunload', function (e) {
+            try {
+                const isModalOpen = (id) => {
+                    const el = document.getElementById(id);
+                    return !!(el && el.style.display === 'flex');
+                };
+                const invoiceHasUnsavedInput = isModalOpen('salesModal')
+                    && typeof selectedInvoiceItems !== 'undefined'
+                    && Array.isArray(selectedInvoiceItems) && selectedInvoiceItems.length > 0;
+                const collectionAmountEl = document.getElementById('collectionAmount');
+                const collectionHasUnsavedInput = isModalOpen('collectionModal')
+                    && collectionAmountEl && (parseFloat(collectionAmountEl.value || 0) || 0) > 0;
+                const expenseAmountEl = document.getElementById('cashExpenseAmount');
+                const expenseHasUnsavedInput = isModalOpen('cashExpenseModal')
+                    && expenseAmountEl && (parseFloat(expenseAmountEl.value || 0) || 0) > 0;
+                if (invoiceHasUnsavedInput || collectionHasUnsavedInput || expenseHasUnsavedInput) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                    return '';
+                }
+            } catch (err) {
+                // সতর্কবার্তা দেখাতে কোনো কারণে ব্যর্থ হলেও পেজ বন্ধ/রিফ্রেশ
+                // হতে বাধা দেওয়া হবে না।
+            }
+        });
+
         // ========== Firebase Authentication ==========
         function doLogin() {
             const email = document.getElementById('loginEmail').value.trim();
@@ -3162,6 +3194,26 @@ body.edit-modal-open { overflow: hidden !important; }
             for (let attempt = 0; attempt < 3; attempt++) {
                 try {
                     const snap = await invoiceRef.get({ source: 'server' });
+                    return (snap.exists && snap.data() && snap.data().saveToken === token) ? 'yes' : 'no';
+                } catch (e) {
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+            }
+            return 'unknown';
+        }
+
+        // [নতুন] ইনভয়েসের মতো একই কৌশল — কালেকশন ও ক্যাশ খরচ সেভেও ব্যবহারের
+        // জন্য একটা সাধারণ (generic) সংস্করণ। যেকোনো ডকুমেন্ট রেফারেন্স ও তার
+        // মধ্যে বসানো saveToken দিয়ে Firebase থেকে সরাসরি যাচাই করে — সেভ
+        // "ব্যর্থ" দেখালেও Firebase-এ আসলে পৌঁছে গিয়ে থাকতে পারে (নেট চলে
+        // যাওয়ায় শুধু উত্তর/response হারিয়ে যায়) — তাই আবার সেভ করার আগে এটা
+        // দিয়ে নিশ্চিত হওয়া হয়, যাতে একই এন্ট্রি দুইবার সেভ (ডুপ্লিকেট) না
+        // হয়ে যায়। রিটার্ন করে 'yes' (আসলে সেভ হয়ে গেছে), 'no' (সেভ হয়নি),
+        // অথবা 'unknown' (এখনো নিশ্চিত হওয়া যায়নি, ইন্টারনেট এখনো সমস্যায়)।
+        async function verifySavedByToken(docRef, token) {
+            for (let attempt = 0; attempt < 3; attempt++) {
+                try {
+                    const snap = await docRef.get({ source: 'server' });
                     return (snap.exists && snap.data() && snap.data().saveToken === token) ? 'yes' : 'no';
                 } catch (e) {
                     await new Promise(r => setTimeout(r, 1500));
@@ -10004,8 +10056,12 @@ function renderStockMultiProductList() {
                 date: isoToSystemDate(date),
                 amount,
                 note,
-                createdAt: Date.now()
+                createdAt: Date.now(),
+                // [নতুন] ইনভয়েসের মতোই — সেভ "ব্যর্থ" দেখালেও Firebase-এ আসলে
+                // পৌঁছে গিয়ে থাকতে পারে কি না, পরে যাচাই করার জন্য।
+                saveToken: 'ST_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10)
             };
+            let colRefForVerify = null;
             try {
                 if (pendingApprovalReqId) {
                     // [সংশোধন ১৩] এসপিও রিকোয়েস্ট অ্যাপ্রুভ: Firebase-এ রিকোয়েস্টটা এখনো
@@ -10017,6 +10073,7 @@ function renderStockMultiProductList() {
                     newEntry.onlineRequestId = reqId;
                     const reqRef = db.collection('online_collections').doc(reqId);
                     const colRef = db.collection('retailer_collections').doc(newEntry.id);
+                    colRefForVerify = colRef;
                     await db.runTransaction(async transaction => {
                         const reqSnap = await transaction.get(reqRef);
                         const colSnap = await transaction.get(colRef);
@@ -10027,8 +10084,10 @@ function renderStockMultiProductList() {
                     });
                 } else {
                     // সরাসরি এডমিন থেকে কালেকশন — আগের মতোই
+                    const colRef = db.collection('retailer_collections').doc(newEntry.id);
+                    colRefForVerify = colRef;
                     const batch = db.batch();
-                    batch.set(db.collection('retailer_collections').doc(newEntry.id), newEntry);
+                    batch.set(colRef, newEntry);
                     await batch.commit();
                 }
             } catch (e) {
@@ -10041,8 +10100,21 @@ function renderStockMultiProductList() {
                     renderOnlineCollectionsList();
                     return;
                 }
-                alert('কালেকশন সংরক্ষণ সম্পূর্ণ হয়নি। নিরাপত্তার জন্য কোনো আংশিক পরিবর্তন গ্রহণ করা হয়নি।');
-                return;
+                // [নতুন] সেভ ব্যর্থ দেখালেও Firebase-এ আসলে পৌঁছে থাকতে পারে
+                // (নেট চলে যাওয়ায় শুধু response হারিয়ে গিয়ে থাকতে পারে) — তাই
+                // আবার সেভ করলে ডুপ্লিকেট কালেকশন হয়ে যাওয়া ঠেকাতে সরাসরি
+                // Firebase থেকে যাচাই করা হচ্ছে।
+                const verifyState = colRefForVerify ? await verifySavedByToken(colRefForVerify, newEntry.saveToken) : 'no';
+                if (verifyState === 'yes') {
+                    // আসলে সেভ হয়ে গেছে — সফল ধরে নিচের কোড চালিয়ে যাওয়া হচ্ছে
+                    console.error('Collection actually committed despite error — proceeding as success.');
+                } else if (verifyState === 'unknown') {
+                    alert('⚠️ ইন্টারনেট সমস্যার কারণে নিশ্চিত হওয়া যায়নি কালেকশনটা সংরক্ষণ হয়েছে কি না।\n\nআবার সেভ করার আগে ইন্টারনেট ঠিক হলে পেজ রিফ্রেশ করে লেজার/রিপোর্টে দেখে নিন এই কালেকশনটা যোগ হয়েছে কি না — থাকলে আর সেভ করবেন না (নইলে একই কালেকশন দুইবার হয়ে যাবে)।');
+                    return;
+                } else {
+                    alert('কালেকশন সংরক্ষণ সম্পূর্ণ হয়নি। নিরাপত্তার জন্য কোনো আংশিক পরিবর্তন গ্রহণ করা হয়নি।');
+                    return;
+                }
             }
             if (pendingApprovalReqId) {
                 pendingApprovalReqId = null;
@@ -10163,9 +10235,17 @@ function renderStockMultiProductList() {
                 __busyGuardKeys.add(key);
                 __saveBusyCount++;
                 setSaveBusyOverlay(true, 'তথ্য সংরক্ষণ করা হচ্ছে...');
+                // [নতুন] সংযোগ অস্বাভাবিক ধীর হলে (৩০ সেকেন্ডের বেশি সময় ধরে
+                // সেভ চলতে থাকলে) ব্যবহারকারীকে জানানো হয় যে সংযোগ ধীর — কিন্তু
+                // চলমান সেভটা জোর করে বাতিল/থামানো হয় না, কারণ তাহলে ফলাফল
+                // (সেভ হয়েছে কি না) আরও অনিশ্চিত হয়ে যেত।
+                const slowConnectionTimer = setTimeout(() => {
+                    setSaveBusyOverlay(true, 'সংযোগ ধীরগতির মনে হচ্ছে... একটু অপেক্ষা করুন, বাটনে বারবার চাপ দেবেন না।');
+                }, 30000);
                 try {
                     return await fn.apply(this, args);
                 } finally {
+                    clearTimeout(slowConnectionTimer);
                     __busyGuardKeys.delete(key);
                     __saveBusyCount = Math.max(0, __saveBusyCount - 1);
                     if (__saveBusyCount === 0) setSaveBusyOverlay(false);
@@ -10325,14 +10405,29 @@ function renderStockMultiProductList() {
             date: isoToSystemDate(dateISO),
             amount, party, note,
             voided: false,
+            // [নতুন] সেভ "ব্যর্থ" দেখালেও Firebase-এ আসলে পৌঁছে গিয়ে থাকতে
+            // পারে কি না, পরে যাচাই করার জন্য (ইনভয়েস/কালেকশনের মতোই)।
+            saveToken: 'ST_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
+        const expenseRef = db.collection('cash_expenses').doc(id);
         try {
-            await db.collection('cash_expenses').doc(id).set(entry, { merge: true });
+            await expenseRef.set(entry, { merge: true });
         } catch (e) {
             console.error('Cash expense save failed:', e);
-            alert('খরচ সংরক্ষণ করা যায়নি। ইন্টারনেট/অনুমতি ঠিক আছে কিনা যাচাই করুন। কিছু বদলায়নি।');
-            return;
+            // [নতুন] নেট চলে যাওয়ায় শুধু response হারিয়ে থাকতে পারে, অথচ
+            // Firebase-এ আসলে সেভ হয়ে থাকতে পারে — তাই আবার সেভ করলে ডুপ্লিকেট
+            // খরচ হয়ে যাওয়া ঠেকাতে সরাসরি Firebase থেকে যাচাই করা হচ্ছে।
+            const verifyState = await verifySavedByToken(expenseRef, entry.saveToken);
+            if (verifyState === 'yes') {
+                console.error('Cash expense actually committed despite error — proceeding as success.');
+            } else if (verifyState === 'unknown') {
+                alert('⚠️ ইন্টারনেট সমস্যার কারণে নিশ্চিত হওয়া যায়নি খরচটা সংরক্ষণ হয়েছে কি না।\n\nআবার সেভ করার আগে ইন্টারনেট ঠিক হলে পেজ রিফ্রেশ করে ক্যাশ ফ্লো রিপোর্টে দেখে নিন এই খরচটা যোগ হয়েছে কি না — থাকলে আর সেভ করবেন না (নইলে একই খরচ দুইবার হয়ে যাবে)।');
+                return;
+            } else {
+                alert('খরচ সংরক্ষণ করা যায়নি। ইন্টারনেট/অনুমতি ঠিক আছে কিনা যাচাই করুন। কিছু বদলায়নি।');
+                return;
+            }
         }
         closeModal('cashExpenseModal');
         if (typeof showSaveToast === 'function') showSaveToast('খরচ সফলভাবে সংরক্ষণ করা হয়েছে');
@@ -10380,14 +10475,30 @@ function renderStockMultiProductList() {
         const entry = {
             id: 'OPENING_BALANCE', type: 'opening_balance',
             date: isoToSystemDate(dateISO), amount,
+            // [নতুন] কালেকশন/ক্যাশ খরচের মতোই — সেভ "ব্যর্থ" দেখালেও Firebase-এ
+            // আসলে পৌঁছে গিয়ে থাকতে পারে কি না, পরে যাচাই করার জন্য।
+            saveToken: 'ST_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10),
             updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         };
+        const openingBalanceRef = db.collection('cash_expenses').doc('OPENING_BALANCE');
         try {
-            await db.collection('cash_expenses').doc('OPENING_BALANCE').set(entry, { merge: true });
+            await openingBalanceRef.set(entry, { merge: true });
         } catch (e) {
             console.error('Opening balance save failed:', e);
-            alert('প্রারম্ভিক ব্যালেন্স সংরক্ষণ করা যায়নি। কিছু বদলায়নি।');
-            return;
+            // [নতুন] নেট চলে যাওয়ায় শুধু response হারিয়ে থাকতে পারে, অথচ
+            // Firebase-এ আসলে সেভ হয়ে থাকতে পারে — তাই সরাসরি Firebase থেকে
+            // যাচাই করা হচ্ছে (ডকুমেন্ট আইডি স্থির বলে ডুপ্লিকেট হওয়ার ঝুঁকি
+            // নেই, কিন্তু ব্যবহারকারী নিশ্চিত না হয়ে ভুল ধরে নিতে পারতেন)।
+            const verifyState = await verifySavedByToken(openingBalanceRef, entry.saveToken);
+            if (verifyState === 'yes') {
+                console.error('Opening balance actually committed despite error — proceeding as success.');
+            } else if (verifyState === 'unknown') {
+                alert('⚠️ ইন্টারনেট সমস্যার কারণে নিশ্চিত হওয়া যায়নি প্রারম্ভিক ব্যালেন্সটা সংরক্ষণ হয়েছে কি না।\n\nইন্টারনেট ঠিক হলে পেজ রিফ্রেশ করে ক্যাশ ফ্লো রিপোর্টে দেখে নিন।');
+                return;
+            } else {
+                alert('প্রারম্ভিক ব্যালেন্স সংরক্ষণ করা যায়নি। কিছু বদলায়নি।');
+                return;
+            }
         }
         closeModal('cashOpeningBalanceModal');
         if (document.getElementById('cashFlowReportModal').style.display === 'flex') renderCashFlowReport();
