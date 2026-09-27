@@ -3331,6 +3331,78 @@ body.edit-modal-open { overflow: hidden !important; }
             setText('dashboardTodayCollection', money(todayCollectionTotal));
             setText('dashboardCollectionCount', toBanglaNumber(todayCollectionCount) + 'টি এন্ট্রি');
             setText('dashboardDue', money(totalDue));
+            schedulePublishMohajonView();
+        }
+
+        // ========== "মহাজন" (সাপ্লায়ার) ড্যাশবোর্ডের জন্য আলাদা সারাংশ প্রকাশ ==========
+        // মহাজনের আলাদা ফাইলটা (mohajon-dashboard.html) কোনো লগইন ছাড়াই শুধু
+        // "sales_system/mohajonView" নামের একটামাত্র ডকুমেন্ট থেকে ডেটা পড়ে —
+        // মূল appData/invoices/retailers কোনোদিনও সরাসরি সেই ফাইলে উন্মুক্ত হয় না,
+        // শুধু প্রয়োজনীয় সারাংশ (মোট বিক্রি/কালেকশন/স্টক মূল্য/বাকির তালিকা) এখানে
+        // আলাদাভাবে লেখা হয়। এই ফাংশনটা সম্পূর্ণ স্বতন্ত্র — এটা কখনো appData,
+        // invoices, retailers ইত্যাদি মূল হিসাবের কোনো কিছু বদলায় না, শুধু একটা
+        // নতুন/আলাদা ডকুমেন্টে "প্রকাশ" (publish) করে। এটা ব্যর্থ হলেও মূল
+        // অ্যাপের কোনো কাজে কোনো প্রভাব পড়বে না (শুধু console-এ লগ হবে)।
+        let __mohajonPublishTimer = null;
+        function schedulePublishMohajonView() {
+            if (__mohajonPublishTimer) clearTimeout(__mohajonPublishTimer);
+            // ঘন ঘন কল হলেও Firestore-এ বারবার লেখা এড়াতে কয়েক সেকেন্ড অপেক্ষা করে
+            // (debounce) একবারই লেখা হয়।
+            __mohajonPublishTimer = setTimeout(() => { publishMohajonView(); }, 4000);
+        }
+        async function publishMohajonView() {
+            try {
+                if (!isConnectedToDB) return;
+                if (!(initialDataLoaded && invoicesFirstLoadDone && collectionsFirstLoadDone)) return;
+                const today = getLocalISODate();
+                const todaySales = (invoices || []).filter(inv => {
+                    const d = parseBanglaOrISODate(inv.date || '');
+                    return d && toLocalISODate(d) === today;
+                }).reduce((s, inv) => s + (Number(inv.totalAmount || 0) || 0), 0);
+
+                const totalSales = (invoices || []).reduce((s, inv) => s + (Number(inv.totalAmount || 0) || 0), 0);
+
+                let totalCollection = 0;
+                (retailers || []).forEach(ret => {
+                    (ret.collections || []).forEach(c => { totalCollection += Number(c.amount || 0) || 0; });
+                });
+                (retailerCollectionsLive || []).forEach(c => { totalCollection += Number(c.amount || 0) || 0; });
+
+                const totalStockValueMRP = (stocks || []).reduce((sum, stock) => {
+                    const product = findProductByName(stock.productName);
+                    const cartonEquivalent = Math.max(0, Number(stock.qty || 0) || 0);
+                    const cartonPrice = Number(product?.price || product?.cartonPrice || 0) || 0;
+                    return sum + (cartonEquivalent * cartonPrice);
+                }, 0);
+                const percentRaw = Number(appSettings?.stockValueDeductionPercent);
+                const stockPercent = Number.isFinite(percentRaw) ? percentRaw : 15;
+                const totalStockValue = totalStockValueMRP * (1 - stockPercent / 100);
+
+                const dueList = [];
+                const dueByRoute = {};
+                withLedgerIndex(() => {
+                    (retailers || []).forEach(ret => {
+                        const due = Math.max(0, Math.round(Number(recalculateRetailerDue(ret) || 0)));
+                        if (due > 0) {
+                            dueList.push({ trader: ret.trader || '', name: ret.name || '', route: ret.route || '', mobile: ret.mobile || '', due });
+                            const routeKey = ret.route || 'অজানা রুট';
+                            dueByRoute[routeKey] = (dueByRoute[routeKey] || 0) + due;
+                        }
+                    });
+                });
+                dueList.sort((a, b) => b.due - a.due);
+                const totalDue = dueList.reduce((s, r) => s + r.due, 0);
+
+                await db.collection('sales_system').doc('mohajonView').set({
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    todaySales, totalSales, totalCollection, totalStockValue, totalDue,
+                    dueList, dueByRoute
+                });
+            } catch (e) {
+                // এটা একটা সহায়ক/অতিরিক্ত ফিচার — ব্যর্থ হলেও মূল অ্যাপের
+                // কোনো সেভ/হিসাব/সিঙ্ক আটকাবে না, শুধু লগ হবে।
+                console.error('Mohajon view publish failed (non-critical):', e);
+            }
         }
 
         // "বিক্রয় বিশ্লেষণ" পপ-আপ খোলার সময়ই চার্টগুলো তৈরি হয় (ড্যাশবোর্ড
@@ -6117,6 +6189,13 @@ body.edit-modal-open { overflow: hidden !important; }
                 container.innerHTML = '<div style="padding:20px;text-align:center;color:#777;">এই সময়ের মধ্যে কোনো স্টক যোগ করা হয়নি।</div>';
                 return;
             }
+            // MRP থেকে কত শতাংশ বাদ দেওয়া হবে তা সেটিংস মেনু থেকে আসে (ডিফল্ট ১৫%) —
+            // "স্টক রিপোর্ট" ও ড্যাশবোর্ডের কার্ডের মতোই একই সেটিং এখানেও ব্যবহার হয়।
+            const stockLogDeductionPercentRaw = Number(appSettings?.stockValueDeductionPercent);
+            const stockLogDeductionPercent = Number.isFinite(stockLogDeductionPercentRaw) ? stockLogDeductionPercentRaw : 15;
+            const stockLogDiscountFactor = 1 - (stockLogDeductionPercent / 100);
+            const stockLogPercentLabel = toBanglaNumber(stockLogDeductionPercent) + '%';
+            const stockLogAfterDiscountColLabel = `${stockLogPercentLabel} বাদে দাম`;
             let totalPieces = 0, totalMrp = 0, totalAfterDiscount = 0;
             const rows = filtered.map((log, i) => {
                 const qtyPieces = Number(log.qtyPieces || 0) || 0;
@@ -6125,10 +6204,10 @@ body.edit-modal-open { overflow: hidden !important; }
                 const ppc = getPiecesPerCarton(product);
                 const cartonPrice = parseFloat(product?.price || product?.cartonPrice || 0) || 0;
                 // ওই এন্ট্রিতে যোগ হওয়া স্টকের মোট MRP (দাম × পরিমাণ), এবং
-                // তা থেকে ১৫% বাদ দেওয়ার পর দাম — "আজকের স্টক" রিপোর্টের
+                // তা থেকে সেটিংসে সেট করা শতাংশ বাদ দেওয়ার পর দাম — "স্টক রিপোর্ট"-এর
                 // মতোই একই হিসাব।
                 const mrp = ppc > 0 ? (qtyPieces / ppc) * cartonPrice : 0;
-                const afterDiscount = mrp * 0.85;
+                const afterDiscount = mrp * stockLogDiscountFactor;
                 totalMrp += mrp;
                 totalAfterDiscount += afterDiscount;
                 return `<tr>
@@ -6149,7 +6228,7 @@ body.edit-modal-open { overflow: hidden !important; }
                         <colgroup>
                             <col style="width:50px;"><col style="width:110px;"><col><col style="width:100px;"><col style="width:120px;"><col style="width:130px;"><col style="width:110px;"><col style="width:80px;">
                         </colgroup>
-                        <thead><tr><th>ক্রম</th><th>তারিখ</th><th>পণ্যের নাম</th><th>পিস সংখ্যা</th><th>MRP দাম</th><th>১৫% বাদে দাম</th><th>রেফারেন্স/ইনভয়েস নং</th><th>অ্যাকশন</th></tr></thead>
+                        <thead><tr><th>ক্রম</th><th>তারিখ</th><th>পণ্যের নাম</th><th>পিস সংখ্যা</th><th>MRP দাম</th><th>${stockLogAfterDiscountColLabel}</th><th>রেফারেন্স/ইনভয়েস নং</th><th>অ্যাকশন</th></tr></thead>
                         <tbody>${rows}
                             <tr style="font-weight:bold;background:#eee;">
                                 <td colspan="3" style="text-align:right; white-space:nowrap;">সর্বমোট =</td>
@@ -6181,7 +6260,11 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!result) return;
             const { from, to, filtered } = result;
             if (filtered.length === 0) { alert('এই সময়ের মধ্যে কোনো স্টক যোগ করা হয়নি।'); return; }
-            const rows = [['ক্রম', 'তারিখ', 'পণ্যের নাম', 'পিস সংখ্যা', 'MRP দাম', '১৫% বাদে দাম', 'রেফারেন্স/ইনভয়েস নং']];
+            const csvDeductionPercentRaw = Number(appSettings?.stockValueDeductionPercent);
+            const csvDeductionPercent = Number.isFinite(csvDeductionPercentRaw) ? csvDeductionPercentRaw : 15;
+            const csvDiscountFactor = 1 - (csvDeductionPercent / 100);
+            const csvAfterDiscountColLabel = `${toBanglaNumber(csvDeductionPercent)}% বাদে দাম`;
+            const rows = [['ক্রম', 'তারিখ', 'পণ্যের নাম', 'পিস সংখ্যা', 'MRP দাম', csvAfterDiscountColLabel, 'রেফারেন্স/ইনভয়েস নং']];
             let totalMrp = 0, totalAfterDiscount = 0;
             filtered.forEach((log, i) => {
                 const qtyPieces = Number(log.qtyPieces || 0) || 0;
@@ -6189,7 +6272,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const ppc = getPiecesPerCarton(product);
                 const cartonPrice = parseFloat(product?.price || product?.cartonPrice || 0) || 0;
                 const mrp = ppc > 0 ? (qtyPieces / ppc) * cartonPrice : 0;
-                const afterDiscount = mrp * 0.85;
+                const afterDiscount = mrp * csvDiscountFactor;
                 totalMrp += mrp; totalAfterDiscount += afterDiscount;
                 rows.push([i + 1, log.date || '', log.productName || '', qtyPieces, Math.round(mrp), Math.round(afterDiscount), log.invoiceRef || '']);
             });
@@ -7853,10 +7936,17 @@ function renderStockMultiProductList() {
         function buildStockReportWindow(stockList, asOfISO, isToday) {
             const dateLabel = isToday ? getSystemDateString() : isoToSystemDate(asOfISO);
             const titleSuffix = isToday ? '' : ' (আনুমানিক, তারিখ পর্যন্ত)';
+            // MRP থেকে কত শতাংশ বাদ দেওয়া হবে তা সেটিংস মেনু থেকে আসে (ডিফল্ট ১৫%) —
+            // ড্যাশবোর্ডের "মোট স্টকের মূল্য" কার্ডের মতোই একই সেটিং এখানেও ব্যবহার হয়।
+            const stockValueDeductionPercentRaw = Number(appSettings?.stockValueDeductionPercent);
+            const stockValueDeductionPercent = Number.isFinite(stockValueDeductionPercentRaw) ? stockValueDeductionPercentRaw : 15;
+            const discountFactor = 1 - (stockValueDeductionPercent / 100);
+            const percentLabel = toBanglaNumber(stockValueDeductionPercent) + '%';
+            const afterDiscountColLabel = `${percentLabel} বাদে দাম`;
             let rows = '';
             let total = 0;
             let totalAfterDiscount = 0;
-            const csvRows = [['ক্রম','পণ্যের নাম','কার্টুন মূল্য','স্টক (কার্টুন)','স্টক (পিস)','মোট দাম','১৫% বাদে দাম']];
+            const csvRows = [['ক্রম','পণ্যের নাম','কার্টুন মূল্য','স্টক (কার্টুন)','স্টক (পিস)','মোট দাম',afterDiscountColLabel]];
             const inStock = stockList.filter(st => (parseFloat(st.qty || 0) || 0) > 0.001)
                 .slice().sort((a,b) => String(a.productName||'').localeCompare(String(b.productName||'')));
             let sNo = 0;
@@ -7867,7 +7957,7 @@ function renderStockMultiProductList() {
                 const ppc = getPiecesPerCarton(product);
                 const qtyPiece = Math.round(qtyCarton * ppc);
                 const amount = qtyCarton * cartonPrice;
-                const amountAfterDiscount = amount * 0.85;
+                const amountAfterDiscount = amount * discountFactor;
                 total += amount;
                 totalAfterDiscount += amountAfterDiscount;
                 sNo++;
@@ -7902,9 +7992,9 @@ function renderStockMultiProductList() {
             </div>
             <h2>স্টক রিপোর্ট${titleSuffix}</h2><p style="text-align:center">তারিখ: ${dateLabel}</p>
             ${!isToday ? '<p style="text-align:center;color:#c0392b;font-size:13px;">⚠️ এটি আনুমানিক হিসাব — ম্যানুয়াল স্টক এডিট (তারিখহীন) এতে ধরা পড়ে না।</p>' : ''}
-            <table><thead><tr><th>ক্রম</th><th>পণ্যের নাম</th><th>কার্টুন মূল্য</th><th>স্টক (কার্টুন)</th><th>স্টক (পিস)</th><th>মোট দাম</th><th>১৫% বাদে দাম</th></tr></thead><tbody>${rows}</tbody></table>
+            <table><thead><tr><th>ক্রম</th><th>পণ্যের নাম</th><th>কার্টুন মূল্য</th><th>স্টক (কার্টুন)</th><th>স্টক (পিস)</th><th>মোট দাম</th><th>${afterDiscountColLabel}</th></tr></thead><tbody>${rows}</tbody></table>
             <div class="total">সকল পণ্যের মোট মূল্য: ${total.toLocaleString('en-US')} ৳</div>
-            <div class="total">সকল পণ্যের ১৫% বাদে মোট মূল্য: ${Math.round(totalAfterDiscount).toLocaleString('en-US')} ৳</div>
+            <div class="total">সকল পণ্যের ${percentLabel} বাদে মোট মূল্য: ${Math.round(totalAfterDiscount).toLocaleString('en-US')} ৳</div>
             <script>
                 document.getElementById('printBtn').addEventListener('click', function(){ window.print(); });
                 document.getElementById('downloadStockCsvBtn').addEventListener('click', function(){
