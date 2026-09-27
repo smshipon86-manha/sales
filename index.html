@@ -3367,17 +3367,25 @@ body.edit-modal-open { overflow: hidden !important; }
                     return d && toLocalISODate(d).slice(0, 7) === thisMonth;
                 }).reduce((s, inv) => s + (Number(inv.totalAmount || 0) || 0), 0);
 
-                // আজকের মোট কালেকশন (সর্বমোট/all-time নয়, শুধু আজকের)
+                // আজকের মোট কালেকশন এবং এই মাসের মোট কালেকশন (দুটোই
+                // সর্বমোট/all-time নয়)
                 let todayCollection = 0;
+                let monthCollection = 0;
                 (retailers || []).forEach(ret => {
                     (ret.collections || []).forEach(c => {
                         const d = parseBanglaOrISODate(c.date || '');
-                        if (d && toLocalISODate(d) === today) todayCollection += Number(c.amount || 0) || 0;
+                        if (!d) return;
+                        const amt = Number(c.amount || 0) || 0;
+                        if (toLocalISODate(d) === today) todayCollection += amt;
+                        if (toLocalISODate(d).slice(0, 7) === thisMonth) monthCollection += amt;
                     });
                 });
                 (retailerCollectionsLive || []).forEach(c => {
                     const d = parseBanglaOrISODate(c.date || '');
-                    if (d && toLocalISODate(d) === today) todayCollection += Number(c.amount || 0) || 0;
+                    if (!d) return;
+                    const amt = Number(c.amount || 0) || 0;
+                    if (toLocalISODate(d) === today) todayCollection += amt;
+                    if (toLocalISODate(d).slice(0, 7) === thisMonth) monthCollection += amt;
                 });
 
                 const totalStockValueMRP = (stocks || []).reduce((sum, stock) => {
@@ -3412,7 +3420,7 @@ body.edit-modal-open { overflow: hidden !important; }
 
                 await db.collection('sales_system').doc('mohajonView').set({
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    todaySales, monthSales, todayCollection, totalStockValue, totalDue,
+                    todaySales, monthSales, todayCollection, monthCollection, totalStockValue, totalDue,
                     dueList
                 });
             } catch (e) {
