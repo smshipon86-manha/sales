@@ -1845,6 +1845,7 @@ body.edit-modal-open { overflow: hidden !important; }
             <button class="quick-btn" onclick="openCustomerDueReportModal()">▤ বাকি রিপোর্ট</button>
             <button class="quick-btn" onclick="openCustomerLedgerModal()">≡ কাস্টমার লেজার</button>
             <button class="quick-btn" onclick="openSalesAnalysisModal()">📊 বিক্রয় বিশ্লেষণ</button>
+            <button class="quick-btn" onclick="openSettingsModal()">⚙️ সেটিংস</button>
         </div>
 
         <div class="sales-card">
@@ -2257,6 +2258,10 @@ body.edit-modal-open { overflow: hidden !important; }
                 <label>মোবাইল নম্বর:</label>
                 <input type="text" id="retMobile" placeholder="017xxxxxxxx">
             </div>
+            <div class="form-group">
+                <label>ক্রেডিট লিমিট (টাকা):</label>
+                <input type="number" id="retCreditLimit" min="0" step="0.01" placeholder="যেমন: 50000">
+            </div>
 
             <button class="btn-submit" id="btnSaveRetailer" onclick="saveRetailer()">সেভ করুন</button>
 
@@ -2641,6 +2646,10 @@ body.edit-modal-open { overflow: hidden !important; }
         let stocks = [];
         let stockLogs = []; // { id, date, productName, qtyPieces } — কবে কোন পণ্য কত পিস স্টকে এসেছে তার ইতিহাস
         let retailers = [];
+        // অ্যাপের সেটিংস — এখন পর্যন্ত শুধু ড্যাশবোর্ডের "মোট স্টকের মূল্য" কার্ডে
+        // MRP থেকে কত শতাংশ বাদ দেওয়া হবে তা রাখা হয় (ডিফল্ট ১৫%, আগের হার্ডকোড করা
+        // মানের সাথে মিল রেখে — পুরোনো ব্যবহারকারীদের জন্য আচরণ অপরিবর্তিত থাকে)।
+        let appSettings = { stockValueDeductionPercent: 15 };
         let invoices = [];
         let selectedInvoiceItems = [];
 
@@ -2757,6 +2766,7 @@ body.edit-modal-open { overflow: hidden !important; }
                         stocks = data.stocks || [];
                         stockLogs = Array.isArray(data.stockLogs) ? data.stockLogs : [];
                         products = Array.isArray(data.products) ? data.products : defaultProducts;
+                        appSettings = (data.appSettings && typeof data.appSettings === 'object') ? { stockValueDeductionPercent: 15, ...data.appSettings } : { stockValueDeductionPercent: 15 };
                         // আসল ডেটা সফলভাবে লোড হয়ে গেছে — এখন থেকে সেভ/সিঙ্ক
                         // করা নিরাপদ, কারণ লোকাল মেমোরি আর ফায়ারবেজের ডেটা
                         // একই অবস্থায় আছে।
@@ -3055,7 +3065,7 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { restoreLocalCoreFromServer(); alert('তথ্য এখনো নিরাপদভাবে Firebase থেকে লোড হয়নি। ডাটা হারানোর ঝুঁকি এড়াতে Save বন্ধ রাখা হয়েছে। পেজটি রিফ্রেশ করে আবার চেষ্টা করুন।'); return Promise.resolve(false); }
             updateDashboardStats();
             const ref = db.collection('sales_system').doc('appData');
-            const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, appSettings, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
             const payloadCoreSnapshot = cloneCoreData(payload);
             const expectedHash = lastServerCoreHash;
             return db.runTransaction(async transaction => {
@@ -3171,7 +3181,7 @@ body.edit-modal-open { overflow: hidden !important; }
             const orderRef = onlineOrderId ? db.collection('online_orders').doc(onlineOrderId) : null;
             invoiceObj.saveToken = 'ST_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
             const expectedHash = lastServerCoreHash;
-            const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
+            const payload = { routes, routeCodes, products, stocks, stockLogs, retailers, appSettings, updatedAt: firebase.firestore.FieldValue.serverTimestamp() };
             const payloadCoreSnapshot = cloneCoreData(payload);
             return db.runTransaction(async transaction => {
                 const appSnap = await transaction.get(appDataRef);
@@ -3267,9 +3277,11 @@ body.edit-modal-open { overflow: hidden !important; }
                 const cartonPrice = Number(product?.price || product?.cartonPrice || 0) || 0;
                 return sum + (cartonEquivalent * cartonPrice);
             }, 0);
-            // "আজকের স্টক" রিপোর্টের মতোই, ড্যাশবোর্ডেও MRP থেকে ১৫% বাদ দিয়ে
-            // দেখানো হয় — দুই জায়গায় একই হিসাব থাকার জন্য।
-            const totalStockValue = totalStockValueMRP * 0.85;
+            // MRP থেকে কত শতাংশ বাদ দিয়ে "মোট স্টকের মূল্য" দেখানো হবে তা এখন
+            // সেটিংস মেনু থেকে পরিবর্তনযোগ্য (ডিফল্ট ১৫%, appSettings.stockValueDeductionPercent)।
+            const stockValueDeductionPercent = Number(appSettings?.stockValueDeductionPercent);
+            const stockValuePercentSafe = Number.isFinite(stockValueDeductionPercent) ? stockValueDeductionPercent : 15;
+            const totalStockValue = totalStockValueMRP * (1 - stockValuePercentSafe / 100);
             const totalDue = withLedgerIndex(() => (retailers || []).reduce((sum, retailer) => sum + Math.max(0, Number(recalculateRetailerDue(retailer) || 0)), 0));
 
             // কম স্টকের সতর্কতা — ৩ কার্টুনের নিচে নামলে ড্যাশবোর্ডে দেখানো হয়
@@ -3337,6 +3349,30 @@ body.edit-modal-open { overflow: hidden !important; }
             if (fromEl && !fromEl.value) fromEl.value = thisMonth;
             if (toEl && !toEl.value) toEl.value = thisMonth;
             renderAllDashboardCharts();
+        }
+
+        // ========== সেটিংস মেনু ==========
+        function openSettingsModal() {
+            if (!checkConnectionOrAlert()) return;
+            document.getElementById('settingsModal').style.display = 'flex';
+            const percent = Number(appSettings?.stockValueDeductionPercent);
+            document.getElementById('settingsStockValuePercent').value = Number.isFinite(percent) ? percent : 15;
+        }
+
+        async function saveSettings() {
+            if (!checkConnectionOrAlert()) return;
+            const percentInput = document.getElementById('settingsStockValuePercent').value;
+            const percent = parseFloat(percentInput);
+            if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+                alert('শতাংশ ০ থেকে ১০০-এর মধ্যে একটি সঠিক সংখ্যা লিখুন।');
+                return;
+            }
+            const oldSettings = { ...appSettings };
+            appSettings = { ...appSettings, stockValueDeductionPercent: percent };
+            if (!(await syncToFirebase())) { appSettings = oldSettings; return; }
+            updateDashboardStats();
+            closeModal('settingsModal');
+            showSaveToast('সেটিংস সফলভাবে সংরক্ষণ হয়েছে');
         }
 
         // ========== ড্যাশবোর্ড চার্ট (Chart.js) ==========
@@ -6574,6 +6610,7 @@ function renderStockMultiProductList() {
             document.getElementById('retTrader').value = "";
             document.getElementById('retAddress').value = "";
             document.getElementById('retMobile').value = "";
+            document.getElementById('retCreditLimit').value = "";
             document.getElementById('retailerModalTitle').innerText = "নতুন রিটেইলার যোগ করুন";
             document.getElementById('btnSaveRetailer').innerText = "সেভ করুন";
         }
@@ -6724,6 +6761,7 @@ function renderStockMultiProductList() {
             const trader = document.getElementById('retTrader').value.trim();
             const address = document.getElementById('retAddress').value.trim();
             const mobile = document.getElementById('retMobile').value.trim();
+            const creditLimitInput = document.getElementById('retCreditLimit').value;
             const editIndex = parseInt(document.getElementById('editRetailerIndex').value);
             if (route === "") { alert("রুট সিলেক্ট করুন।"); return; }
             if (trader === "") { alert("ট্রেডার্সের নাম লিখুন।"); return; }
@@ -6733,7 +6771,7 @@ function renderStockMultiProductList() {
                 id: old.id || ('RET_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8)),
                 code: old.code || generateRetailerCode(route),
                 route, name, trader, address, mobile,
-                creditLimit: old.creditLimit || 0,
+                creditLimit: creditLimitInput !== "" ? (parseFloat(creditLimitInput) || 0) : (old.creditLimit || 0),
                 currentDue: old.currentDue || 0,
                 collections: Array.isArray(old.collections) ? old.collections : []
             };
@@ -6761,6 +6799,7 @@ function renderStockMultiProductList() {
             renderRetailerDropdowns(); filterRetailersByRoute(); renderRetailerReport(); renderCustomerDueReport();
             resetRetailerForm();
             if (editIndex >= 0) { closeModal('retailerModal'); showSaveToast('রিটেইলারের তথ্য সফলভাবে আপডেট হয়েছে'); }
+            else { showSaveToast('নতুন রিটেইলার সফলভাবে যুক্ত হয়েছে'); }
         }
 
         // [সংশোধন] রিটেইলারের নাম বদলানোর সময় মেমোরিতে ইনভয়েসগুলোর দোকানের নামও বদলায়।
@@ -9617,7 +9656,8 @@ function renderStockMultiProductList() {
                 <div style="padding:9px;background:#f5f5f5;"><b>মোট ক্যাশ জমা:</b> ${formatMoney(totalCashDeposit)}</div>
                 ${agingHTML}
               </div>
-              <button class="btn-submit" style="margin-top:10px;background:#4a6c82;" onclick="downloadLedgerCSV()">লেজার ডাউনলোড</button>`;
+              <button class="btn-submit" style="margin-top:10px;background:#4a6c82;" onclick="downloadLedgerCSV()">লেজার ডাউনলোড (CSV)</button>
+              <button class="btn-submit" style="margin-top:10px;background:#1b7a3f;" onclick="downloadLedgerExcel()">লেজার ডাউনলোড (Excel)</button>`;
             window._ledgerExport={ret,from,to,rangeLabel,rows,openingBalance,closingBalance,totalSales,totalCreditSales,totalCashSales,totalCollection,totalCashDeposit,typeFilter,html,lastCollectionDate};
         }
 
@@ -9665,7 +9705,7 @@ function renderStockMultiProductList() {
                     <th>ক্রম</th><th>তারিখ</th><th>লেনদেন</th><th>রেফারেন্স</th>
                     <th>মোট সেলস</th><th>ক্রেডিট/বাকি</th><th>কালেকশন</th><th>ক্যাশ জমা</th><th>ব্যালেন্স</th>
                 </tr></thead>
-                <tbody>${x.html.replace(/<td style="text-align:center"><button[\s\S]*?<\/td>/g, '')}</tbody>
+                <tbody>${x.html.replace(/<td[^>]*>\s*<button class="btn-action btn-edit"[\s\S]*?<\/td>/g, '')}</tbody>
             </table>
             <div class="summary">
                 <div><b>শুরুর বাকি:</b> ${formatMoney(x.openingBalance)}</div>
@@ -9709,6 +9749,30 @@ function renderStockMultiProductList() {
             a.download=`customer-ledger-${x.ret.trader}-${x.from||'start'}-${x.to||'now'}.csv`;
             a.click();
             setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+        }
+
+        // কাস্টমার লেজার আসল .xlsx ফাইল হিসেবে ডাউনলোড — বিদ্যমান shared
+        // ExcelJS helper (downloadPivotReadyExcel) ব্যবহার করে, CSV ভার্সনের
+        // মতোই ডেটা দিয়ে, যাতে দুই ধরনের ফাইলেই একই তথ্য থাকে।
+        async function downloadLedgerExcel(){
+            const x=window._ledgerExport;
+            if(!x) return;
+            const headers=['ক্রম','তারিখ','লেনদেন','রেফারেন্স','মোট সেলস','ক্রেডিট/বাকি','কালেকশন','ক্যাশ জমা','ব্যালেন্স'];
+            let b=x.openingBalance;
+            const rows=x.rows.map((r,i)=>{
+                b += r.balanceEffect;
+                return [i+1,r.date,r.type,r.ref,r.sales,r.credit,r.collection,(r.cashDepositAmount||0),b];
+            });
+            rows.push([]);
+            rows.push(['শুরুর বাকি',x.openingBalance]);
+            rows.push(['মোট সেলস',x.totalSales]);
+            rows.push(['মোট ক্রেডিট সেলস',x.totalCreditSales]);
+            rows.push(['মোট ক্যাশ সেলস',x.totalCashSales]);
+            rows.push(['মোট কালেকশন',x.totalCollection]);
+            rows.push(['মোট ক্যাশ জমা',x.totalCashDeposit]);
+            rows.push(['শেষ বাকি',x.closingBalance]);
+            const filename=`customer-ledger-${x.ret.trader}-${x.from||'start'}-${x.to||'now'}.xlsx`;
+            await downloadPivotReadyExcel('কাস্টমার লেজার', filename, headers, rows, rows);
         }
 
         function openCollectionModal(){
@@ -9913,6 +9977,35 @@ function renderStockMultiProductList() {
                 `পরিবেশক: সিনজেনটা, ধুনট, বগুড়া`;
             // [সংশোধন ১৬খ] বাংলা অঙ্ক, স্পেস/ড্যাশ, আর +৮৮০/৮৮০ দিয়ে সেভ করা নম্বরও
             // ঠিকভাবে ০১XXXXXXXXX আকারে আনা হয় (আগে "0+880..." হয়ে ভুল নম্বরে যেত)।
+            const mobileDigits = String(ret.mobile).trim()
+                .replace(/[০-৯]/g, d => String('০১২৩৪৫৬৭৮৯'.indexOf(d)))
+                .replace(/\D/g, '');
+            let dialNumber = mobileDigits;
+            if (dialNumber.startsWith('880')) dialNumber = '0' + dialNumber.slice(3).replace(/^0+/, '');
+            else if (!dialNumber.startsWith('0')) dialNumber = '0' + dialNumber;
+            if (!/^01\d{9}$/.test(dialNumber)) {
+                if (!confirm(`মোবাইল নম্বরটা (${ret.mobile}) সঠিক ১১ অঙ্কের বাংলাদেশি নম্বর মনে হচ্ছে না। তবুও মেসেজ অ্যাপ খুলবেন?`)) return;
+            }
+            window.location.href = `sms:${dialNumber}?body=${encodeURIComponent(message)}`;
+        }
+
+        // কাস্টমার লেজার থেকে সরাসরি "তাগাদা" (বাকি পরিশোধের অনুরোধ) SMS —
+        // sendCollectionSms()-এর মতোই ফোনের নিজের SMS অ্যাপ খুলে বার্তা আগে
+        // থেকে লিখে দেয়, শুধু "সেন্ড" চাপলেই পাঠানো হয়ে যাবে। লেজারে দেখানো
+        // সর্বশেষ বাকি (closingBalance) ব্যবহার করা হয় — যা লাইভ হিসাব থেকেই
+        // আসে, তাই সবসময় হালনাগাদ।
+        function sendLedgerReminderSms() {
+            const x = window._ledgerExport;
+            if (!x || !x.ret) { alert('আগে "লেজার দেখুন" বাটনে ক্লিক করে লেজার লোড করুন।'); return; }
+            const ret = x.ret;
+            if (!ret.mobile) { alert('এই রিটেইলারের মোবাইল নম্বর সেভ করা নেই।'); return; }
+            const traderName = displayTraderName(ret.trader || '');
+            const todayLabel = getSystemDateString();
+            const dueAmount = Math.round(Number(x.closingBalance || 0) || 0);
+            const message = `${traderName}\n` +
+                `তারিখ: ${todayLabel}\n` +
+                `আপনার সর্বমোট বাকি: ${toBanglaNumber(dueAmount.toLocaleString('en-US'))} ৳\n` +
+                `পরিবেশক: সিনজেনটা, ধুনট, বগুড়া`;
             const mobileDigits = String(ret.mobile).trim()
                 .replace(/[০-৯]/g, d => String('০১২৩৪৫৬৭৮৯'.indexOf(d)))
                 .replace(/\D/g, '');
@@ -10560,6 +10653,22 @@ function renderStockMultiProductList() {
         </div>
     </div>
 
+    <!-- সেটিংস পপ-আপ -->
+    <div class="modal-overlay" id="settingsModal">
+        <div class="modal-box" style="width: 520px; max-width: 96vw;">
+            <div class="modal-header">
+                <h3>সেটিংস</h3>
+                <span class="close-btn" onclick="closeModal('settingsModal')">&times;</span>
+            </div>
+            <div class="form-group">
+                <label>"মোট স্টকের মূল্য" কার্ডে MRP থেকে কত শতাংশ বাদ দেওয়া হবে:</label>
+                <input type="number" id="settingsStockValuePercent" min="0" max="100" step="0.01" placeholder="যেমন: 15">
+                <div style="font-size:12px;color:#666;margin-top:4px;">ড্যাশবোর্ডের "মোট স্টকের মূল্য" কার্ডটি এখন পণ্যের MRP থেকে এই শতাংশ বাদ দিয়ে হিসাব করে দেখায়। ডিফল্ট ১৫%।</div>
+            </div>
+            <button class="btn-submit" onclick="saveSettings()">সেভ করুন</button>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="customerLedgerModal">
       <div class="modal-box" style="width:1400px;max-width:96vw;">
         <div class="modal-header"><h3>কাস্টমারের লেজার</h3><span class="close-btn" onclick="closeModal('customerLedgerModal')">×</span></div>
@@ -10584,6 +10693,7 @@ function renderStockMultiProductList() {
           <button class="btn-submit" onclick="showCustomerLedger()">লেজার দেখুন</button>
           <button class="btn-submit" style="background:#4a6c82;" onclick="showFullCustomerLedgerHistory()">সম্পূর্ণ ইতিহাস দেখুন (সব তারিখ)</button>
           <button class="btn-submit" style="background:#1b7a3f;" onclick="printCustomerLedger()">🖨️ লেজার প্রিন্ট করুন</button>
+          <button class="btn-submit" style="background:#c0392b;" onclick="sendLedgerReminderSms()">📩 তাগাদা পাঠান</button>
         </div>
         </div>
         <div id="ledgerResult" style="margin-top:15px;"></div>
