@@ -3355,18 +3355,30 @@ body.edit-modal-open { overflow: hidden !important; }
                 if (!isConnectedToDB) return;
                 if (!(initialDataLoaded && invoicesFirstLoadDone && collectionsFirstLoadDone)) return;
                 const today = getLocalISODate();
+                const thisMonth = today.slice(0, 7); // YYYY-MM
                 const todaySales = (invoices || []).filter(inv => {
                     const d = parseBanglaOrISODate(inv.date || '');
                     return d && toLocalISODate(d) === today;
                 }).reduce((s, inv) => s + (Number(inv.totalAmount || 0) || 0), 0);
 
-                const totalSales = (invoices || []).reduce((s, inv) => s + (Number(inv.totalAmount || 0) || 0), 0);
+                // এই মাসের মোট বিক্রি (সর্বমোট/all-time নয়, শুধু চলতি মাস)
+                const monthSales = (invoices || []).filter(inv => {
+                    const d = parseBanglaOrISODate(inv.date || '');
+                    return d && toLocalISODate(d).slice(0, 7) === thisMonth;
+                }).reduce((s, inv) => s + (Number(inv.totalAmount || 0) || 0), 0);
 
-                let totalCollection = 0;
+                // আজকের মোট কালেকশন (সর্বমোট/all-time নয়, শুধু আজকের)
+                let todayCollection = 0;
                 (retailers || []).forEach(ret => {
-                    (ret.collections || []).forEach(c => { totalCollection += Number(c.amount || 0) || 0; });
+                    (ret.collections || []).forEach(c => {
+                        const d = parseBanglaOrISODate(c.date || '');
+                        if (d && toLocalISODate(d) === today) todayCollection += Number(c.amount || 0) || 0;
+                    });
                 });
-                (retailerCollectionsLive || []).forEach(c => { totalCollection += Number(c.amount || 0) || 0; });
+                (retailerCollectionsLive || []).forEach(c => {
+                    const d = parseBanglaOrISODate(c.date || '');
+                    if (d && toLocalISODate(d) === today) todayCollection += Number(c.amount || 0) || 0;
+                });
 
                 const totalStockValueMRP = (stocks || []).reduce((sum, stock) => {
                     const product = findProductByName(stock.productName);
@@ -3378,25 +3390,30 @@ body.edit-modal-open { overflow: hidden !important; }
                 const stockPercent = Number.isFinite(percentRaw) ? percentRaw : 15;
                 const totalStockValue = totalStockValueMRP * (1 - stockPercent / 100);
 
+                // বাকির তালিকা — রুট অনুযায়ী গ্রুপ করে সাজানো (routes অ্যারের
+                // ক্রম অনুযায়ী) যাতে একই রুটের সবাই একসাথে, একটানা সিরিয়ালে
+                // থাকে — ঠিক "রিটেইলার তালিকা" রিপোর্টে যেভাবে সাজানো হয়
+                // (filterRetailersByRoute()) একই পদ্ধতি।
                 const dueList = [];
-                const dueByRoute = {};
                 withLedgerIndex(() => {
                     (retailers || []).forEach(ret => {
                         const due = Math.max(0, Math.round(Number(recalculateRetailerDue(ret) || 0)));
                         if (due > 0) {
-                            dueList.push({ trader: ret.trader || '', name: ret.name || '', route: ret.route || '', mobile: ret.mobile || '', due });
-                            const routeKey = ret.route || 'অজানা রুট';
-                            dueByRoute[routeKey] = (dueByRoute[routeKey] || 0) + due;
+                            dueList.push({ trader: ret.trader || '', name: ret.name || '', route: ret.route || '', address: ret.address || '', mobile: ret.mobile || '', due });
                         }
                     });
                 });
-                dueList.sort((a, b) => b.due - a.due);
+                dueList.sort((a, b) => {
+                    const routeIdxA = routes.indexOf(a.route), routeIdxB = routes.indexOf(b.route);
+                    if (routeIdxA !== routeIdxB) return routeIdxA - routeIdxB;
+                    return displayTraderName(a.trader).localeCompare(displayTraderName(b.trader));
+                });
                 const totalDue = dueList.reduce((s, r) => s + r.due, 0);
 
                 await db.collection('sales_system').doc('mohajonView').set({
                     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                    todaySales, totalSales, totalCollection, totalStockValue, totalDue,
-                    dueList, dueByRoute
+                    todaySales, monthSales, todayCollection, totalStockValue, totalDue,
+                    dueList
                 });
             } catch (e) {
                 // এটা একটা সহায়ক/অতিরিক্ত ফিচার — ব্যর্থ হলেও মূল অ্যাপের
