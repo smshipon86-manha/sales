@@ -283,7 +283,7 @@
            প্রারম্ভিক ব্যালেন্স বদলাতে গেলে সেই পপ-আপ যেন রিপোর্টের নিচে চলে না
            যায় (DOM-এ আগে থাকায় আগে একই z-index হওয়ায় নিচে চলে যেত), তাই এই
            দুটোকে রিপোর্ট মোডালের চেয়ে বেশি z-index দেওয়া হলো। */
-        #cashExpenseModal, #cashOpeningBalanceModal { z-index: 2100; }
+        #cashExpenseModal, #cashOpeningBalanceModal, #companyOpeningBalanceModal { z-index: 2100; }
 
         /* [নতুন] "আজকের সেলস / তারিখ অনুযায়ী রিপোর্ট" বা "কাস্টমারের লেজার"
            পপ-আপ খোলা অবস্থায় কোনো ইনভয়েসে "এডিট" চাপলে ইনভয়েস মোডাল যেন সবসময়
@@ -1783,6 +1783,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadCashFlowReportCSV()">CSV ডাউনলোড করুন</button>
                 <button class="btn-submit" style="width:auto; background:#2c5f8a;" onclick="openCashExpenseModal()">+ নতুন খরচ যোগ করুন</button>
                 <button class="btn-submit" style="width:auto; background:#7a5c00;" onclick="openCashOpeningBalanceModal()">প্রারম্ভিক ব্যালেন্স সেট করুন</button>
+                <button class="btn-submit" style="width:auto; background:#5c4a82;" onclick="openCompanyOpeningBalanceModal()">কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করুন</button>
             </div>
             <div id="cashFlowResult" style="margin-top:15px;"></div>
         </div>
@@ -1805,6 +1806,33 @@ body.edit-modal-open { overflow: hidden !important; }
                 <input type="number" id="cashOpeningBalanceAmount" placeholder="যেমন: ৫০০০০">
             </div>
             <button class="btn-submit" onclick="saveCashOpeningBalance()">সংরক্ষণ করুন</button>
+        </div>
+    </div>
+
+    <!-- কোম্পানিভিত্তিক হিসাব: প্রারম্ভিক ব্যালেন্স (অ্যাপে হিসাব রাখা শুরুর আগের পুরনো বাকি/জমা) -->
+    <div class="modal-overlay" id="companyOpeningBalanceModal">
+        <div class="modal-box" style="width: 480px;">
+            <div class="modal-header">
+                <h3>কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করুন</h3>
+                <span class="close-btn" onclick="closeModal('companyOpeningBalanceModal')">&times;</span>
+            </div>
+            <div style="font-size:13px; color:#666; margin-bottom:10px;">এই অ্যাপে হিসাব রাখা শুরু করার আগে কোম্পানির সাথে আপনার যদি আগে থেকেই কিছু পাওনা/দেনা থেকে থাকে (যেমন আগে বেশি পেমেন্ট দেওয়া ছিল, বা মাল নেওয়া বাবদ তখনো কিছু বকেয়া ছিল), সেটা এখানে একবার লিখে দিন — কোম্পানিভিত্তিক হিসাবে এখন থেকে এটাও যোগ হয়ে মোট ব্যালেন্স দেখাবে। পরে আবার লিখলে আগের মানটা বদলে যাবে।</div>
+            <div class="form-group">
+                <label>তারিখ:</label>
+                <input type="date" id="companyOpeningBalanceDate">
+            </div>
+            <div class="form-group">
+                <label>টাকার পরিমাণ:</label>
+                <input type="number" id="companyOpeningBalanceAmount" placeholder="যেমন: ৫০০০০">
+            </div>
+            <div class="form-group">
+                <label>এই টাকার দিক:</label>
+                <select id="companyOpeningBalanceDirection">
+                    <option value="receivable">আমি কোম্পানির কাছে পাওনা ছিলাম (আগে বেশি পেমেন্ট দেওয়া ছিল)</option>
+                    <option value="payable">আমি কোম্পানিকে দেনা ছিলাম (মাল নেওয়া বাবদ বকেয়া ছিল)</option>
+                </select>
+            </div>
+            <button class="btn-submit" onclick="saveCompanyOpeningBalance()">সংরক্ষণ করুন</button>
         </div>
     </div>
 
@@ -10575,6 +10603,59 @@ function renderStockMultiProductList() {
         return (cashExpenses || []).find(e => e && e.type === 'opening_balance') || null;
     }
 
+    // [নতুন] কোম্পানিভিত্তিক হিসাবের প্রারম্ভিক ব্যালেন্স -- ক্যাশ প্রারম্ভিক
+    // ব্যালেন্সের মতোই একটা স্থির-আইডি ডকুমেন্ট (COMPANY_OPENING_BALANCE), যাতে
+    // সবসময় সর্বশেষ একবারই মান থাকে, ডুপ্লিকেট হওয়ার সুযোগ নেই।
+    function openCompanyOpeningBalanceModal() {
+        if (!checkConnectionOrAlert()) return;
+        const existing = getCompanyOpeningBalanceEntry();
+        const existingDate = existing ? parseBanglaOrISODate(existing.date) : null;
+        document.getElementById('companyOpeningBalanceDate').value = existingDate ? toLocalISODate(existingDate) : getLocalISODate();
+        document.getElementById('companyOpeningBalanceAmount').value = existing ? existing.amount : '';
+        document.getElementById('companyOpeningBalanceDirection').value = existing ? (existing.direction || 'receivable') : 'receivable';
+        document.getElementById('companyOpeningBalanceModal').style.display = 'flex';
+    }
+
+    async function saveCompanyOpeningBalance() {
+        if (!checkConnectionOrAlert()) return;
+        const dateISO = document.getElementById('companyOpeningBalanceDate').value;
+        const amount = parseFloat(document.getElementById('companyOpeningBalanceAmount').value);
+        const direction = document.getElementById('companyOpeningBalanceDirection').value;
+        if (!dateISO) { alert('তারিখ নির্বাচন করুন।'); return; }
+        if (!Number.isFinite(amount) || amount < 0) { alert('সঠিক টাকার পরিমাণ লিখুন (০ বা তার বেশি)।'); return; }
+        const entry = {
+            id: 'COMPANY_OPENING_BALANCE', type: 'company_opening_balance',
+            date: isoToSystemDate(dateISO), amount, direction,
+            // [নতুন] কালেকশন/ক্যাশ খরচের মতোই — সেভ "ব্যর্থ" দেখালেও Firebase-এ
+            // আসলে পৌঁছে গিয়ে থাকতে পারে কি না, পরে যাচাই করার জন্য।
+            saveToken: 'ST_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10),
+            updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        };
+        const openingBalanceRef = db.collection('cash_expenses').doc('COMPANY_OPENING_BALANCE');
+        try {
+            await openingBalanceRef.set(entry, { merge: true });
+        } catch (e) {
+            console.error('Company opening balance save failed:', e);
+            const verifyState = await verifySavedByToken(openingBalanceRef, entry.saveToken);
+            if (verifyState === 'yes') {
+                console.error('Company opening balance actually committed despite error — proceeding as success.');
+            } else if (verifyState === 'unknown') {
+                alert('⚠️ ইন্টারনেট সমস্যার কারণে নিশ্চিত হওয়া যায়নি কোম্পানির প্রারম্ভিক ব্যালেন্সটা সংরক্ষণ হয়েছে কি না।\n\nইন্টারনেট ঠিক হলে পেজ রিফ্রেশ করে ক্যাশ ফ্লো রিপোর্টে দেখে নিন।');
+                return;
+            } else {
+                alert('কোম্পানির প্রারম্ভিক ব্যালেন্স সংরক্ষণ করা যায়নি। কিছু বদলায়নি।');
+                return;
+            }
+        }
+        closeModal('companyOpeningBalanceModal');
+        if (document.getElementById('cashFlowReportModal').style.display === 'flex') renderCashFlowReport();
+    }
+    saveCompanyOpeningBalance = guardAgainstDoubleSubmit(saveCompanyOpeningBalance, 'saveCompanyOpeningBalance');
+
+    function getCompanyOpeningBalanceEntry() {
+        return (cashExpenses || []).find(e => e && e.type === 'company_opening_balance') || null;
+    }
+
     // [হালনাগাদ] "মোট বিক্রি" এখন ক্যাশ + ক্রেডিট দুটো ইনভয়েসই ধরে (আগে শুধু ক্যাশ
     // ধরা হতো) — ব্যবহারকারীর হিসাব-পদ্ধতি অনুযায়ী: পুরো বিক্রি নগদে যোগ হয়, তারপর
     // যত টাকা এখনো বাকি (ক্রেডিট, আদায় হয়নি) তা আলাদাভাবে বাদ দেওয়া হয়
@@ -10695,8 +10776,25 @@ function renderStockMultiProductList() {
             if (e.category === 'company_payment') rec.paid += Number(e.amount) || 0;
             else rec.received += Number(e.amount) || 0;
         });
+        // [নতুন] কোম্পানির প্রারম্ভিক ব্যালেন্স (অ্যাপে হিসাব রাখা শুরুর আগের পুরনো
+        // পাওনা/দেনা) -- ক্যাশের প্রারম্ভিক ব্যালেন্সের মতোই, এই তারিখ থাকলে এবং
+        // সেই তারিখ "toISO"-এর মধ্যে বা আগে পড়লে সবসময় যোগ হয়ে যাবে (নির্বাচিত
+        // "from" যাই হোক না কেন) -- যাতে অ্যাপ ব্যবহারের আগের পুরনো হিসাবটাও
+        // মোট ব্যালেন্সে সবসময় ধরা থাকে।
+        let openingIncluded = null;
+        const opening = getCompanyOpeningBalanceEntry();
+        if (opening) {
+            const openingDate = parseBanglaOrISODate(opening.date);
+            const openingISO = openingDate ? toLocalISODate(openingDate) : toISO;
+            if (openingISO <= toISO) {
+                const amt = Number(opening.amount) || 0;
+                if (opening.direction === 'payable') rec.received += amt;
+                else rec.paid += amt;
+                openingIncluded = { date: opening.date, amount: amt, direction: opening.direction || 'receivable' };
+            }
+        }
         const list = (rec.paid || rec.received) ? [{ ...rec, balance: rec.paid - rec.received }] : [];
-        return { list, skipped: 0 };
+        return { list, skipped: 0, openingIncluded };
     }
 
     // [নতুন] খরচের ধরন অনুযায়ী "কার কাছে/কোন প্রতিষ্ঠান" ঘরের তথ্য এখন আলাদা আলাদা
@@ -10851,6 +10949,8 @@ function renderStockMultiProductList() {
         }).join('');
         const companyNote = ledger.skipped > 0
             ? `<div style="font-size:12px; color:#a06a00; margin-top:6px;">${ledger.skipped}টি এন্ট্রিতে কোম্পানির নাম লেখা নেই, তাই সেগুলো এই হিসাবে ধরা হয়নি।</div>` : '';
+        const companyOpeningNote = ledger.openingIncluded
+            ? `<div style="font-size:12px; color:#555; margin-top:6px;">প্রারম্ভিক ব্যালেন্স ধরা হয়েছে: ${escapeHtml(ledger.openingIncluded.date)} তারিখ অনুযায়ী ${ledger.openingIncluded.direction === 'payable' ? 'আমি কোম্পানিকে দেনা ছিলাম' : 'আমি কোম্পানির কাছে পাওনা ছিলাম'} ${Math.round(ledger.openingIncluded.amount).toLocaleString('en-US')} ৳</div>` : '';
 
         document.getElementById('cashFlowResult').innerHTML = balanceHtml + summaryHtml + `
             <div style="overflow-x:auto; margin-bottom:20px;">
@@ -10877,8 +10977,10 @@ function renderStockMultiProductList() {
                 </table>
             </div>
             ${companyNote}
-            <div style="margin-top:10px;">
+            ${companyOpeningNote}
+            <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
                 <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadCompanyLedgerCSV('${from}','${to}')">কোম্পানিভিত্তিক হিসাব CSV ডাউনলোড করুন</button>
+                <button class="btn-submit" style="width:auto; background:#5c4a82;" onclick="openCompanyOpeningBalanceModal()">কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করুন</button>
             </div>`;
     }
 
@@ -10932,6 +11034,15 @@ function renderStockMultiProductList() {
         const ledger = getCompanyLedgerInRange(from, to);
         const csvRows = [['কোম্পানির নাম', 'পেমেন্ট দিয়েছি', 'মাল নিয়েছি', 'ব্যালেন্স (+ পাব / − দেব)']];
         ledger.list.forEach(r => csvRows.push([r.name, Math.round(r.paid), Math.round(r.received), Math.round(r.balance)]));
+        if (ledger.openingIncluded) {
+            csvRows.push([]);
+            csvRows.push([
+                'প্রারম্ভিক ব্যালেন্স',
+                ledger.openingIncluded.date,
+                ledger.openingIncluded.direction === 'payable' ? 'আমি কোম্পানিকে দেনা ছিলাম' : 'আমি কোম্পানির কাছে পাওনা ছিলাম',
+                Math.round(ledger.openingIncluded.amount)
+            ]);
+        }
         downloadCSVFile(csvRows, `company_ledger_${from}_to_${to}.csv`, 'কোম্পানিভিত্তিক হিসাব');
     }
 </script>
