@@ -5001,25 +5001,6 @@ body.edit-modal-open { overflow: hidden !important; }
             }
 
             let invoiceNo = document.getElementById('salesInvoiceNo').value;
-            // নতুন ইনভয়েসের ক্ষেত্রে (এডিট না হলে) এখানেই Firestore
-            // transaction দিয়ে নিশ্চিতভাবে-অনন্য নম্বর claim করা হচ্ছে --
-            // ফর্মে যা দেখানো হয়েছিল তার বদলে এই নম্বরটাই আসলে সেভ হবে,
-            // যাতে দুইজন প্রায় একসাথে ইনভয়েস বানালেও নম্বর কখনো
-            // সাংঘর্ষিক (duplicate) না হয়।
-            if (!editId) {
-                const claimedNum = await claimNextInvoiceNumber();
-                // নম্বর নেওয়া ব্যর্থ হলে নিচের ফলব্যাক (সবচেয়ে বড় নম্বর + ১) ব্যবহার হয়।
-                // [সংশোধন ২] কাউন্টার এখন Firebase Rules-এ অনুমোদিত ও চালু। তাই নম্বর নেওয়া
-                // ব্যর্থ হলে (যেমন ইন্টারনেট সমস্যা) অনুমান করে নম্বর না বসিয়ে ইনভয়েস সেভ
-                // বন্ধ রাখা হয় — দুই ডিভাইসে একই নম্বর হওয়ার কোনো সুযোগ থাকে না।
-                // এই অবস্থায় কিছুই বদলায় না (স্টক/বাকি/ইনভয়েস কোনোটাই)।
-                if (claimedNum === null) {
-                    alert('ইনভয়েস নম্বর নেওয়া যায়নি (ইন্টারনেট/ডাটাবেজ সংযোগ সমস্যা)। ইনভয়েস সেভ হয়নি, কিছুই বদলায়নি — সংযোগ ঠিক হলে আবার সেভ চাপুন।');
-                    return;
-                }
-                invoiceNo = 'INV-' + String(claimedNum).padStart(3, '0');
-                document.getElementById('salesInvoiceNo').value = invoiceNo;
-            }
             const cashDeposit = parseFloat(document.getElementById('salesCashDeposit').value || 0) || 0;
 
             if(selectedInvoiceItems.length === 0) { alert("কমপক্ষে একটি পণ্য যুক্ত করুন।"); return; }
@@ -5137,6 +5118,29 @@ body.edit-modal-open { overflow: hidden !important; }
                     }
                 });
                 if (warnings.length && !confirm(`⚠️ সতর্কতা: এই এডিটের পর —\n\n${warnings.join('\n')}\n\nঅ্যাপে অগ্রিম দেখানো হয় না, বাকি ০ দেখাবে এবং এই বাড়তি টাকা হিসাবে চোখে পড়বে না। প্রয়োজনে কাস্টমারকে ফেরত দিন বা কালেকশন ঠিক করুন।\n\nতবুও সেভ করবেন?`)) return;
+            }
+
+            // [সংশোধন] ইনভয়েস নম্বর claim করা হচ্ছে সব ভ্যালিডেশন/নিশ্চিতকরণ
+            // (item/qty/discount/stock/credit-limit/cash-deposit/overpay-warning)
+            // পাস হওয়ার পরে, একদম সেভের ঠিক আগে -- আগে এই claim-টা ভ্যালিডেশনের
+            // *আগে* হতো, ফলে কোনো ভ্যালিডেশন ব্যর্থ হয়ে ইনভয়েস সেভ না হলেও
+            // নম্বরটা নষ্ট (গ্যাপ) হয়ে যেত (যেমন 125 এর পর হঠাৎ 127)। এখন থেকে
+            // এই পর্যায়ের পর ইনভয়েস আটকানোর মতো আর কোনো ভ্যালিডেশন নেই --
+            // শুধু নেটওয়ার্ক/সার্ভার সমস্যা থাকলে সেটা নিচের saveInvoiceAndSyncAtomic()-এর
+            // আগে থেকে থাকা saveToken+verify নিরাপত্তা দিয়েই সামলানো হয়।
+            if (!editId) {
+                const claimedNum = await claimNextInvoiceNumber();
+                // নম্বর নেওয়া ব্যর্থ হলে নিচের ফলব্যাক (সবচেয়ে বড় নম্বর + ১) ব্যবহার হয়।
+                // [সংশোধন ২] কাউন্টার এখন Firebase Rules-এ অনুমোদিত ও চালু। তাই নম্বর নেওয়া
+                // ব্যর্থ হলে (যেমন ইন্টারনেট সমস্যা) অনুমান করে নম্বর না বসিয়ে ইনভয়েস সেভ
+                // বন্ধ রাখা হয় — দুই ডিভাইসে একই নম্বর হওয়ার কোনো সুযোগ থাকে না।
+                // এই অবস্থায় কিছুই বদলায় না (স্টক/বাকি/ইনভয়েস কোনোটাই)।
+                if (claimedNum === null) {
+                    alert('ইনভয়েস নম্বর নেওয়া যায়নি (ইন্টারনেট/ডাটাবেজ সংযোগ সমস্যা)। ইনভয়েস সেভ হয়নি, কিছুই বদলায়নি — সংযোগ ঠিক হলে আবার সেভ চাপুন।');
+                    return;
+                }
+                invoiceNo = 'INV-' + String(claimedNum).padStart(3, '0');
+                document.getElementById('salesInvoiceNo').value = invoiceNo;
             }
 
             const invoiceObj = {
@@ -10850,8 +10854,18 @@ function renderStockMultiProductList() {
 
         document.getElementById('cashFlowResult').innerHTML = balanceHtml + summaryHtml + `
             <div style="overflow-x:auto; margin-bottom:20px;">
-                <table class="data-table" style="width:100%;">
-                    <thead><tr><th>তারিখ</th><th>ধরন</th><th>টাকা</th><th>${escapeHtml(cashFlowPartyColumnLabel(catFilter))}</th><th>নোট</th><th>অ্যাকশন</th></tr></thead>
+                <!-- [সংশোধন] আগে এই টেবিলের কলামের প্রস্থ নির্দিষ্ট করা ছিল না, তাই
+                     ব্রাউজার নিজে থেকে (কনটেন্ট অনুযায়ী) কলামের প্রস্থ ঠিক করত —
+                     "টাকা" ডান-অ্যালাইন হওয়ায় আর হেডার-টেক্সট ছোট হওয়ায় সংখ্যাটা
+                     পরের কলামের কাছাকাছি চলে যেত, দেখে মনে হতো ভুল কলামের নিচে আছে।
+                     এখন table-layout:fixed + colgroup দিয়ে প্রতিটা কলামের প্রস্থ
+                     আগে থেকেই বেঁধে দেওয়া হলো, যাতে হেডার আর তার ঠিক নিচের
+                     তথ্য সবসময় একই জায়গায় (কলাম অনুযায়ী) থাকে। -->
+                <table class="data-table" style="width:100%; table-layout:fixed;">
+                    <colgroup>
+                        <col style="width:100px;"><col style="width:140px;"><col style="width:130px;"><col style="width:170px;"><col><col style="width:150px;">
+                    </colgroup>
+                    <thead><tr><th>তারিখ</th><th>ধরন</th><th style="text-align:right;">টাকা</th><th>${escapeHtml(cashFlowPartyColumnLabel(catFilter))}</th><th>নোট</th><th>অ্যাকশন</th></tr></thead>
                     <tbody>${rowsHtml || '<tr><td colspan="6" style="text-align:center; color:#777; padding:15px;">এই সময়ে কোনো খরচ এন্ট্রি নেই।</td></tr>'}</tbody>
                 </table>
             </div>
