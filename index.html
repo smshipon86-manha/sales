@@ -2363,6 +2363,9 @@ body.edit-modal-open { overflow: hidden !important; }
                     <option value="">-- সব রুট --</option>
                 </select>
                 <input type="text" id="dueReportSearchInput" onkeyup="filterDueReportTable()" placeholder="রুট বা ট্রেডার্স দিয়ে খুঁজুন..." style="padding: 7px; width: 300px; border: 1px solid #ccc; border-radius: 4px; font-size: 15px;">
+                <label style="font-size:13px; color:#555; display:flex; align-items:center; gap:6px;">বাকি হিসাব যে তারিখ পর্যন্ত:
+                    <input type="date" id="dueReportAsOfDate" onchange="renderCustomerDueReport(document.getElementById('dueReportSearchInput').value)" style="padding:6px; border:1px solid #ccc; border-radius:4px; font-size:14px;">
+                </label>
                 <span id="totalDueAmountSpan" style="font-size: 15px; font-weight: bold; color: #d9534f;"></span>
                 <button class="btn-submit" style="width:auto; padding:7px 14px; background:#4a6c82;" onclick="downloadDueReportCSV()">ডাউনলোড</button>
             </div>
@@ -7177,6 +7180,11 @@ function renderStockMultiProductList() {
             if (routeSel) {
                 routeSel.innerHTML = '<option value="">-- সব রুট --</option>' + routes.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
             }
+            // [নতুন] প্রতিবার এই রিপোর্ট খোলার সময় "তারিখ পর্যন্ত" ঘরটা সবসময়
+            // আজকের তারিখে রিসেট হয়ে যায় (আগের বার বেছে রাখা কোনো পুরনো তারিখ
+            // থেকে না যায়)।
+            const asOfEl = document.getElementById('dueReportAsOfDate');
+            if (asOfEl) asOfEl.value = getLocalISODate();
             renderCustomerDueReport();
         }
 
@@ -7185,10 +7193,25 @@ function renderStockMultiProductList() {
             tbody.innerHTML = '';
             const routeFilterEl = document.getElementById('dueReportRouteFilter');
             const routeFilter = routeFilterEl ? routeFilterEl.value : '';
+            // [নতুন] "তারিখ পর্যন্ত" ঘরে আজকের তারিখ ছাড়া অন্য কোনো (অতীতের)
+            // তারিখ বাছা থাকলে, সেই তারিখ পর্যন্ত ঘটা ইনভয়েস/কালেকশন দিয়েই বাকি
+            // হিসাব হবে (getRetailerDueAsOfDate) — এটা ret.currentDue বদলায় না,
+            // তাই বাকি জায়গার লাইভ (আজকের) হিসাবে এর কোনো প্রভাব পড়ে না।
+            // আজকের তারিখ বাছা থাকলে (বা ঘরটা ফাঁকা থাকলে) আগের মতোই
+            // recalculateRetailerDue() ব্যবহার হয়, যাতে ব্যবহার আগের মতোই থাকে।
+            const asOfEl = document.getElementById('dueReportAsOfDate');
+            const todayISO = getLocalISODate();
+            const asOfISO = (asOfEl && asOfEl.value) ? asOfEl.value : todayISO;
+            const isLiveToday = asOfISO >= todayISO;
             // Always calculate the headline from every customer, independent of
             // search/filter state, and refresh each due from ledger data first.
             const dueByRetailer = new Map();
-            withLedgerIndex(() => retailers.forEach(ret => dueByRetailer.set(ret, Math.max(0, Number(recalculateRetailerDue(ret) || 0)))));
+            withLedgerIndex(() => retailers.forEach(ret => {
+                const due = isLiveToday
+                    ? Math.max(0, Number(recalculateRetailerDue(ret) || 0))
+                    : Math.round(Math.max(0, Number(getRetailerDueAsOfDate(ret, asOfISO) || 0)));
+                dueByRetailer.set(ret, due);
+            }));
             // [সংশোধন] আগে এখানে সব রিটেইলার মিলিয়ে (totalSystemDue) হিসাব হতো,
             // রুট/খোঁজ ফিল্টার যা-ই থাকুক। এখন নিচের লুপে যাদের সারি আসলে
             // দেখানো হচ্ছে, শুধু তাদের বাকি যোগ হয় (filteredTotalDue)।
@@ -7226,9 +7249,10 @@ function renderStockMultiProductList() {
             });
             tbody.innerHTML = dueRowsHtml;
             if(count === 0) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#777; padding:15px;">কোনো রিটেইলার পাওয়া যায়নি।</td></tr>`;
-            document.getElementById('totalDueAmountSpan').innerText = routeFilter
+            const asOfSuffix = isLiveToday ? '' : ` (${escapeHtml(isoToSystemDate(asOfISO))} পর্যন্ত)`;
+            document.getElementById('totalDueAmountSpan').innerText = (routeFilter
                 ? `${escapeHtml(routeFilter)} রুটে মোট বকেয়া: ${filteredTotalDue.toLocaleString('en-US')} ৳`
-                : `মোট বকেয়া: ${filteredTotalDue.toLocaleString('en-US')} ৳`;
+                : `মোট বকেয়া: ${filteredTotalDue.toLocaleString('en-US')} ৳`) + asOfSuffix;
         }
 
         // বাকির আসল হিসাব (শূন্যের নিচেও) — excludeInvoiceId দিলে সেই ইনভয়েস বাদ দিয়ে
@@ -7862,7 +7886,14 @@ function renderStockMultiProductList() {
             // থেকে নেওয়া হয়, তাই স্ক্রিন আর ডাউনলোড সবসময় মিলবে।
             const routeFilterEl = document.getElementById('dueReportRouteFilter');
             const routeFilter = routeFilterEl ? routeFilterEl.value : '';
-            const rows = [['ক্রমিক','রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','মোবাইল','আগের বাকি','বর্তমান মোট বাকি']];
+            // [নতুন] স্ক্রিনের মতোই — "তারিখ পর্যন্ত" ঘরে আজকের তারিখ ছাড়া অন্য
+            // কোনো তারিখ বাছা থাকলে সেই তারিখ পর্যন্তের বাকি ডাউনলোড হবে।
+            const asOfEl = document.getElementById('dueReportAsOfDate');
+            const todayISO = getLocalISODate();
+            const asOfISO = (asOfEl && asOfEl.value) ? asOfEl.value : todayISO;
+            const isLiveToday = asOfISO >= todayISO;
+            const dueColumnLabel = isLiveToday ? 'বর্তমান মোট বাকি' : `বাকি (${isoToSystemDate(asOfISO)} পর্যন্ত)`;
+            const rows = [['ক্রমিক','রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','মোবাইল','আগের বাকি',dueColumnLabel]];
             let n=0;
             // রুট অনুযায়ী গ্রুপ করে সাজানো, তারপর নাম অনুযায়ী — যাতে একই
             // রুটের রিটেইলাররা একসাথে দেখা যায়।
@@ -7876,8 +7907,10 @@ function renderStockMultiProductList() {
                     if (routeFilter && ret.route !== routeFilter) return;
                     const searchStr=`${ret.route} ${ret.trader} ${ret.name}`.toLowerCase();
                     if(q && !searchStr.includes(q)) return;
-                    const liveDue = Math.max(0, Number(recalculateRetailerDue(ret) || 0));
-                    n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',ret.mobile||'',getExplicitOpeningDue(ret),liveDue]);
+                    const due = isLiveToday
+                        ? Math.max(0, Number(recalculateRetailerDue(ret) || 0))
+                        : Math.round(Math.max(0, Number(getRetailerDueAsOfDate(ret, asOfISO) || 0)));
+                    n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',ret.mobile||'',getExplicitOpeningDue(ret),due]);
                 });
             });
             const fname = routeFilter ? `customer_due_report_${routeFilter}.csv` : 'customer_due_report.csv';
@@ -10562,6 +10595,67 @@ function renderStockMultiProductList() {
         return withLedgerIndex(() => (retailers || []).reduce((sum, ret) => sum + Math.max(0, Number(recalculateRetailerDue(ret) || 0)), 0));
     }
 
+    // [নতুন] কোনো নির্দিষ্ট তারিখ পর্যন্ত (অতীতের যেকোনো তারিখ হতে পারে) মোট বাকি
+    // হিসাব করে — উপরের getCurrentTotalDueLive() এর মতোই, কিন্তু "আজ" ধরে না
+    // নিয়ে শুধুমাত্র ওই তারিখ পর্যন্ত ঘটা ইনভয়েস/কালেকশন গোনে (আগের বাকির
+    // এন্ট্রিও তার নিজের তারিখ অনুযায়ী ধরা হয়)। recalculateRetailerDue()-এর
+    // মতো এটা ret.currentDue বদলায় না (শুধু হিসাব করে রিটার্ন করে), যাতে
+    // পুরোনো তারিখের হিসাব করতে গিয়ে ভুলবশত আজকের বাকির উপর প্রভাব না পড়ে।
+    function getRetailerDueAsOfDate(ret, asOfISO) {
+        if (!ret) return 0;
+        const isOnOrBefore = (rawDate) => {
+            const d = parseBanglaOrISODate(rawDate || '');
+            if (!d) return false;
+            return toLocalISODate(d) <= asOfISO;
+        };
+        let openingAmt = 0;
+        if (ret.openingDue && Number(ret.openingDue.amount)) {
+            openingAmt = isOnOrBefore(ret.openingDue.date) ? (Number(ret.openingDue.amount) || 0) : 0;
+        }
+        const credit = getInvoicesForRetailer(ret)
+            .filter(inv => inv.invoiceType === 'Credit' && isOnOrBefore(inv.date))
+            .reduce((sum, inv) => sum + Math.round(Number(inv.totalAmount || 0) || 0), 0);
+        const oldCollections = (ret.collections || [])
+            .filter(c => isOnOrBefore(c.date))
+            .reduce((sum, c) => sum + (Number(c.amount || 0) || 0), 0);
+        const newCollections = getRetailerCollectionsV2(ret)
+            .filter(c => isOnOrBefore(c.date))
+            .reduce((sum, c) => sum + (Number(c.amount || 0) || 0), 0);
+        return openingAmt + credit - oldCollections - newCollections;
+    }
+    function getTotalDueAsOfDate(asOfISO) {
+        return withLedgerIndex(() => (retailers || []).reduce((sum, ret) => sum + Math.max(0, Number(getRetailerDueAsOfDate(ret, asOfISO) || 0)), 0));
+    }
+
+    // YYYY-MM-DD তারিখ থেকে কিছু দিন যোগ/বিয়োগ করে নতুন YYYY-MM-DD ফেরত দেয়
+    // (নেগেটিভ সংখ্যা দিলে বিয়োগ হবে) — "আগের দিন" বের করতে ব্যবহার হয়।
+    function isoDateAddDays(iso, days) {
+        const d = parseBanglaOrISODate(iso);
+        if (!d) return iso;
+        d.setDate(d.getDate() + days);
+        return toLocalISODate(d);
+    }
+
+    // [নতুন] প্রারম্ভিক ব্যালেন্স থেকে শুরু করে যেকোনো তারিখ পর্যন্ত (আজ হোক বা
+    // অতীতের কোনো দিন) মোট ক্যাশ কত হবে সেটা হিসাব করে — ঠিক renderCashFlowReport-এ
+    // যেভাবে "নগদ ব্যালেন্স" দেখানো হয় ঠিক সেই একই সূত্র, শুধু "আজকের বাকি"-র বদলে
+    // getTotalDueAsOfDate() দিয়ে সেই নির্দিষ্ট তারিখ পর্যন্তের সঠিক বাকি বসানো হয় —
+    // তাই এখন অতীতের যেকোনো তারিখের ক্যাশও নির্ভুলভাবে বের করা সম্ভব। প্রারম্ভিক
+    // ব্যালেন্স সেট করা না থাকলে null ফেরত দেয়।
+    function getCashBalanceAsOfDate(asOfISO) {
+        const opening = getCashOpeningBalanceEntry();
+        if (!opening) return null;
+        const openingDate = parseBanglaOrISODate(opening.date);
+        const openingISO = openingDate ? toLocalISODate(openingDate) : asOfISO;
+        const openingAmt = Number(opening.amount) || 0;
+        if (asOfISO < openingISO) return openingAmt;
+        const totalSales = getAllInvoiceSalesTotal(openingISO, asOfISO);
+        const dueAsOf = getTotalDueAsOfDate(asOfISO);
+        const dailyExpTotal = getCashExpenseEntriesInRange(openingISO, asOfISO, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const companyPayTotal = getCashExpenseEntriesInRange(openingISO, asOfISO, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        return openingAmt + totalSales - dueAsOf - dailyExpTotal - companyPayTotal;
+    }
+
     // opening_balance ছাড়া বাকি সব খরচ এন্ট্রি — বাতিল হওয়া এন্ট্রিও ফেরত দেয় (তালিকায়
     // দেখানোর জন্য), কিন্তু যোগফল/মোট হিসাবের সময় কলার নিজে voided বাদ দেয়।
     function getCashExpenseEntriesInRange(fromISO, toISO, categoryFilter) {
@@ -10620,8 +10714,12 @@ function renderStockMultiProductList() {
         const today = getLocalISODate();
         const fromEl = document.getElementById('cashFlowFromDate');
         const toEl = document.getElementById('cashFlowToDate');
-        if (!fromEl.value) fromEl.value = today;
-        if (!toEl.value) toEl.value = today;
+        // [হালনাগাদ] আগে শুধু ঘর ফাঁকা থাকলেই আজকের তারিখ বসতো, তাই আগেরবার
+        // অন্য কোনো তারিখ বাছা থাকলে সেটাই থেকে যেত (ব্যবহারকারীর অভিযোগ ছিল
+        // "তারিখ রিসেট হয় না")। এখন থেকে প্রতিবার এই রিপোর্ট খোলার সময় দুটো
+        // তারিখই সবসময় আজকের তারিখে রিসেট হয়ে যাবে।
+        fromEl.value = today;
+        toEl.value = today;
         const catSel = document.getElementById('cashFlowCategoryFilter');
         if (!catSel.dataset.filled) {
             catSel.innerHTML = '<option value="">-- সব ধরন --</option>' +
@@ -10639,6 +10737,11 @@ function renderStockMultiProductList() {
         if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
 
         // ===== ১. নগদ ব্যালেন্স (প্রারম্ভিক ব্যালেন্স থেকে "তারিখ পর্যন্ত") =====
+        // [হালনাগাদ] আগে এখানে "বর্তমান মোট বাকি" সবসময় আজকের হিসাব নিত (তাই
+        // অতীতের তারিখ বাছলে ভুল দেখাতো)। এখন getTotalDueAsOfDate() দিয়ে ঠিক
+        // "তারিখ পর্যন্ত" যা বাকি ছিল সেটাই বসানো হয় — তাই অতীতের যেকোনো
+        // তারিখের ক্যাশ ব্যালেন্সও এখন নির্ভুলভাবে দেখা যাবে, আগের সতর্কবার্তাটার
+        // আর দরকার নেই।
         const opening = getCashOpeningBalanceEntry();
         let balanceHtml;
         if (opening) {
@@ -10646,25 +10749,20 @@ function renderStockMultiProductList() {
             const openingISO = openingDate ? toLocalISODate(openingDate) : to;
             const openingAmt = Number(opening.amount) || 0;
             const totalSales = getAllInvoiceSalesTotal(openingISO, to);
-            const totalDueNow = getCurrentTotalDueLive();
+            const dueAsOfTo = getTotalDueAsOfDate(to);
             const dailyExpTotal = getCashExpenseEntriesInRange(openingISO, to, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
             const companyPayTotal = getCashExpenseEntriesInRange(openingISO, to, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-            const runningBalance = openingAmt + totalSales - totalDueNow - dailyExpTotal - companyPayTotal;
-            const todayISO = getLocalISODate();
-            const dueNote = to !== todayISO
-                ? '<div style="font-size:11px; color:#a06a00; margin-top:6px;">⚠️ "বর্তমান মোট বাকি" সবসময় আজকের হিসাব — অতীতের কোনো তারিখের বাকি এই অ্যাপে সংরক্ষিত নেই, তাই আজকের তারিখ ছাড়া অন্য "তারিখ পর্যন্ত" বাছলে এই একটা লাইন সঠিক অতীত ছবি দেখাতে পারবে না।</div>'
-                : '';
+            const runningBalance = openingAmt + totalSales - dueAsOfTo - dailyExpTotal - companyPayTotal;
             balanceHtml = `<div style="background:#fff8e1; border:1px solid #f0c419; border-radius:10px; padding:14px; margin-bottom:14px;">
                 <div style="font-size:13px; color:#555; margin-bottom:8px;">নগদ ব্যালেন্স — ${escapeHtml(opening.date)} তারিখে প্রারম্ভিক ${openingAmt.toLocaleString('en-US')} ৳ ধরে, ${escapeHtml(isoToSystemDate(to))} তারিখ পর্যন্ত:</div>
                 <div style="font-size:13px; line-height:1.9; color:#555;">
                     প্রারম্ভিক ব্যালেন্স &nbsp; <b>${openingAmt.toLocaleString('en-US')} ৳</b><br>
                     + মোট বিক্রি (ক্যাশ + ক্রেডিট) &nbsp; <b style="color:#1e7e34;">${totalSales.toLocaleString('en-US')} ৳</b><br>
-                    − বর্তমান মোট বাকি (সব কাস্টমার) &nbsp; <b style="color:#c0392b;">${totalDueNow.toLocaleString('en-US')} ৳</b><br>
+                    − বাকি (${escapeHtml(isoToSystemDate(to))} পর্যন্ত) &nbsp; <b style="color:#c0392b;">${dueAsOfTo.toLocaleString('en-US')} ৳</b><br>
                     − দৈনিক খরচ &nbsp; <b style="color:#c0392b;">${dailyExpTotal.toLocaleString('en-US')} ৳</b><br>
                     − কোম্পানিকে পেমেন্ট &nbsp; <b style="color:#c0392b;">${companyPayTotal.toLocaleString('en-US')} ৳</b>
                 </div>
                 <div style="font-size:24px; font-weight:bold; color:#7a5c00; margin-top:8px;">= ${runningBalance.toLocaleString('en-US')} ৳</div>
-                ${dueNote}
             </div>`;
         } else {
             balanceHtml = `<div style="background:#f5f5f5; border-radius:10px; padding:10px; margin-bottom:14px; font-size:13px; color:#777;">প্রারম্ভিক ব্যালেন্স সেট করা নেই — তাই নগদ ব্যালেন্স এখনো হিসাব করা যাচ্ছে না। উপরের বাটনে চেপে একবার সেট করে দিন।</div>`;
@@ -10673,10 +10771,33 @@ function renderStockMultiProductList() {
         // ===== ২. এই সময়ে (তারিখ থেকে-পর্যন্ত) খরচের ধরন অনুযায়ী তালিকা — শুধু রেকর্ড দেখার জন্য =====
         const outEntriesAll = getCashExpenseEntriesInRange(from, to, catFilter);
         const outEntriesActive = outEntriesAll.filter(e => !e.voided);
-        const outTotal = outEntriesActive.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-        const byCategory = {};
-        CASH_EXPENSE_CATEGORIES.forEach(c => { byCategory[c.value] = 0; });
-        outEntriesActive.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + (Number(e.amount) || 0); });
+        // [নতুন] ৪টা খরচের ধরনের প্রতিটার নিজস্ব মোট — ক্যাটাগরি-ফিল্টার যা-ই বাছা
+        // থাকুক, নিচের ৪টা কার্ড সবসময় ওই তারিখ সীমার সব ধরনের মোট আলাদা করে
+        // দেখাবে (ফিল্টারটা শুধু নিচের তালিকা/টেবিলে প্রভাব ফেলে)।
+        const categoryTotals = {};
+        CASH_EXPENSE_CATEGORIES.forEach(c => {
+            categoryTotals[c.value] = getCashExpenseEntriesInRange(from, to, c.value).filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        });
+        // [নতুন] এই সময়ে মোট কালেকশন — পুরনো (রিটেইলারের ভেতরে embedded) আর নতুন
+        // (retailer_collections), দুই উৎস মিলিয়েই (getAllCollectionsInRange
+        // পুনর্ব্যবহার করা হচ্ছে, যেটা "কালেকশন রিপোর্ট"-এও ব্যবহৃত হয়)।
+        const collectionTotal = getAllCollectionsInRange(from, to, '').reduce((s, r) => s + r.amount, 0);
+        const dueAsOfToForCard = getTotalDueAsOfDate(to);
+
+        const categoryCardColors = {
+            purchase: { bg: '#fdf3e7', color: '#a9631a' },
+            company_payment: { bg: '#fdecea', color: '#c0392b' },
+            owner_withdrawal: { bg: '#f2ecf9', color: '#6c3fa8' },
+            daily_expense: { bg: '#fdecea', color: '#c0392b' }
+        };
+        const categoryCardsHtml = CASH_EXPENSE_CATEGORIES.map(c => {
+            const clr = categoryCardColors[c.value] || { bg: '#fdecea', color: '#c0392b' };
+            const deducts = CASH_BALANCE_DEDUCT_CATEGORIES.includes(c.value);
+            return `<div style="background:${clr.bg}; border-radius:10px; padding:12px;">
+                <div style="font-size:12px; color:#555;">${escapeHtml(c.label)}${deducts ? '' : ' (শুধু রেকর্ড)'}</div>
+                <div style="font-size:20px; font-weight:bold; color:${clr.color};">${(categoryTotals[c.value] || 0).toLocaleString('en-US')} ৳</div>
+            </div>`;
+        }).join('');
 
         const summaryHtml = `
             <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(210px,1fr)); gap:10px; margin-bottom:14px;">
@@ -10684,15 +10805,15 @@ function renderStockMultiProductList() {
                     <div style="font-size:12px; color:#555;">এই সময়ে মোট বিক্রি</div>
                     <div style="font-size:20px; font-weight:bold; color:#1e7e34;">${getAllInvoiceSalesTotal(from, to).toLocaleString('en-US')} ৳</div>
                 </div>
-                <div style="background:#fdecea; border-radius:10px; padding:12px;">
-                    <div style="font-size:12px; color:#555;">এই সময়ে মোট খরচ (৪ ধরন মিলে)</div>
-                    <div style="font-size:20px; font-weight:bold; color:#c0392b;">${outTotal.toLocaleString('en-US')} ৳</div>
-                    <div style="font-size:11px; color:#777; margin-top:4px;">${CASH_EXPENSE_CATEGORIES.map(c => `${escapeHtml(c.label)}: ${(byCategory[c.value] || 0).toLocaleString('en-US')} ৳`).join(' · ')}</div>
+                <div style="background:#e8f6fb; border-radius:10px; padding:12px;">
+                    <div style="font-size:12px; color:#555;">এই সময়ে মোট কালেকশন</div>
+                    <div style="font-size:20px; font-weight:bold; color:#1477a6;">${collectionTotal.toLocaleString('en-US')} ৳</div>
                 </div>
                 <div style="background:#eaf3fb; border-radius:10px; padding:12px;">
-                    <div style="font-size:12px; color:#555;">বর্তমান মোট বাকি (সব কাস্টমার)</div>
-                    <div style="font-size:20px; font-weight:bold; color:#2c5f8a;">${getCurrentTotalDueLive().toLocaleString('en-US')} ৳</div>
+                    <div style="font-size:12px; color:#555;">বাকি (${escapeHtml(isoToSystemDate(to))} পর্যন্ত)</div>
+                    <div style="font-size:20px; font-weight:bold; color:#2c5f8a;">${dueAsOfToForCard.toLocaleString('en-US')} ৳</div>
                 </div>
+                ${categoryCardsHtml}
             </div>`;
 
         const rowsHtml = outEntriesAll.slice().sort((a, b) => {
@@ -10747,6 +10868,12 @@ function renderStockMultiProductList() {
             </div>`;
     }
 
+    // [হালনাগাদ] মাসিক ক্লোজ করার সময় সবকিছু একনজরে স্পষ্ট থাকা দরকার — তাই এখন
+    // ডাউনলোডে একটা "সারসংক্ষেপ (ক্লোজিং রিপোর্ট)" অংশ যোগ করা হলো: আগের ক্যাশ
+    // (এই মেয়াদ শুরুর ঠিক আগের দিন পর্যন্তের ব্যালেন্স), এই সময়ে মোট বিক্রি,
+    // মোট কালেকশন, বাকি ("তারিখ পর্যন্ত"), মোট দৈনিক খরচ, মোট কোম্পানি পেমেন্ট
+    // (এই দুইটাই ক্যাশ থেকে বাদ যায়), এবং রেকর্ড হিসেবে মোট পণ্য কেনা ও মালিককে
+    // দেওয়া (এই দুইটা ক্যাশ থেকে বাদ যায় না), শেষে ক্লোজিং ব্যালেন্স।
     function downloadCashFlowReportCSV() {
         const from = document.getElementById('cashFlowFromDate').value;
         const to = document.getElementById('cashFlowToDate').value;
@@ -10754,23 +10881,35 @@ function renderStockMultiProductList() {
         if (!from || !to) { alert('দুটি তারিখ নির্বাচন করুন।'); return; }
         if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
         const outEntriesActive = getCashExpenseEntriesInRange(from, to, catFilter).filter(e => !e.voided);
-        const outTotal = outEntriesActive.reduce((s, e) => s + (Number(e.amount) || 0), 0);
         const csvRows = [['বিবরণ', 'তারিখ', 'খরচের ধরন', 'টাকা', cashFlowPartyColumnLabel(catFilter), 'নোট']];
-        csvRows.push(['এই সময়ে মোট বিক্রি', '', '', getAllInvoiceSalesTotal(from, to), '', '']);
-        csvRows.push(['বর্তমান মোট বাকি (আজকের হিসাব)', '', '', getCurrentTotalDueLive(), '', '']);
         outEntriesActive.forEach(e => csvRows.push(['খরচ', e.date, cashExpenseCategoryLabel(e.category), e.amount, e.party || '', e.note || '']));
         csvRows.push([]);
-        csvRows.push(['এই সময়ে মোট খরচ (৪ ধরন মিলে)', '', '', outTotal, '', '']);
+        csvRows.push(['সারসংক্ষেপ (ক্লোজিং রিপোর্ট)', `${isoToSystemDate(from)} — ${isoToSystemDate(to)}`, '', '', '', '']);
+
+        const totalSalesPeriod = getAllInvoiceSalesTotal(from, to);
+        const collectionTotalPeriod = getAllCollectionsInRange(from, to, '').reduce((s, r) => s + r.amount, 0);
+        const dueAsOfTo = getTotalDueAsOfDate(to);
+        const dailyExpPeriod = getCashExpenseEntriesInRange(from, to, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const companyPayPeriod = getCashExpenseEntriesInRange(from, to, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const purchasePeriod = getCashExpenseEntriesInRange(from, to, 'purchase').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const ownerWithdrawalPeriod = getCashExpenseEntriesInRange(from, to, 'owner_withdrawal').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
         const opening = getCashOpeningBalanceEntry();
         if (opening) {
-            const openingDate = parseBanglaOrISODate(opening.date);
-            const openingISO = openingDate ? toLocalISODate(openingDate) : to;
-            const totalSales = getAllInvoiceSalesTotal(openingISO, to);
-            const totalDueNow = getCurrentTotalDueLive();
-            const dailyExpTotal = getCashExpenseEntriesInRange(openingISO, to, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-            const companyPayTotal = getCashExpenseEntriesInRange(openingISO, to, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-            const runningBalance = (Number(opening.amount) || 0) + totalSales - totalDueNow - dailyExpTotal - companyPayTotal;
-            csvRows.push(['নগদ ব্যালেন্স (প্রারম্ভিক থেকে এই তারিখ পর্যন্ত)', '', '', runningBalance, '', '']);
+            const previousCash = getCashBalanceAsOfDate(isoDateAddDays(from, -1));
+            const closingCash = getCashBalanceAsOfDate(to);
+            csvRows.push(['আগের ক্যাশ (এই মেয়াদ শুরুর আগের দিন পর্যন্ত)', '', '', Math.round(previousCash), '', '']);
+        }
+        csvRows.push(['এই সময়ে মোট বিক্রি (ক্যাশ+ক্রেডিট)', '', '', totalSalesPeriod, '', '']);
+        csvRows.push(['এই সময়ে মোট কালেকশন', '', '', collectionTotalPeriod, '', '']);
+        csvRows.push([`বাকি (${isoToSystemDate(to)} পর্যন্ত)`, '', '', dueAsOfTo, '', '']);
+        csvRows.push(['মোট দৈনিক খরচ (ক্যাশ থেকে বাদ যায়)', '', '', dailyExpPeriod, '', '']);
+        csvRows.push(['মোট কোম্পানি পেমেন্ট (ক্যাশ থেকে বাদ যায়)', '', '', companyPayPeriod, '', '']);
+        csvRows.push(['মোট পণ্য কেনা (শুধু রেকর্ড, ক্যাশ থেকে বাদ যায় না)', '', '', purchasePeriod, '', '']);
+        csvRows.push(['মোট মালিককে দেওয়া (শুধু রেকর্ড, ক্যাশ থেকে বাদ যায় না)', '', '', ownerWithdrawalPeriod, '', '']);
+        if (opening) {
+            const closingCash = getCashBalanceAsOfDate(to);
+            csvRows.push(['ক্লোজিং ব্যালেন্স (মোট ক্যাশ)', '', '', Math.round(closingCash), '', '']);
         }
         downloadCSVFile(csvRows, `cash_flow_${from}_to_${to}.csv`, 'ক্যাশ ফ্লো রিপোর্ট');
     }
