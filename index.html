@@ -283,7 +283,7 @@
            প্রারম্ভিক ব্যালেন্স বদলাতে গেলে সেই পপ-আপ যেন রিপোর্টের নিচে চলে না
            যায় (DOM-এ আগে থাকায় আগে একই z-index হওয়ায় নিচে চলে যেত), তাই এই
            দুটোকে রিপোর্ট মোডালের চেয়ে বেশি z-index দেওয়া হলো। */
-        #cashExpenseModal, #cashOpeningBalanceModal, #companyOpeningBalanceModal { z-index: 2100; }
+        #cashExpenseModal, #openingBalanceModal { z-index: 2100; }
 
         /* [নতুন] "আজকের সেলস / তারিখ অনুযায়ী রিপোর্ট" বা "কাস্টমারের লেজার"
            পপ-আপ খোলা অবস্থায় কোনো ইনভয়েসে "এডিট" চাপলে ইনভয়েস মোডাল যেন সবসময়
@@ -1631,7 +1631,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 <ul class="dropdown">
                     <li><a onclick="openCashExpenseModal()">নতুন খরচ যোগ করুন</a></li>
                     <li><a onclick="openCashFlowReportModal()">ক্যাশ ফ্লো রিপোর্ট</a></li>
-                    <li><a onclick="openCashOpeningBalanceModal()">প্রারম্ভিক ব্যালেন্স সেট করুন</a></li>
+                    <li><a onclick="openOpeningBalanceModal('cash')">প্রারম্ভিক ব্যালেন্স সেট করুন</a></li>
                 </ul>
             </li>
 
@@ -1659,15 +1659,21 @@ body.edit-modal-open { overflow: hidden !important; }
         </div>
     </div>
 
-    <!-- এতিম ইনভয়েস (যাদের রিটেইলার মুছে ফেলা হয়েছে) খুঁজে বের করা ও মুছে ফেলার পপ-আপ -->
+    <!-- [হালনাগাদ] এতিম ইনভয়েস — আগে শুধু "মুছে ফেলা" অপশন ছিল, যেটা করলে
+         সেই ইনভয়েসের বিক্রি/বাকির হিসাব একেবারে হারিয়ে যেত (স্টক/হিসাব এলোমেলো
+         হয়ে যাওয়ার আশঙ্কা)। এখন প্রধান অপশন হলো "সঠিক রিটেইলারের সাথে যুক্ত
+         করুন" — এতে ইনভয়েসটা মুছে না দিয়ে সঠিক (বর্তমান) রিটেইলারের সাথে আবার
+         জুড়ে দেওয়া হয়, ফলে সেই রিটেইলারের বাকির হিসাবেও এটা আবার সঠিকভাবে যোগ
+         হয়ে যায়। "মুছুন" অপশনটা রাখা হয়েছে শুধু সত্যিকারের ভুল/ডুপ্লিকেট এন্ট্রির
+         জন্য। -->
     <div class="modal-overlay" id="orphanInvoiceModal">
-        <div class="modal-box" style="width: 900px; max-width: 96%;">
+        <div class="modal-box" style="width: 1150px; max-width: 98%;">
             <div class="modal-header">
-                <h3>এতিম ইনভয়েস (যাদের রিটেইলার এখন আর নেই)</h3>
+                <h3>এতিম ইনভয়েস (রিটেইলারের সাথে লিংক হারিয়ে গেছে)</h3>
                 <span class="close-btn" onclick="closeModal('orphanInvoiceModal')">&times;</span>
             </div>
             <div style="font-size:13px; color:#666; margin-bottom:10px;">
-                এই ইনভয়েসগুলো যে রিটেইলারের নামে সেভ করা হয়েছিল, সেই রিটেইলার এখন আর তালিকায় নেই (মুছে ফেলা হয়েছে বা ভুলভাবে মার্জ হয়েছে) — তাই এগুলো সাধারণ তালিকায় দেখা যায় না, কিন্তু রিপোর্টে এখনো দেখা যায়। এখান থেকে একটা একটা করে বা সবগুলো একসাথে মুছে ফেলতে পারবেন।
+                এই ইনভয়েসগুলোর টাকার হিসাব, পণ্য — সবকিছু অক্ষত আছে, শুধু কোন রিটেইলারের সেটা তা আর বোঝা যাচ্ছে না (সাধারণত পুরনো রিটেইলারের নাম বদলানোর সময় এই পুরনো ইনভয়েসগুলো নাম দিয়ে লিংক করা ছিল, তাই বাদ পড়ে গেছে)। যতক্ষণ এভাবে থাকবে, ততক্ষণ এই টাকাটা কোনো রিটেইলারের বাকির হিসাবেই যোগ হচ্ছে না। <b>প্রতিটা সারিতে সঠিক (বর্তমান) রিটেইলার বেছে "যুক্ত করুন" চাপুন</b> — এতে ইনভয়েসটা আবার স্বাভাবিক হয়ে যাবে এবং সেই রিটেইলারের বাকিতে টাকাটাও যোগ হয়ে যাবে। "মুছুন" শুধু তখনই ব্যবহার করুন যখন নিশ্চিত হন এই ইনভয়েসটা আসলে ভুল/ডুপ্লিকেট।
             </div>
             <div id="orphanInvoiceResult"></div>
         </div>
@@ -1782,67 +1788,60 @@ body.edit-modal-open { overflow: hidden !important; }
                 <button class="btn-submit" style="width:auto;" onclick="renderCashFlowReport()">রিপোর্ট দেখুন</button>
                 <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadCashFlowReportCSV()">CSV ডাউনলোড করুন</button>
                 <button class="btn-submit" style="width:auto; background:#2c5f8a;" onclick="openCashExpenseModal()">+ নতুন খরচ যোগ করুন</button>
-                <button class="btn-submit" style="width:auto; background:#7a5c00;" onclick="openCashOpeningBalanceModal()">প্রারম্ভিক ব্যালেন্স সেট করুন</button>
-                <button class="btn-submit" style="width:auto; background:#5c4a82;" onclick="openCompanyOpeningBalanceModal()">কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করুন</button>
+                <button class="btn-submit" style="width:auto; background:#7a5c00;" onclick="openOpeningBalanceModal('cash')">প্রারম্ভিক ব্যালেন্স সেট করুন</button>
             </div>
-            <!-- [নতুন] ক্লোজিং রিপোর্ট — একটা নির্দিষ্ট তারিখ পর্যন্ত (প্রারম্ভিক ব্যালেন্সের
-                 তারিখ থেকে শুরু করে) আগের ক্যাশ, মোট বিক্রি, বাকি, দৈনিক খরচ, কোম্পানি
-                 পেমেন্ট ধাপে ধাপে যোগ-বিয়োগ করে সবশেষে ক্লোজিং ব্যালেন্স দেখায় — প্রতিটা
-                 ধাপে চলমান ব্যালেন্সও পাশে দেখা যাবে, যাতে ক্যাশ মেলানো সহজ হয়। -->
-            <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #ccc; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-                <label style="font-size:13px; color:#555; display:flex; align-items:center; gap:6px;">ক্লোজিং তারিখ:
-                    <input type="date" id="closingReportDate">
-                </label>
-                <button class="btn-submit" style="width:auto; background:#2c6e49;" onclick="downloadClosingReportCSV()">ক্লোজিং রিপোর্ট ডাউনলোড করুন</button>
+            <!-- [নতুন] ক্লোজিং রিপোর্ট — উপরের "তারিখ থেকে / তারিখ পর্যন্ত" যে রেঞ্জ বাছা
+                 আছে ঠিক সেই মেয়াদের জন্য আগের ক্যাশ (মেয়াদ শুরুর ঠিক আগের দিন পর্যন্ত),
+                 মোট বিক্রি, বাকি বৃদ্ধি/কমা, দৈনিক খরচ, কোম্পানি পেমেন্ট ধাপে ধাপে
+                 যোগ-বিয়োগ করে সবশেষে ক্লোজিং ব্যালেন্স দেখায় — প্রতিটা ধাপে চলমান
+                 ব্যালেন্সও পাশে দেখা যাবে, যাতে ক্যাশ মেলানো সহজ হয়। ব্যবসা যত পুরোনোই
+                 হোক না কেন (এমনকি বহু বছর হলেও), শুধু যে মাস/মেয়াদের রিপোর্ট দরকার
+                 সেটুকুর তারিখ রেঞ্জ বাছলেই চলবে -- প্রারম্ভিক ব্যালেন্স থেকে সব-সময়ের
+                 হিসাব টানতে হয় না। -->
+            <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #ccc;">
+                <button class="btn-submit" style="width:auto; background:#2c6e49;" onclick="downloadClosingReportCSV()">ক্লোজিং রিপোর্ট ডাউনলোড করুন (উপরের তারিখ রেঞ্জ অনুযায়ী)</button>
             </div>
             <div id="cashFlowResult" style="margin-top:15px;"></div>
         </div>
     </div>
 
-    <!-- ক্যাশ ফ্লো: প্রারম্ভিক ব্যালেন্স -->
-    <div class="modal-overlay" id="cashOpeningBalanceModal">
+    <!-- [একত্রিত] প্রারম্ভিক ব্যালেন্স — আগে দুইটি আলাদা পপ-আপ ছিল (আমার ক্যাশ /
+         কোম্পানির হিসাব), এখন একটাই পপ-আপ, উপরে ড্রপডাউন দিয়ে কোনটি সেট করবেন
+         বেছে নেওয়া যায়। নিচের তারিখ/টাকার ইনপুট দুইটার জন্যই একসাথে ব্যবহার
+         হয় (আলাদা কোনো ডেটা মিশে যায় না — সেভ করার সময় ড্রপডাউনের মান
+         অনুযায়ী ঠিক আগের মতোই আলাদা Firestore ডকুমেন্টে (OPENING_BALANCE /
+         COMPANY_OPENING_BALANCE) সেভ হয়)। -->
+    <div class="modal-overlay" id="openingBalanceModal">
         <div class="modal-box" style="width: 480px;">
             <div class="modal-header">
                 <h3>প্রারম্ভিক ব্যালেন্স সেট করুন</h3>
-                <span class="close-btn" onclick="closeModal('cashOpeningBalanceModal')">&times;</span>
+                <span class="close-btn" onclick="closeModal('openingBalanceModal')">&times;</span>
             </div>
-            <div style="font-size:13px; color:#666; margin-bottom:10px;">যে তারিখে হাতে নগদ কত টাকা ছিল তা একবার লিখে দিন — তার পরের সব হিসাব (বিক্রি, কালেকশন, খরচ) থেকে বাকি ব্যালেন্স নিজে থেকেই হিসাব হবে। পরে আবার লিখলে আগের মানটা বদলে যাবে।</div>
+            <div class="form-group">
+                <label>কোনটির প্রারম্ভিক ব্যালেন্স সেট করবেন:</label>
+                <select id="openingBalanceType" onchange="refreshOpeningBalanceModalView()">
+                    <option value="cash">আমার ক্যাশ (হাতে নগদ)</option>
+                    <option value="company">কোম্পানির হিসাব</option>
+                </select>
+            </div>
+            <div id="openingBalanceCashHint" style="font-size:13px; color:#666; margin-bottom:10px;">যে তারিখে হাতে নগদ কত টাকা ছিল তা একবার লিখে দিন — তার পরের সব হিসাব (বিক্রি, কালেকশন, খরচ) থেকে বাকি ব্যালেন্স নিজে থেকেই হিসাব হবে। পরে আবার লিখলে আগের মানটা বদলে যাবে।</div>
+            <div id="openingBalanceCompanyHint" style="font-size:13px; color:#666; margin-bottom:10px; display:none;">এই অ্যাপে হিসাব রাখা শুরু করার আগে কোম্পানির সাথে আপনার যদি আগে থেকেই কিছু পাওনা/দেনা থেকে থাকে (যেমন আগে বেশি পেমেন্ট দেওয়া ছিল, বা মাল নেওয়া বাবদ তখনো কিছু বকেয়া ছিল), সেটা এখানে একবার লিখে দিন — কোম্পানিভিত্তিক হিসাবে এখন থেকে এটাও যোগ হয়ে মোট ব্যালেন্স দেখাবে। পরে আবার লিখলে আগের মানটা বদলে যাবে।</div>
             <div class="form-group">
                 <label>তারিখ:</label>
-                <input type="date" id="cashOpeningBalanceDate">
+                <input type="date" id="openingBalanceDate">
             </div>
             <div class="form-group">
-                <label>ওই তারিখে হাতে নগদ (টাকা):</label>
-                <input type="number" id="cashOpeningBalanceAmount" placeholder="যেমন: ৫০০০০">
+                <label id="openingBalanceAmountLabel">ওই তারিখে হাতে নগদ (টাকা):</label>
+                <input type="number" id="openingBalanceAmount" placeholder="যেমন: ৫০০০০">
             </div>
-            <button class="btn-submit" onclick="saveCashOpeningBalance()">সংরক্ষণ করুন</button>
-        </div>
-    </div>
-
-    <!-- কোম্পানিভিত্তিক হিসাব: প্রারম্ভিক ব্যালেন্স (অ্যাপে হিসাব রাখা শুরুর আগের পুরনো বাকি/জমা) -->
-    <div class="modal-overlay" id="companyOpeningBalanceModal">
-        <div class="modal-box" style="width: 480px;">
-            <div class="modal-header">
-                <h3>কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করুন</h3>
-                <span class="close-btn" onclick="closeModal('companyOpeningBalanceModal')">&times;</span>
-            </div>
-            <div style="font-size:13px; color:#666; margin-bottom:10px;">এই অ্যাপে হিসাব রাখা শুরু করার আগে কোম্পানির সাথে আপনার যদি আগে থেকেই কিছু পাওনা/দেনা থেকে থাকে (যেমন আগে বেশি পেমেন্ট দেওয়া ছিল, বা মাল নেওয়া বাবদ তখনো কিছু বকেয়া ছিল), সেটা এখানে একবার লিখে দিন — কোম্পানিভিত্তিক হিসাবে এখন থেকে এটাও যোগ হয়ে মোট ব্যালেন্স দেখাবে। পরে আবার লিখলে আগের মানটা বদলে যাবে।</div>
-            <div class="form-group">
-                <label>তারিখ:</label>
-                <input type="date" id="companyOpeningBalanceDate">
-            </div>
-            <div class="form-group">
-                <label>টাকার পরিমাণ:</label>
-                <input type="number" id="companyOpeningBalanceAmount" placeholder="যেমন: ৫০০০০">
-            </div>
-            <div class="form-group">
+            <div class="form-group" id="openingBalanceDirectionGroup" style="display:none;">
                 <label>এই টাকার দিক:</label>
-                <select id="companyOpeningBalanceDirection">
+                <select id="openingBalanceDirection">
                     <option value="receivable">আমি কোম্পানির কাছে পাওনা ছিলাম (আগে বেশি পেমেন্ট দেওয়া ছিল)</option>
                     <option value="payable">আমি কোম্পানিকে দেনা ছিলাম (মাল নেওয়া বাবদ বকেয়া ছিল)</option>
                 </select>
             </div>
-            <button class="btn-submit" onclick="saveCompanyOpeningBalance()">সংরক্ষণ করুন</button>
+            <button class="btn-submit" onclick="saveOpeningBalance()">সংরক্ষণ করুন</button>
         </div>
     </div>
 
@@ -7775,17 +7774,51 @@ function renderStockMultiProductList() {
         // রিটেইলারের সাথে মেলে না (রিটেইলার মুছে ফেলা হয়েছে, বা ভুলভাবে
         // মার্জ হয়েছে) — সেগুলোকে "এতিম" ইনভয়েস বলা হচ্ছে। এগুলো সাধারণ
         // তালিকায়/লেজারে দেখা যায় না কিন্তু রিপোর্টে দেখা যায়।
+        // [সংশোধন] আগে এই ফাংশনটি শুধু নাম-টেক্সট (inv.retailer) মিলিয়ে
+        // "এতিম" ধরত — retailerId থাকলেও সেটা একেবারেই দেখা হতো না। এতে
+        // ঝুঁকি ছিল: retailerId ঠিক থাকা সত্ত্বেও (কোনো কারণে) নামের টেক্সট
+        // সাময়িকভাবে না মিললে ভুলভাবে "এতিম" দেখাতে পারত। এখন থেকে যে
+        // ইনভয়েসে retailerId আছে, সেটার এতিম-status সম্পূর্ণভাবে নির্ভর করবে
+        // সেই ID বর্তমান রিটেইলার তালিকায় আছে কি না তার উপর (নামের সাথে মিল
+        // না থাকলেও retailerId ঠিক থাকলে সেটা এতিম নয়) — retailerId না থাকা
+        // পুরনো/লিগ্যাসি ইনভয়েসের ক্ষেত্রেই শুধু আগের মতো নাম মিলিয়ে দেখা হবে।
         function findOrphanInvoices() {
+            const validIds = new Set(retailers.map(r => r.id).filter(Boolean));
             const validTraders = new Set(retailers.map(r => r.trader));
             // ওয়াক-ইন (তালিকায় নেই) ইনভয়েসগুলো ইচ্ছাকৃতভাবেই কোনো
             // রিটেইলারের সাথে যুক্ত না — এগুলো "এতিম" ধরা হবে না।
-            return (invoices || []).filter(inv => !inv.isWalkIn && !validTraders.has(inv.retailer));
+            return (invoices || []).filter(inv => {
+                if (inv.isWalkIn) return false;
+                if (inv.retailerId) return !validIds.has(inv.retailerId);
+                return !validTraders.has(inv.retailer);
+            });
         }
 
         function openOrphanInvoiceFinder() {
             if (!checkConnectionOrAlert()) return;
             document.getElementById('orphanInvoiceModal').style.display = 'flex';
             renderOrphanInvoices();
+        }
+
+        // [নতুন] প্রতিটা এতিম ইনভয়েসের জন্য বর্তমান রিটেইলার তালিকা থেকে
+        // একটা ড্রপডাউন বানায় (রুট অনুযায়ী সাজানো) — যদি কোনো একটা মাত্র
+        // বর্তমান রিটেইলারের নাম (মেসার্স/স্পেস বাদ দিয়ে) এই ইনভয়েসের পুরনো
+        // নামের সাথে হুবহু মিলে যায়, সেটাকে "(সাজেস্টেড)" লিখে আগে থেকেই
+        // বেছে রাখা হয় — শুধু সুবিধার জন্য, চূড়ান্ত সিদ্ধান্ত ব্যবহারকারীরই।
+        function buildOrphanRelinkOptionsHtml(inv) {
+            const oldNorm = normalizeForDuplicateCheck(inv.retailer);
+            const sorted = retailers.map((r, i) => ({ r, i })).sort((a, b) => {
+                const ia = routes.indexOf(a.r.route), ib = routes.indexOf(b.r.route);
+                if (ia !== ib) return ia - ib;
+                return displayTraderName(a.r.trader).localeCompare(displayTraderName(b.r.trader));
+            });
+            const suggestedMatches = sorted.filter(({ r }) => normalizeForDuplicateCheck(r.trader) === oldNorm);
+            const suggestedId = suggestedMatches.length === 1 ? suggestedMatches[0].r.id : null;
+            const options = sorted.map(({ r }) => {
+                const label = `${r.route} — ${displayTraderName(r.trader)}${r.name ? ' (' + r.name + ')' : ''}${r.id === suggestedId ? ' — সাজেস্টেড' : ''}`;
+                return `<option value="${escapeHtml(r.id)}" ${r.id === suggestedId ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+            }).join('');
+            return `<option value="">-- রিটেইলার বাছুন --</option>${options}`;
         }
 
         function renderOrphanInvoices() {
@@ -7801,15 +7834,75 @@ function renderStockMultiProductList() {
                     <td>${escapeHtml(inv.date || '')}</td>
                     <td>${escapeHtml(inv.retailer || '')} <span style="color:#c0392b; font-size:11px;">(নেই)</span></td>
                     <td style="text-align:right;">${Number(inv.totalAmount || 0).toLocaleString('en-US')} ৳</td>
-                    <td style="text-align:center;"><button class="btn-action btn-delete" onclick="deleteOrphanInvoice('${inv.id}')">মুছুন</button></td>
+                    <td>
+                        <select id="relinkSelect_${escapeHtml(inv.id)}" style="width:100%; max-width:260px;">${buildOrphanRelinkOptionsHtml(inv)}</select>
+                    </td>
+                    <td style="text-align:center; white-space:nowrap;">
+                        <button class="btn-action" style="background:#1f6a3a; color:#fff;" onclick="relinkOrphanInvoice('${inv.id}', document.getElementById('relinkSelect_${inv.id}').value)">যুক্ত করুন</button>
+                        <button class="btn-action btn-delete" onclick="deleteOrphanInvoice('${inv.id}')">মুছুন</button>
+                    </td>
                 </tr>`).join('');
             container.innerHTML = `
                 <div style="margin-bottom:10px; font-weight:bold;">মোট ${orphans.length}টি এতিম ইনভয়েস পাওয়া গেছে।</div>
-                <table class="data-table">
-                    <thead><tr><th>ইনভয়েস নং</th><th>তারিখ</th><th>রিটেইলার (যেটা আর নেই)</th><th>টাকা</th><th>অ্যাকশন</th></tr></thead>
+                <table class="data-table" style="table-layout:fixed; width:100%;">
+                    <colgroup>
+                        <col style="width:100px;"><col style="width:100px;"><col style="width:170px;"><col style="width:110px;"><col><col style="width:190px;">
+                    </colgroup>
+                    <thead><tr><th>ইনভয়েস নং</th><th>তারিখ</th><th>রিটেইলার (যেটা আর নেই)</th><th>টাকা</th><th>সঠিক রিটেইলার বাছুন</th><th>অ্যাকশন</th></tr></thead>
                     <tbody>${rows}</tbody>
-                </table>
-                <button class="btn-submit" style="width:auto; margin-top:12px; background:#c0392b;" onclick="deleteAllOrphanInvoices()">সবগুলো একসাথে মুছুন (${orphans.length}টি)</button>`;
+                </table>`;
+        }
+
+        // [নতুন] এতিম ইনভয়েসকে মুছে না ফেলে বর্তমান কোনো রিটেইলারের সাথে
+        // (retailerId + নামের টেক্সট) আবার সঠিকভাবে যুক্ত করে দেয় — ফলে
+        // ইনভয়েসের টাকাটা আবার ঠিক রিটেইলারের বাকির হিসাবে যোগ হয়ে যায়।
+        // কোনো রেকর্ড মুছে ফেলা হয় না; শুধু এই একটা ইনভয়েসের লিংক ঠিক হয়।
+        // মার্জ ফাংশনের মতোই একই Firestore ব্যাচে ইনভয়েস + appData
+        // (রিটেইলারদের নতুন বাকি সহ) একসাথে লেখা হয়, যাতে দুইটা সবসময়
+        // একসাথে সফল বা একসাথে ব্যর্থ হয় (আংশিক লেখা কখনো না হয়)।
+        async function relinkOrphanInvoice(invoiceId, newRetailerId) {
+            if (!checkConnectionOrAlert()) return;
+            if (!newRetailerId) { alert('কোন রিটেইলারের সাথে যুক্ত করবেন বেছে নিন।'); return; }
+            if (!initialDataLoaded || !serverDataWasLoaded || !lastServerCoreHash) { alert('Firebase-এর সর্বশেষ মূল ডাটা নিরাপদভাবে লোড হয়নি।'); return; }
+            const inv = (invoices || []).find(i => i.id === invoiceId);
+            if (!inv) return;
+            const ret = retailers.find(r => r.id === newRetailerId);
+            if (!ret) return;
+            if (!confirm(`ইনভয়েস "${inv.invoiceNo || ''}" (${Number(inv.totalAmount || 0).toLocaleString('en-US')} ৳) কে "${displayTraderName(ret.trader)}" রিটেইলারের সাথে যুক্ত করতে চান?\n\nএতে এই ইনভয়েসের টাকাটা ওই রিটেইলারের বাকির হিসাবেও যোগ হয়ে যাবে। কোনো রেকর্ড মুছে যাবে না।`)) return;
+
+            const oldRetailerText = inv.retailer;
+            const oldRetailerId = inv.retailerId;
+            const oldDue = ret.currentDue;
+            inv.retailer = ret.trader;
+            inv.retailerId = ret.id;
+            recalculateRetailerDue(ret);
+
+            const appDataRef = db.collection('sales_system').doc('appData');
+            try {
+                const serverSnap = await appDataRef.get();
+                if (!serverSnap.exists) throw new Error('__APPDATA_MISSING__');
+                if (getCoreDataHash(serverSnap.data()) !== lastServerCoreHash) throw new Error('__EXTERNAL_CHANGE__');
+                const batch = db.batch();
+                batch.set(db.collection('sales_invoices').doc(inv.id), inv);
+                batch.set(appDataRef, { routes, routeCodes, products, stocks, stockLogs, retailers, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                await batch.commit();
+
+                lastServerCoreHash = getCoreDataHash({ routes, routeCodes, products, stocks, stockLogs, retailers });
+                lastServerCoreData = cloneCoreData({ routes, routeCodes, products, stocks, stockLogs, retailers });
+                renderOrphanInvoices();
+                renderCustomerDueReport();
+                filterRetailersByRoute();
+                updateDashboardStats();
+                alert('ইনভয়েসটি সফলভাবে রিটেইলারের সাথে যুক্ত করা হয়েছে।');
+            } catch (e) {
+                console.error('Orphan invoice relink failed:', e);
+                inv.retailer = oldRetailerText;
+                inv.retailerId = oldRetailerId;
+                ret.currentDue = oldDue;
+                if (e.message === '__EXTERNAL_CHANGE__') showExternalChangeProtection();
+                else if (e.message === '__APPDATA_MISSING__') alert('⚠️ Firebase-এর appData পাওয়া যায়নি। কিছু পরিবর্তন করা হয়নি।');
+                else alert('যুক্ত করা যায়নি। কিছু বদলায়নি।');
+            }
         }
 
         async function deleteOrphanInvoice(id) {
@@ -10593,19 +10686,50 @@ function renderStockMultiProductList() {
     }
     voidCashExpense = guardAgainstDoubleSubmit(voidCashExpense, 'voidCashExpense');
 
-    function openCashOpeningBalanceModal() {
+    // [একত্রিত] প্রারম্ভিক ব্যালেন্সের দুইটি আলাদা পপ-আপ একটাতে মিশিয়ে দেওয়া
+    // হলো — openOpeningBalanceModal('cash'/'company') দিয়ে খোলা হয়,
+    // refreshOpeningBalanceModalView() ড্রপডাউনের মান অনুযায়ী সঠিক হিন্ট/
+    // ফিল্ড দেখায় এবং সঠিক আগের মান ভরে দেয়, আর saveOpeningBalance() ড্রপডাউনের
+    // মান দেখে নিচের দুইটা ফাংশনের (saveCashOpeningBalance/
+    // saveCompanyOpeningBalance) মধ্যে সঠিকটা কল করে -- এই দুইটা ফাংশনের
+    // আসল Firestore-সেভ লজিক অপরিবর্তিত, শুধু ইনপুট ফিল্ডের আইডি এখন
+    // শেয়ার্ড (openingBalanceDate/openingBalanceAmount/openingBalanceDirection)।
+    function openOpeningBalanceModal(type) {
         if (!checkConnectionOrAlert()) return;
-        const existing = getCashOpeningBalanceEntry();
+        document.getElementById('openingBalanceType').value = type || 'cash';
+        refreshOpeningBalanceModalView();
+        document.getElementById('openingBalanceModal').style.display = 'flex';
+    }
+
+    function refreshOpeningBalanceModalView() {
+        const type = document.getElementById('openingBalanceType').value;
+        const isCompany = type === 'company';
+        document.getElementById('openingBalanceCashHint').style.display = isCompany ? 'none' : 'block';
+        document.getElementById('openingBalanceCompanyHint').style.display = isCompany ? 'block' : 'none';
+        document.getElementById('openingBalanceDirectionGroup').style.display = isCompany ? 'block' : 'none';
+        document.getElementById('openingBalanceAmountLabel').textContent = isCompany ? 'টাকার পরিমাণ:' : 'ওই তারিখে হাতে নগদ (টাকা):';
+        const existing = isCompany ? getCompanyOpeningBalanceEntry() : getCashOpeningBalanceEntry();
         const existingDate = existing ? parseBanglaOrISODate(existing.date) : null;
-        document.getElementById('cashOpeningBalanceDate').value = existingDate ? toLocalISODate(existingDate) : getLocalISODate();
-        document.getElementById('cashOpeningBalanceAmount').value = existing ? existing.amount : '';
-        document.getElementById('cashOpeningBalanceModal').style.display = 'flex';
+        document.getElementById('openingBalanceDate').value = existingDate ? toLocalISODate(existingDate) : getLocalISODate();
+        document.getElementById('openingBalanceAmount').value = existing ? existing.amount : '';
+        if (isCompany) {
+            document.getElementById('openingBalanceDirection').value = existing ? (existing.direction || 'receivable') : 'receivable';
+        }
+    }
+
+    async function saveOpeningBalance() {
+        const type = document.getElementById('openingBalanceType').value;
+        if (type === 'company') {
+            await saveCompanyOpeningBalance();
+        } else {
+            await saveCashOpeningBalance();
+        }
     }
 
     async function saveCashOpeningBalance() {
         if (!checkConnectionOrAlert()) return;
-        const dateISO = document.getElementById('cashOpeningBalanceDate').value;
-        const amount = parseFloat(document.getElementById('cashOpeningBalanceAmount').value);
+        const dateISO = document.getElementById('openingBalanceDate').value;
+        const amount = parseFloat(document.getElementById('openingBalanceAmount').value);
         if (!dateISO) { alert('তারিখ নির্বাচন করুন।'); return; }
         if (!Number.isFinite(amount) || amount < 0) { alert('সঠিক টাকার পরিমাণ লিখুন (০ বা তার বেশি)।'); return; }
         const entry = {
@@ -10636,7 +10760,7 @@ function renderStockMultiProductList() {
                 return;
             }
         }
-        closeModal('cashOpeningBalanceModal');
+        closeModal('openingBalanceModal');
         if (document.getElementById('cashFlowReportModal').style.display === 'flex') renderCashFlowReport();
     }
     saveCashOpeningBalance = guardAgainstDoubleSubmit(saveCashOpeningBalance, 'saveCashOpeningBalance');
@@ -10648,21 +10772,11 @@ function renderStockMultiProductList() {
     // [নতুন] কোম্পানিভিত্তিক হিসাবের প্রারম্ভিক ব্যালেন্স -- ক্যাশ প্রারম্ভিক
     // ব্যালেন্সের মতোই একটা স্থির-আইডি ডকুমেন্ট (COMPANY_OPENING_BALANCE), যাতে
     // সবসময় সর্বশেষ একবারই মান থাকে, ডুপ্লিকেট হওয়ার সুযোগ নেই।
-    function openCompanyOpeningBalanceModal() {
-        if (!checkConnectionOrAlert()) return;
-        const existing = getCompanyOpeningBalanceEntry();
-        const existingDate = existing ? parseBanglaOrISODate(existing.date) : null;
-        document.getElementById('companyOpeningBalanceDate').value = existingDate ? toLocalISODate(existingDate) : getLocalISODate();
-        document.getElementById('companyOpeningBalanceAmount').value = existing ? existing.amount : '';
-        document.getElementById('companyOpeningBalanceDirection').value = existing ? (existing.direction || 'receivable') : 'receivable';
-        document.getElementById('companyOpeningBalanceModal').style.display = 'flex';
-    }
-
     async function saveCompanyOpeningBalance() {
         if (!checkConnectionOrAlert()) return;
-        const dateISO = document.getElementById('companyOpeningBalanceDate').value;
-        const amount = parseFloat(document.getElementById('companyOpeningBalanceAmount').value);
-        const direction = document.getElementById('companyOpeningBalanceDirection').value;
+        const dateISO = document.getElementById('openingBalanceDate').value;
+        const amount = parseFloat(document.getElementById('openingBalanceAmount').value);
+        const direction = document.getElementById('openingBalanceDirection').value;
         if (!dateISO) { alert('তারিখ নির্বাচন করুন।'); return; }
         if (!Number.isFinite(amount) || amount < 0) { alert('সঠিক টাকার পরিমাণ লিখুন (০ বা তার বেশি)।'); return; }
         const entry = {
@@ -10689,7 +10803,7 @@ function renderStockMultiProductList() {
                 return;
             }
         }
-        closeModal('companyOpeningBalanceModal');
+        closeModal('openingBalanceModal');
         if (document.getElementById('cashFlowReportModal').style.display === 'flex') renderCashFlowReport();
     }
     saveCompanyOpeningBalance = guardAgainstDoubleSubmit(saveCompanyOpeningBalance, 'saveCompanyOpeningBalance');
@@ -10864,8 +10978,6 @@ function renderStockMultiProductList() {
         // তারিখই সবসময় আজকের তারিখে রিসেট হয়ে যাবে।
         fromEl.value = today;
         toEl.value = today;
-        const closingDateEl = document.getElementById('closingReportDate');
-        if (closingDateEl) closingDateEl.value = today;
         const catSel = document.getElementById('cashFlowCategoryFilter');
         if (!catSel.dataset.filled) {
             catSel.innerHTML = '<option value="">-- সব ধরন --</option>' +
@@ -11024,7 +11136,7 @@ function renderStockMultiProductList() {
             ${companyOpeningNote}
             <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
                 <button class="btn-submit" style="width:auto; background:#4a6c82;" onclick="downloadCompanyLedgerCSV('${from}','${to}')">কোম্পানিভিত্তিক হিসাব CSV ডাউনলোড করুন</button>
-                <button class="btn-submit" style="width:auto; background:#5c4a82;" onclick="openCompanyOpeningBalanceModal()">কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করুন</button>
+                <button class="btn-submit" style="width:auto; background:#5c4a82;" onclick="openOpeningBalanceModal('company')">কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করুন</button>
             </div>`;
     }
 
@@ -11102,45 +11214,61 @@ function renderStockMultiProductList() {
     // যাবে। "মোট কালেকশন" আলাদা করে যোগ-বিয়োগের মধ্যে ধরা হয়নি (কারণ সেটা
     // ইতিমধ্যে "মোট বাকি" কমার মধ্য দিয়ে হিসাবে চলে আসে -- আলাদা করে যোগ করলে
     // টাকাটা দুইবার গোনা হয়ে যেত) -- শুধু নিচে একটা তথ্যমূলক লাইনে দেখানো হয়।
+    // [হালনাগাদ] ক্লোজিং রিপোর্ট এখন উপরের "তারিখ থেকে / তারিখ পর্যন্ত" রেঞ্জ
+    // অনুযায়ী চলে (প্রারম্ভিক ব্যালেন্সের তারিখ থেকে ধরে না) -- যাতে ব্যবসা
+    // বছরের পর বছর চললেও শুধু যে একটা মাস/মেয়াদের রিপোর্ট দরকার শুধু সেটুকুর
+    // জন্যই তারিখ বাছলেই চলে, প্রতিবার সব-সময়ের ("দিন ১" থেকে) হিসাব টানতে হয় না।
+    //
+    // গাণিতিকভাবে এখানে একটা গুরুত্বপূর্ণ বিষয় খেয়াল রাখা হয়েছে: "আগের ক্যাশ" এখন
+    // মেয়াদ শুরুর ঠিক আগের দিন পর্যন্ত (from - ১ দিন) হিসাব করা প্রকৃত ক্যাশ
+    // (getCashBalanceAsOfDate দিয়ে, যেটা নিজেই প্রারম্ভিক ব্যালেন্স থেকে সঠিকভাবে
+    // হিসাব করে আসে)। যেহেতু "আগের ক্যাশ"-এর মধ্যেই আগের সব বাকির প্রভাব ইতিমধ্যে
+    // ধরা আছে, তাই এই মেয়াদে নতুন করে শুধু "বাকি কতটা বাড়ল বা কমল" (dueDelta) সেটাই
+    // যোগ-বিয়োগ করতে হয় -- পুরো "এই তারিখ পর্যন্ত মোট বাকি" ব্যবহার করলে আগের
+    // মেয়াদের বাকিটা দ্বিতীয়বার বাদ পড়ে গিয়ে হিসাব ভুল (কম) দেখাত।
     function downloadClosingReportCSV() {
-        const closingDateISO = document.getElementById('closingReportDate').value;
-        if (!closingDateISO) { alert('ক্লোজিং তারিখ নির্বাচন করুন।'); return; }
+        const fromISO = document.getElementById('cashFlowFromDate').value;
+        const toISO = document.getElementById('cashFlowToDate').value;
+        if (!fromISO || !toISO) { alert('দুটি তারিখ নির্বাচন করুন।'); return; }
+        if (fromISO > toISO) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
         const opening = getCashOpeningBalanceEntry();
         if (!opening) {
             alert('এখনো ক্যাশের প্রারম্ভিক ব্যালেন্স সেট করা হয়নি। প্রথমে "প্রারম্ভিক ব্যালেন্স সেট করুন" থেকে সেট করে নিন, তারপর ক্লোজিং রিপোর্ট ডাউনলোড করা যাবে।');
             return;
         }
-        const openingDate = parseBanglaOrISODate(opening.date);
-        const openingISO = openingDate ? toLocalISODate(openingDate) : closingDateISO;
-        if (closingDateISO < openingISO) {
-            alert(`ক্লোজিং তারিখ প্রারম্ভিক ব্যালেন্সের তারিখের (${opening.date}) আগে হতে পারবে না।`);
-            return;
-        }
 
-        const openingAmt = Number(opening.amount) || 0;
-        const totalSales = getAllInvoiceSalesTotal(openingISO, closingDateISO);
-        const dueAsOfClosing = getTotalDueAsOfDate(closingDateISO);
-        const dailyExpTotal = getCashExpenseEntriesInRange(openingISO, closingDateISO, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-        const companyPayTotal = getCashExpenseEntriesInRange(openingISO, closingDateISO, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-        const collectionTotal = getAllCollectionsInRange(openingISO, closingDateISO, '').reduce((s, r) => s + r.amount, 0);
+        const dayBeforeFrom = isoDateAddDays(fromISO, -1);
+        const previousCash = getCashBalanceAsOfDate(dayBeforeFrom);
+        const totalSalesPeriod = getAllInvoiceSalesTotal(fromISO, toISO);
+        const dueAtStart = getTotalDueAsOfDate(dayBeforeFrom);
+        const dueAtEnd = getTotalDueAsOfDate(toISO);
+        const dueDelta = dueAtEnd - dueAtStart; // ধনাত্মক হলে বাকি বেড়েছে, ঋণাত্মক হলে কমেছে
+        const dailyExpPeriod = getCashExpenseEntriesInRange(fromISO, toISO, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const companyPayPeriod = getCashExpenseEntriesInRange(fromISO, toISO, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const collectionPeriod = getAllCollectionsInRange(fromISO, toISO, '').reduce((s, r) => s + r.amount, 0);
 
-        let running = openingAmt;
+        let running = previousCash;
         const csvRows = [['বিবরণ', 'টাকা', 'ব্যালেন্স']];
-        csvRows.push([`আগের ক্যাশ (${opening.date} তারিখে প্রারম্ভিক ব্যালেন্স)`, Math.round(openingAmt), Math.round(running)]);
-        running += totalSales;
-        csvRows.push(['+ মোট বিক্রি (ক্যাশ + ক্রেডিট)', Math.round(totalSales), Math.round(running)]);
-        running -= dueAsOfClosing;
-        csvRows.push([`− মোট বাকি (${isoToSystemDate(closingDateISO)} পর্যন্ত)`, Math.round(dueAsOfClosing), Math.round(running)]);
-        running -= dailyExpTotal;
-        csvRows.push(['− মোট দৈনিক খরচ', Math.round(dailyExpTotal), Math.round(running)]);
-        running -= companyPayTotal;
-        csvRows.push(['− মোট কোম্পানি পেমেন্ট', Math.round(companyPayTotal), Math.round(running)]);
+        csvRows.push([`আগের ক্যাশ (${isoToSystemDate(dayBeforeFrom)} পর্যন্ত)`, Math.round(previousCash), Math.round(running)]);
+        running += totalSalesPeriod;
+        csvRows.push(['+ মোট বিক্রি (ক্যাশ + ক্রেডিট)', Math.round(totalSalesPeriod), Math.round(running)]);
+        if (dueDelta >= 0) {
+            running -= dueDelta;
+            csvRows.push(['− বাকি বৃদ্ধি (এই সময়ে)', Math.round(dueDelta), Math.round(running)]);
+        } else {
+            running += Math.abs(dueDelta);
+            csvRows.push(['+ বাকি কমেছে (এই সময়ে)', Math.round(Math.abs(dueDelta)), Math.round(running)]);
+        }
+        running -= dailyExpPeriod;
+        csvRows.push(['− মোট দৈনিক খরচ', Math.round(dailyExpPeriod), Math.round(running)]);
+        running -= companyPayPeriod;
+        csvRows.push(['− মোট কোম্পানি পেমেন্ট', Math.round(companyPayPeriod), Math.round(running)]);
         csvRows.push([]);
         csvRows.push(['= ক্লোজিং ব্যালেন্স (মোট ক্যাশ)', '', Math.round(running)]);
         csvRows.push([]);
-        csvRows.push([`(তথ্যের জন্য) এই সময়ে মোট কালেকশন হয়েছে`, Math.round(collectionTotal), '']);
+        csvRows.push([`(তথ্যের জন্য) এই সময়ে মোট কালেকশন হয়েছে`, Math.round(collectionPeriod), '']);
 
-        downloadCSVFile(csvRows, `closing_report_${closingDateISO}.csv`, `ক্লোজিং রিপোর্ট (${opening.date} — ${isoToSystemDate(closingDateISO)})`);
+        downloadCSVFile(csvRows, `closing_report_${fromISO}_to_${toISO}.csv`, `ক্লোজিং রিপোর্ট (${isoToSystemDate(fromISO)} — ${isoToSystemDate(toISO)})`);
     }
 
     function downloadCompanyLedgerCSV(from, to) {
