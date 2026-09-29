@@ -1785,6 +1785,16 @@ body.edit-modal-open { overflow: hidden !important; }
                 <button class="btn-submit" style="width:auto; background:#7a5c00;" onclick="openCashOpeningBalanceModal()">প্রারম্ভিক ব্যালেন্স সেট করুন</button>
                 <button class="btn-submit" style="width:auto; background:#5c4a82;" onclick="openCompanyOpeningBalanceModal()">কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করুন</button>
             </div>
+            <!-- [নতুন] ক্লোজিং রিপোর্ট — একটা নির্দিষ্ট তারিখ পর্যন্ত (প্রারম্ভিক ব্যালেন্সের
+                 তারিখ থেকে শুরু করে) আগের ক্যাশ, মোট বিক্রি, বাকি, দৈনিক খরচ, কোম্পানি
+                 পেমেন্ট ধাপে ধাপে যোগ-বিয়োগ করে সবশেষে ক্লোজিং ব্যালেন্স দেখায় — প্রতিটা
+                 ধাপে চলমান ব্যালেন্সও পাশে দেখা যাবে, যাতে ক্যাশ মেলানো সহজ হয়। -->
+            <div style="margin-top:14px; padding-top:12px; border-top:1px dashed #ccc; display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+                <label style="font-size:13px; color:#555; display:flex; align-items:center; gap:6px;">ক্লোজিং তারিখ:
+                    <input type="date" id="closingReportDate">
+                </label>
+                <button class="btn-submit" style="width:auto; background:#2c6e49;" onclick="downloadClosingReportCSV()">ক্লোজিং রিপোর্ট ডাউনলোড করুন</button>
+            </div>
             <div id="cashFlowResult" style="margin-top:15px;"></div>
         </div>
     </div>
@@ -3354,6 +3364,37 @@ body.edit-modal-open { overflow: hidden !important; }
             return String(value).replace(/[0-9]/g, d => digits[Number(d)]);
         }
 
+        function formatMoneyBangla(value) {
+            return toBanglaNumber(Math.round(value).toLocaleString('en-US')) + ' ৳';
+        }
+
+        // [নতুন] ড্যাশবোর্ডের চারটি কার্ডের টাকার অংক পেজ রিফ্রেশ/নতুন করে খোলার
+        // পর প্রথমবার ০ থেকে আস্তে আস্তে বেড়ে আসল সংখ্যায় পৌঁছাবে (দেখতে সুন্দর
+        // লাগার জন্য) — কিন্তু এরপর ডাটা বদলালে (যেমন নতুন ইনভয়েস/কালেকশন সেভ
+        // হলে, বা অন্য কোনো ট্যাবে/ডিভাইসে কিছু বদলালে) প্রতিবার আবার এনিমেশন
+        // চলবে না, তখন সংখ্যাটা সরাসরি বদলে যাবে — নাহলে ঘন ঘন লাফালাফি করে
+        // চোখে লাগত। পেজ পুরোপুরি রিফ্রেশ/নতুন করে খুললে (dashboardStatsAnimatedOnce
+        // আবার false হয়ে শুরু হয়) আবার একবার এনিমেশন হবে।
+        let dashboardStatsAnimatedOnce = false;
+        function animateDashboardValue(id, targetValue) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (dashboardStatsAnimatedOnce) {
+                el.textContent = formatMoneyBangla(targetValue);
+                return;
+            }
+            const duration = 900;
+            const startTime = performance.now();
+            function step(now) {
+                const t = Math.min(1, (now - startTime) / duration);
+                const eased = 1 - Math.pow(1 - t, 3); // ease-out
+                el.textContent = formatMoneyBangla(targetValue * eased);
+                if (t < 1) requestAnimationFrame(step);
+                else el.textContent = formatMoneyBangla(targetValue);
+            }
+            requestAnimationFrame(step);
+        }
+
         function updateDashboardStats() {
             // তিনটে উৎসই (রিটেইলার/appData, ইনভয়েস, কালেকশন) অন্তত একবার
             // লোড না হওয়া পর্যন্ত রেন্ডার না করাই ভালো -- না হলে আংশিক
@@ -3424,12 +3465,13 @@ body.edit-modal-open { overflow: hidden !important; }
             const money = value => toBanglaNumber(Math.round(value).toLocaleString('en-US')) + ' ৳';
             const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
 
-            setText('dashboardTodaySales', money(todaySales));
+            animateDashboardValue('dashboardTodaySales', todaySales);
             setText('dashboardInvoiceCount', toBanglaNumber(todayInvoices.length) + 'টি ইনভয়েস');
-            setText('dashboardTotalStock', money(totalStockValue));
-            setText('dashboardTodayCollection', money(todayCollectionTotal));
+            animateDashboardValue('dashboardTotalStock', totalStockValue);
+            animateDashboardValue('dashboardTodayCollection', todayCollectionTotal);
             setText('dashboardCollectionCount', toBanglaNumber(todayCollectionCount) + 'টি এন্ট্রি');
-            setText('dashboardDue', money(totalDue));
+            animateDashboardValue('dashboardDue', totalDue);
+            dashboardStatsAnimatedOnce = true;
             schedulePublishMohajonView();
         }
 
@@ -10822,6 +10864,8 @@ function renderStockMultiProductList() {
         // তারিখই সবসময় আজকের তারিখে রিসেট হয়ে যাবে।
         fromEl.value = today;
         toEl.value = today;
+        const closingDateEl = document.getElementById('closingReportDate');
+        if (closingDateEl) closingDateEl.value = today;
         const catSel = document.getElementById('cashFlowCategoryFilter');
         if (!catSel.dataset.filled) {
             catSel.innerHTML = '<option value="">-- সব ধরন --</option>' +
@@ -10997,10 +11041,29 @@ function renderStockMultiProductList() {
         if (!from || !to) { alert('দুটি তারিখ নির্বাচন করুন।'); return; }
         if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return; }
         const outEntriesActive = getCashExpenseEntriesInRange(from, to, catFilter).filter(e => !e.voided);
+        const dateRangeLabel = `${isoToSystemDate(from)} — ${isoToSystemDate(to)}`;
+
+        // [নতুন] উপরে ড্রপডাউনে একটা নির্দিষ্ট খরচের ধরন (যেমন শুধু "দৈনিক খরচ")
+        // বেছে ডাউনলোড করলে এখন শুধু সেই ধরনের এন্ট্রিগুলো আর নিচে একটা টোটাল
+        // যোগফলই ডাউনলোড হয় -- ক্লোজিং রিপোর্টের অন্য সব হিসাব (আগের ক্যাশ, মোট
+        // বিক্রি, বাকি ইত্যাদি) আর যোগ হয় না, যাতে শুধু ওই একটা খরচের ধরনের
+        // সহজ/পরিষ্কার রিপোর্ট পাওয়া যায় (যেমন হিসাবরক্ষক/অডিটরকে দেওয়ার জন্য)।
+        // "সব" (catFilter খালি) বাছাই করলে আগের মতোই পূর্ণাঙ্গ ক্লোজিং রিপোর্ট নামে।
+        if (catFilter) {
+            const total = outEntriesActive.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+            const csvRows = [['তারিখ', 'ধরন', 'টাকা', cashFlowPartyColumnLabel(catFilter), 'নোট']];
+            outEntriesActive.forEach(e => csvRows.push([e.date, cashExpenseCategoryLabel(e.category), e.amount, e.party || '', e.note || '']));
+            csvRows.push([]);
+            csvRows.push(['মোট যোগফল', '', Math.round(total), '', '']);
+            const title = `ক্যাশ ফ্লো রিপোর্ট — ${cashExpenseCategoryLabel(catFilter)} (${dateRangeLabel})`;
+            downloadCSVFile(csvRows, `cash_flow_${catFilter}_${from}_to_${to}.csv`, title);
+            return;
+        }
+
         const csvRows = [['বিবরণ', 'তারিখ', 'খরচের ধরন', 'টাকা', cashFlowPartyColumnLabel(catFilter), 'নোট']];
         outEntriesActive.forEach(e => csvRows.push(['খরচ', e.date, cashExpenseCategoryLabel(e.category), e.amount, e.party || '', e.note || '']));
         csvRows.push([]);
-        csvRows.push(['সারসংক্ষেপ (ক্লোজিং রিপোর্ট)', `${isoToSystemDate(from)} — ${isoToSystemDate(to)}`, '', '', '', '']);
+        csvRows.push(['সারসংক্ষেপ (ক্লোজিং রিপোর্ট)', dateRangeLabel, '', '', '', '']);
 
         const totalSalesPeriod = getAllInvoiceSalesTotal(from, to);
         const collectionTotalPeriod = getAllCollectionsInRange(from, to, '').reduce((s, r) => s + r.amount, 0);
@@ -11027,7 +11090,57 @@ function renderStockMultiProductList() {
             const closingCash = getCashBalanceAsOfDate(to);
             csvRows.push(['ক্লোজিং ব্যালেন্স (মোট ক্যাশ)', '', '', Math.round(closingCash), '', '']);
         }
-        downloadCSVFile(csvRows, `cash_flow_${from}_to_${to}.csv`, 'ক্যাশ ফ্লো রিপোর্ট');
+        downloadCSVFile(csvRows, `cash_flow_${from}_to_${to}.csv`, `ক্যাশ ফ্লো রিপোর্ট (${dateRangeLabel})`);
+    }
+
+    // [নতুন] ক্লোজিং রিপোর্ট — একটা নির্দিষ্ট "ক্লোজিং তারিখ" পর্যন্ত (প্রারম্ভিক
+    // ব্যালেন্সের তারিখ থেকে ধরে) আগের ক্যাশ থেকে শুরু করে ধাপে ধাপে +মোট বিক্রি,
+    // −মোট বাকি (এই তারিখ পর্যন্ত), −মোট দৈনিক খরচ, −মোট কোম্পানি পেমেন্ট যোগ-বিয়োগ
+    // করে একদম শেষে ক্লোজিং ব্যালেন্সে পৌঁছায় -- প্রতিটা ধাপে ডানপাশে চলমান
+    // ব্যালেন্সও দেখায়। এই হিসাবটা getCashBalanceAsOfDate() যেভাবে করে ঠিক
+    // সেভাবেই ধাপে ধাপে ভেঙে দেখানো, তাই যোগফল সবসময় আসল ক্যাশের সাথে মিলে
+    // যাবে। "মোট কালেকশন" আলাদা করে যোগ-বিয়োগের মধ্যে ধরা হয়নি (কারণ সেটা
+    // ইতিমধ্যে "মোট বাকি" কমার মধ্য দিয়ে হিসাবে চলে আসে -- আলাদা করে যোগ করলে
+    // টাকাটা দুইবার গোনা হয়ে যেত) -- শুধু নিচে একটা তথ্যমূলক লাইনে দেখানো হয়।
+    function downloadClosingReportCSV() {
+        const closingDateISO = document.getElementById('closingReportDate').value;
+        if (!closingDateISO) { alert('ক্লোজিং তারিখ নির্বাচন করুন।'); return; }
+        const opening = getCashOpeningBalanceEntry();
+        if (!opening) {
+            alert('এখনো ক্যাশের প্রারম্ভিক ব্যালেন্স সেট করা হয়নি। প্রথমে "প্রারম্ভিক ব্যালেন্স সেট করুন" থেকে সেট করে নিন, তারপর ক্লোজিং রিপোর্ট ডাউনলোড করা যাবে।');
+            return;
+        }
+        const openingDate = parseBanglaOrISODate(opening.date);
+        const openingISO = openingDate ? toLocalISODate(openingDate) : closingDateISO;
+        if (closingDateISO < openingISO) {
+            alert(`ক্লোজিং তারিখ প্রারম্ভিক ব্যালেন্সের তারিখের (${opening.date}) আগে হতে পারবে না।`);
+            return;
+        }
+
+        const openingAmt = Number(opening.amount) || 0;
+        const totalSales = getAllInvoiceSalesTotal(openingISO, closingDateISO);
+        const dueAsOfClosing = getTotalDueAsOfDate(closingDateISO);
+        const dailyExpTotal = getCashExpenseEntriesInRange(openingISO, closingDateISO, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const companyPayTotal = getCashExpenseEntriesInRange(openingISO, closingDateISO, 'company_payment').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
+        const collectionTotal = getAllCollectionsInRange(openingISO, closingDateISO, '').reduce((s, r) => s + r.amount, 0);
+
+        let running = openingAmt;
+        const csvRows = [['বিবরণ', 'টাকা', 'ব্যালেন্স']];
+        csvRows.push([`আগের ক্যাশ (${opening.date} তারিখে প্রারম্ভিক ব্যালেন্স)`, Math.round(openingAmt), Math.round(running)]);
+        running += totalSales;
+        csvRows.push(['+ মোট বিক্রি (ক্যাশ + ক্রেডিট)', Math.round(totalSales), Math.round(running)]);
+        running -= dueAsOfClosing;
+        csvRows.push([`− মোট বাকি (${isoToSystemDate(closingDateISO)} পর্যন্ত)`, Math.round(dueAsOfClosing), Math.round(running)]);
+        running -= dailyExpTotal;
+        csvRows.push(['− মোট দৈনিক খরচ', Math.round(dailyExpTotal), Math.round(running)]);
+        running -= companyPayTotal;
+        csvRows.push(['− মোট কোম্পানি পেমেন্ট', Math.round(companyPayTotal), Math.round(running)]);
+        csvRows.push([]);
+        csvRows.push(['= ক্লোজিং ব্যালেন্স (মোট ক্যাশ)', '', Math.round(running)]);
+        csvRows.push([]);
+        csvRows.push([`(তথ্যের জন্য) এই সময়ে মোট কালেকশন হয়েছে`, Math.round(collectionTotal), '']);
+
+        downloadCSVFile(csvRows, `closing_report_${closingDateISO}.csv`, `ক্লোজিং রিপোর্ট (${opening.date} — ${isoToSystemDate(closingDateISO)})`);
     }
 
     function downloadCompanyLedgerCSV(from, to) {
