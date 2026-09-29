@@ -5371,9 +5371,10 @@ body.edit-modal-open { overflow: hidden !important; }
             filtered.forEach(inv => {
                 const buyerRet = resolveRetailerForInvoice(inv);
                 const buyerName = buyerRet ? (buyerRet.name || '') : '';
+                const traderDisplay = buyerRet ? displayTraderName(buyerRet.trader) : displayTraderName(inv.retailer);
                 const amount = Math.round(Number(inv.totalAmount || 0) || 0);
                 const avgDiscount = getInvoiceAvgDiscountPercent(inv);
-                todayRowsHtml += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(displayTraderName(inv.retailer))}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:4px 2px;"><button class="btn-action btn-view" style="padding:2px 5px;font-size:10.5px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:2px 5px;font-size:10.5px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:2px 5px;font-size:10.5px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action ${isInvoicePrinted(inv.id) ? 'print-done' : 'print-pending'}" id="printBtn_${inv.id}" style="padding:2px 5px;font-size:10.5px;" onclick="printInvoiceDirect('${inv.id}', this)">${isInvoicePrinted(inv.id) ? '🖨️প্রিন্ট হয়েছে' : '🖨️প্রিন্ট'}</button></td></tr>`;
+                todayRowsHtml += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(traderDisplay)}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:4px 2px;"><button class="btn-action btn-view" style="padding:2px 5px;font-size:10.5px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:2px 5px;font-size:10.5px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:2px 5px;font-size:10.5px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action ${isInvoicePrinted(inv.id) ? 'print-done' : 'print-pending'}" id="printBtn_${inv.id}" style="padding:2px 5px;font-size:10.5px;" onclick="printInvoiceDirect('${inv.id}', this)">${isInvoicePrinted(inv.id) ? '🖨️প্রিন্ট হয়েছে' : '🖨️প্রিন্ট'}</button></td></tr>`;
             });
             tbody.innerHTML = todayRowsHtml;
         }
@@ -5393,7 +5394,9 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!sorted.length) { tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:#777;">কোনো ইনভয়েস নেই।</td></tr>'; return; }
             let savedRowsHtml = '';
             sorted.forEach(inv => {
-                savedRowsHtml += `<tr><td>${escapeHtml(inv.date) || ''}</td><td><b>${escapeHtml(inv.invoiceNo) || ''}</b></td><td>${escapeHtml(displayTraderName(inv.retailer))}</td><td>${inv.invoiceType==='Credit'?'ক্রেডিট':'ক্যাশ'}</td><td>${Number(inv.totalAmount||0).toLocaleString('en-US')} ৳</td><td style="text-align:center;"><button class="btn-action btn-view" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" onclick="openSalesModal('${inv.id}')">এডিট</button></td></tr>`;
+                const buyerRet = resolveRetailerForInvoice(inv);
+                const traderDisplay = buyerRet ? displayTraderName(buyerRet.trader) : displayTraderName(inv.retailer);
+                savedRowsHtml += `<tr><td>${escapeHtml(inv.date) || ''}</td><td><b>${escapeHtml(inv.invoiceNo) || ''}</b></td><td>${escapeHtml(traderDisplay)}</td><td>${inv.invoiceType==='Credit'?'ক্রেডিট':'ক্যাশ'}</td><td>${Number(inv.totalAmount||0).toLocaleString('en-US')} ৳</td><td style="text-align:center;"><button class="btn-action btn-view" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" onclick="openSalesModal('${inv.id}')">এডিট</button></td></tr>`;
             });
             tbody.innerHTML = savedRowsHtml;
         }
@@ -8966,6 +8969,11 @@ function renderStockMultiProductList() {
                 if(inv.invoiceType==='Credit') credit+=amount; else cash+=amount;
                 const buyerRet = resolveRetailerForInvoice(inv);
                 const buyerName = buyerRet ? (buyerRet.name || '') : '';
+                // [সংশোধন] আগে এই কলামে ইনভয়েস তৈরির সময়কার পুরনো ট্রেডার্স-নামের
+                // টেক্সট (inv.retailer) সরাসরি দেখানো হতো — রিটেইলারের নাম পরে
+                // বদলালেও এখানে পুরনো নামটাই থেকে যেত। এখন resolveRetailerForInvoice()
+                // দিয়ে খোঁজা বর্তমান রিটেইলারের নামই দেখানো হবে।
+                const traderDisplay = buyerRet ? displayTraderName(buyerRet.trader) : displayTraderName(inv.retailer);
                 const invMrp = (inv.items || []).reduce((sum, it) => sum + getItemLineAmounts(it).grossTotal, 0);
                 mrpTotal += invMrp;
                 // পুরো সময়ের গড় ছাড়% এখন দাম-ভিত্তিক ওজনযুক্ত (weighted)
@@ -8980,7 +8988,7 @@ function renderStockMultiProductList() {
                     <td style="white-space:nowrap;">${escapeHtml(inv.invoiceNo||'')}</td>
                     <td style="white-space:nowrap;">${escapeHtml(inv.date||'')}</td>
                     <td style="white-space:nowrap;">${escapeHtml(inv.route||'')}</td>
-                    <td style="white-space:nowrap;">${escapeHtml(displayTraderName(inv.retailer))}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(traderDisplay)}</td>
                     <td style="white-space:nowrap;">${escapeHtml(buyerName)}</td>
                     <td style="white-space:nowrap;">${inv.invoiceType==='Credit'?'ক্রেডিট':'ক্যাশ'}</td>
                     <td style="text-align:right; white-space:nowrap;">${Math.round(invMrp).toLocaleString('en-US')} ৳</td>
