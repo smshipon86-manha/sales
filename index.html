@@ -697,7 +697,14 @@
             border-radius: 10px;
             margin-bottom: 8px;
         }
-    </style>
+    
+        /* Customer Ledger action buttons: keep all four buttons in one row.
+           On narrow screens the row scrolls horizontally instead of wrapping. */
+        .ledger-action-buttons::-webkit-scrollbar { height: 4px; }
+        @media (max-width: 700px) {
+          .ledger-action-buttons > .btn-submit { flex: 0 0 auto !important; min-width: 150px !important; }
+        }
+</style>
 <style id="mobile-report-styles">
 @media (max-width: 768px) {
   .modal-box { width: calc(100vw - 20px) !important; max-width: calc(100vw - 20px) !important; max-height: 92vh; overflow-y: auto; }
@@ -5372,7 +5379,7 @@ body.edit-modal-open { overflow: hidden !important; }
                 const buyerRet = resolveRetailerForInvoice(inv);
                 const buyerName = buyerRet ? (buyerRet.name || '') : '';
                 const traderDisplay = buyerRet ? displayTraderName(buyerRet.trader) : displayTraderName(inv.retailer);
-                const amount = Math.round(Number(inv.totalAmount || 0) || 0);
+                const amount = Math.round((Number(inv.totalAmount || 0) || 0) * 100) / 100;
                 const avgDiscount = getInvoiceAvgDiscountPercent(inv);
                 todayRowsHtml += `<tr><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"><b>${escapeHtml(inv.invoiceNo)}</b></td><td style="white-space:normal;word-break:break-word;min-width:80px;">${escapeHtml(inv.route)}</td><td style="white-space:normal;word-break:break-word;min-width:110px;">${escapeHtml(traderDisplay)}</td><td style="white-space:normal;word-break:break-word;min-width:100px;">${escapeHtml(buyerName)}</td><td style="white-space:normal;word-break:break-word;">${escapeHtml(inv.invoiceType)}</td><td style="white-space:nowrap;">${(inv.items||[]).length} টি পণ্য</td><td style="text-align:right;white-space:nowrap;">${amount.toLocaleString('en-US')} ৳</td><td style="text-align:center;white-space:nowrap;">${avgDiscount > 0 ? avgDiscount.toFixed(2) + '%' : '-'}</td><td style="text-align:center;white-space:nowrap;padding:4px 2px;"><button class="btn-action btn-view" style="padding:2px 5px;font-size:10.5px;" onclick="viewCashMemo('${inv.id}')">ভিউ</button><button class="btn-action btn-edit" style="padding:2px 5px;font-size:10.5px;" onclick="openSalesModal('${inv.id}')">এডিট</button><button class="btn-action btn-delete" style="padding:2px 5px;font-size:10.5px;" onclick="deleteInvoice('${inv.id}')">মুছুন</button><button class="btn-action ${isInvoicePrinted(inv.id) ? 'print-done' : 'print-pending'}" id="printBtn_${inv.id}" style="padding:2px 5px;font-size:10.5px;" onclick="printInvoiceDirect('${inv.id}', this)">${isInvoicePrinted(inv.id) ? '🖨️প্রিন্ট হয়েছে' : '🖨️প্রিন্ট'}</button></td></tr>`;
             });
@@ -6342,7 +6349,7 @@ body.edit-modal-open { overflow: hidden !important; }
             const to = document.getElementById('stockLogToDate').value;
             if (!from || !to) { alert('দুটি তারিখ নির্বাচন করুন।'); return null; }
             if (from > to) { alert('শুরুর তারিখ শেষ তারিখের পরে হতে পারবে না।'); return null; }
-            const filtered = (stockLogs || []).filter(log => {
+            const filtered = (stockLogs || []).filter(log => !log.voided).filter(log => {
                 const d = toLocalISODate(parseBanglaOrISODate(log.date));
                 return d && d >= from && d <= to;
             }).sort((a, b) => {
@@ -6390,7 +6397,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     <td style="text-align:right; white-space:nowrap;">${Math.round(mrp).toLocaleString('en-US')} ৳</td>
                     <td style="text-align:right; white-space:nowrap;">${Math.round(afterDiscount).toLocaleString('en-US')} ৳</td>
                     <td style="white-space:nowrap;">${escapeHtml(log.invoiceRef || '-')}</td>
-                    <td style="text-align:center; white-space:nowrap;"><button class="btn-action btn-delete" onclick="deleteStockLogEntry('${log.id}')">মুছুন</button></td>
+                    <td style="text-align:center; white-space:nowrap;"><button class="btn-action btn-delete" onclick="deleteStockLogEntry('${log.id}')">বাতিল</button></td>
                 </tr>`;
             }).join('');
             container.innerHTML = `
@@ -6420,11 +6427,10 @@ body.edit-modal-open { overflow: hidden !important; }
         // (কারণ স্টক ইতিমধ্যেই আলাদাভাবে এডিট/ডিলিট করা যায়)। টেস্ট/ডেমো
         // এন্ট্রি পরিষ্কার করতে কাজে লাগবে।
         async function deleteStockLogEntry(logId) {
-            if (!confirm('এই ইতিহাস এন্ট্রিটা মুছে ফেলতে চান? এটা শুধু ইতিহাস থেকে মুছবে, বর্তমান স্টকের পরিমাণ পরিবর্তন হবে না।')) return;
+            if (!confirm('এই ইতিহাস এন্ট্রিটা বাতিল করতে চান? স্থায়ীভাবে মুছে ফেলা হবে না; ইতিহাসে থাকবে, শুধু রিপোর্টের হিসাব থেকে বাদ যাবে।')) return;
             if (!checkConnectionOrAlert()) return;
-            stockLogs = stockLogs.filter(log => log.id !== logId);
-            if (!(await syncToFirebase())) return;
-            renderStockLogReport();
+            const log=(stockLogs||[]).find(x=>x&&x.id===logId); if(!log)return; log.voided=true; log.voidedAt=getSystemDateString();
+            if (!(await syncToFirebase())) return; renderStockLogReport();
         }
 
         function downloadStockLogReportCSV() {
@@ -6684,6 +6690,7 @@ function renderStockMultiProductList() {
             }
 
             const stockDate = document.getElementById('stockAddDate').value || getLocalISODate();
+            if(isFutureISODate(stockDate)){alert('ভবিষ্যতের তারিখে স্টক যোগ করা যাবে না।');return;}
             const stockInvoiceRefValue = (document.getElementById('stockInvoiceRef').value || '').trim();
 
             entries.forEach(({ product, qtyCartons, qtyPieces }) => {
@@ -6710,6 +6717,8 @@ function renderStockMultiProductList() {
             showSaveToast(`${entries.length}টি পণ্যের স্টক সফলভাবে যোগ করা হয়েছে`);
         }
 
+        function addStockAdjustmentLog(productName, deltaPieces, note) { const rounded=Math.round(Number(deltaPieces)||0); if(!productName||rounded===0)return; stockLogs.push({id:'SADJ_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),date:isoToSystemDate(getLocalISODate()),productName,qtyPieces:rounded,invoiceRef:note||'MANUAL_STOCK_ADJUSTMENT',adjustment:true}); }
+
         function editStock(index) {
             if (!checkConnectionOrAlert()) return;
             const product = products.find(p => p.name === stocks[index].productName);
@@ -6728,8 +6737,10 @@ function renderStockMultiProductList() {
                     const selectedProduct = products.find(p => p.name === values.productName);
                     if (!selectedProduct) { showUniversalEditError('পণ্য নির্বাচন করুন।'); return false; }
                     if (!Number.isFinite(pieces) || pieces < 0) { showUniversalEditError('সঠিক স্টক পিস লিখুন।'); return false; }
-                    stocks[index] = {...stocks[index], productName:values.productName, qty:pieces / getPiecesPerCarton(selectedProduct)};
-                    if (!(await syncToFirebase())) return false;
+                    const oldStock=JSON.parse(JSON.stringify(stocks[index])); const oldProduct=products.find(p=>p.name===oldStock.productName); const oldPieces=Math.round((parseFloat(oldStock.qty||0)||0)*getPiecesPerCarton(oldProduct)); const oldLogs=JSON.parse(JSON.stringify(stockLogs||[]));
+                    stocks[index]={...stocks[index],productName:values.productName,qty:pieces/getPiecesPerCarton(selectedProduct)};
+                    if(oldStock.productName===values.productName) addStockAdjustmentLog(values.productName,pieces-oldPieces,'MANUAL_STOCK_ADJUSTMENT'); else {addStockAdjustmentLog(oldStock.productName,-oldPieces,'MANUAL_STOCK_PRODUCT_CHANGE_OUT');addStockAdjustmentLog(values.productName,pieces,'MANUAL_STOCK_PRODUCT_CHANGE_IN');}
+                    if (!(await syncToFirebase())) { stocks[index]=oldStock; stockLogs=oldLogs; return false; }
                     renderStocks(); renderProductSelectionList(); renderSavedInvoices();
                     return true;
                 }
@@ -6811,7 +6822,7 @@ function renderStockMultiProductList() {
                     routes[index] = cleanRoute;
                     if (oldRoute !== cleanRoute) delete routeCodes[oldRoute];
                     if (cleanCode) routeCodes[cleanRoute] = cleanCode; else delete routeCodes[cleanRoute];
-                    retailers.forEach(r => { if (r.route === oldRoute) r.route = cleanRoute; });
+                    retailers.forEach(r => { if (r.route === oldRoute) { const hist=Array.isArray(r.legacyIdentities)?r.legacyIdentities.slice():[]; const pair={trader:r.trader||'',route:oldRoute}; if(pair.trader&&!hist.some(x=>x&&x.trader===pair.trader&&x.route===pair.route)) hist.push(pair); r.legacyIdentities=hist; r.route=cleanRoute; } });
                     return syncToFirebase().then(saved => {
                         if (!saved) return false;
                         renderRoutes(); renderRetailerDropdowns(); filterRetailersByRoute(); renderRetailerReport(); renderCustomerDueReport();
@@ -7039,6 +7050,13 @@ function renderStockMultiProductList() {
             // retailerId ছাড়া পুরোনো ইনভয়েসে (যেখানে নাম-ই একমাত্র সূত্র)
             // আগের পদ্ধতিতেই নাম মিলিয়ে বদলানো হয়।
             const invoiceNamesBackup = snapshotInvoiceRetailerNames();
+            if (editIndex !== -1 && old.trader && (old.trader !== trader || old.route !== route)) {
+                const hist=Array.isArray(retailerData.legacyIdentities)?retailerData.legacyIdentities.slice():[];
+                const pairs=[{trader:old.trader,route:old.route||''}];
+                if (old.route !== route && old.trader !== trader) pairs.push({trader:trader,route:old.route||''});
+                pairs.forEach(pair=>{ if(pair.trader&&!hist.some(x=>x&&x.trader===pair.trader&&x.route===pair.route)) hist.push(pair); });
+                retailerData.legacyIdentities=hist;
+            }
             if (editIndex !== -1 && old.trader && old.trader !== trader) {
                 invoices.forEach(inv => {
                     if (inv.retailerId) {
@@ -7093,7 +7111,15 @@ function renderStockMultiProductList() {
                     if (!values.route) { showUniversalEditError('রুট নির্বাচন করুন।'); return false; }
                     if (!values.trader.trim()) { showUniversalEditError('ট্রেডার্সের নাম লিখুন।'); return false; }
                     const oldTrader = ret.trader;
+                    const oldRoute = ret.route;
                     const invoiceNamesBackup = snapshotInvoiceRetailerNames();
+                    if (oldTrader && (oldTrader !== values.trader.trim() || oldRoute !== values.route)) {
+                        const hist=Array.isArray(ret.legacyIdentities)?ret.legacyIdentities.slice():[];
+                        const pairs=[{trader:oldTrader,route:oldRoute||''}];
+                        if (oldRoute !== values.route && oldTrader !== values.trader.trim()) pairs.push({trader:values.trader.trim(),route:oldRoute||''});
+                        pairs.forEach(pair=>{ if(pair.trader&&!hist.some(x=>x&&x.trader===pair.trader&&x.route===pair.route)) hist.push(pair); });
+                        ret.legacyIdentities=hist;
+                    }
                     Object.assign(ret, {route:values.route, name:values.name, trader:values.trader.trim(), address:values.address, mobile:values.mobile});
                     if (oldTrader && oldTrader !== ret.trader) {
                         // retailerId থাকা history: শুধুমাত্র এই retailer-এর ID-তেই update হবে।
@@ -7397,6 +7423,19 @@ function renderStockMultiProductList() {
         // কাজ শেষ হলেই মুছে ফেলা হয় — তাই কখনো পুরোনো (stale) ডাটা থাকে না।
         // মিলানোর নিয়ম হুবহু আগের মতোই (retailerId, না থাকলে একক legacy মিল)।
         let __ledgerIndex = null;
+        function getRetailerIdentityPairs(ret) {
+            if (!ret) return [];
+            const out = [{ trader:String(ret.trader || ''), route:String(ret.route || '') }];
+            (Array.isArray(ret.legacyIdentities) ? ret.legacyIdentities : []).forEach(x => {
+                if (!x) return; const trader=String(x.trader||''), route=String(x.route||'');
+                if (trader && !out.some(y=>y.trader===trader && y.route===route)) out.push({trader,route});
+            }); return out;
+        }
+        function retailerLegacyIdentityMatches(ret, trader, route) {
+            const t=String(trader||''), r=String(route||'');
+            return getRetailerIdentityPairs(ret).some(x=>x.trader===t && (!r || x.route===r));
+        }
+
         function __buildLedgerIndex() {
             const byTrader = new Map();
             (retailers || []).forEach(r => {
@@ -7432,16 +7471,16 @@ function renderStockMultiProductList() {
             const invById = new Map(), invLegacy = new Map();
             invList.forEach((inv, pos) => {
                 if (inv.retailerId) { pushTo(invById, inv.retailerId, pos); return; }
-                const cands = (byTrader.get(inv.retailer) || []).filter(r => (!inv.route || r.route === inv.route));
-                if (cands.length === 1) pushNested(invLegacy, [cands[0].id, inv.retailer], pos);
+                const cands = (retailers || []).filter(r => retailerLegacyIdentityMatches(r, inv.retailer, inv.route));
+                if (cands.length === 1) pushNested(invLegacy, [cands[0].id, cands[0].trader], pos);
             });
 
             const colList = retailerCollectionsLive || [];
             const colById = new Map(), colLegacy = new Map();
             colList.forEach((c, pos) => {
                 if (c.retailerId) { pushTo(colById, c.retailerId, pos); return; }
-                const cands = (byTrader.get(c.retailerTrader) || []).filter(r => r.route === c.route);
-                if (cands.length === 1) pushNested(colLegacy, [cands[0].id, c.retailerTrader, c.route], pos);
+                const cands = (retailers || []).filter(r => retailerLegacyIdentityMatches(r, c.retailerTrader, c.route));
+                if (cands.length === 1) pushNested(colLegacy, [cands[0].id, c.trader, c.route], pos);
             });
 
             return {
@@ -7469,10 +7508,7 @@ function renderStockMultiProductList() {
                 // Legacy invoice without retailerId: only match when the trader/route
                 // combination identifies exactly one retailer. Never guess on a duplicate name.
                 if (inv.retailer !== ret.trader) return false;
-                const candidates = (retailers || []).filter(r =>
-                    r && r.trader === inv.retailer &&
-                    (!inv.route || r.route === inv.route)
-                );
+                const candidates = (retailers || []).filter(r => retailerLegacyIdentityMatches(r, inv.retailer, inv.route));
                 return candidates.length === 1 && candidates[0].id === ret.id;
             });
         }
@@ -7485,10 +7521,8 @@ function renderStockMultiProductList() {
             if (__ledgerIndex) return __ledgerIndex.collectionsFor(ret);
             return (retailerCollectionsLive || []).filter(c => {
                 if (c.retailerId) return c.retailerId === ret.id;
-                if (c.retailerTrader !== ret.trader || c.route !== ret.route) return false;
-                const candidates = (retailers || []).filter(r =>
-                    r && r.trader === c.retailerTrader && r.route === c.route
-                );
+                if (!retailerLegacyIdentityMatches(ret, c.retailerTrader, c.route)) return false;
+                const candidates = (retailers || []).filter(r => retailerLegacyIdentityMatches(r, c.retailerTrader, c.route));
                 return candidates.length === 1 && candidates[0].id === ret.id;
             });
         }
@@ -7602,7 +7636,7 @@ function renderStockMultiProductList() {
             const newCollections = getRetailerCollectionsV2(ret).reduce((sum, c) => sum + (Number(c.amount || 0) || 0), 0);
             // Always rebuild the balance from source transactions. Never use previous currentDue.
             // দশমিক যেন কোথাও থেকে না যায়, তাই শেষ ফলাফল রাউন্ড করা হচ্ছে।
-            ret.currentDue = Math.round(Math.max(0, opening + credit - oldCollections - newCollections));
+            ret.currentDue = Math.round(Math.max(0, opening + credit - oldCollections - newCollections) * 100) / 100;
             return ret.currentDue;
         }
 
@@ -7996,6 +8030,9 @@ function renderStockMultiProductList() {
             if (!date) { alert('তারিখ নির্বাচন করুন।'); return; }
             if (!Number.isFinite(amount) || amount < 0) { alert('সঠিক আগের বাকি লিখুন।'); return; }
             const ret = retailers[idx];
+            if(isFutureISODate(date)){alert('ভবিষ্যতের তারিখে আগের বাকি সেট করা যাবে না।');return;}
+            const oldOpeningDue=ret.openingDue?{...ret.openingDue}:null;
+            if(oldOpeningDue&&(oldOpeningDue.date!==isoToSystemDate(date)||Number(oldOpeningDue.amount||0)!==amount)){const hist=Array.isArray(ret.openingDueHistory)?ret.openingDueHistory.slice():[];hist.push({...oldOpeningDue,replacedOn:getSystemDateString(),replacedBy:'EDIT'});ret.openingDueHistory=hist;}
             ret.openingDue = { id: (ret.openingDue && ret.openingDue.id) || ('OPEN_' + Date.now()), date: isoToSystemDate(date), amount };
             recalculateRetailerDue(ret);
             if (!(await syncToFirebase())) return;
@@ -8021,6 +8058,8 @@ function renderStockMultiProductList() {
                     const amount = Number(values.amount);
                     if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) { showUniversalEditError('সঠিক তারিখ নির্বাচন করুন।'); return false; }
                     if (!Number.isFinite(amount) || amount < 0) { showUniversalEditError('সঠিক আগের বাকি লিখুন।'); return false; }
+                    if(isFutureISODate(values.date)){showUniversalEditError('ভবিষ্যতের তারিখে আগের বাকি সেট করা যাবে না।');return false;}
+                    if(od&&(od.date!==isoToSystemDate(values.date)||Number(od.amount||0)!==amount)){const hist=Array.isArray(ret.openingDueHistory)?ret.openingDueHistory.slice():[];hist.push({...od,replacedOn:getSystemDateString(),replacedBy:'EDIT'});ret.openingDueHistory=hist;}
                     ret.openingDue = {id:od.id || ('OPEN_' + Date.now()), date:isoToSystemDate(values.date), amount};
                     recalculateRetailerDue(ret);
                     if (!(await syncToFirebase())) return false;
@@ -8209,7 +8248,7 @@ function renderStockMultiProductList() {
                 });
             });
 
-            (stockLogs || []).forEach(log => {
+            (stockLogs || []).filter(log => !log.voided).forEach(log => {
                 const d = toLocalISODate(parseBanglaOrISODate(log.date));
                 if (!d || d <= asOfISO) return; // শুধু asOfISO-এর পরে যুক্ত হওয়া স্টক
                 const product = products.find(p => p.name === log.productName);
@@ -8573,7 +8612,7 @@ function renderStockMultiProductList() {
                     skipped++; skippedRows.push(i + 1);
                     return;
                 }
-                const isoDate = parseFlexibleDateToISO(dateStr) || getLocalISODate();
+                const isoDate=parseFlexibleDateToISO(dateStr); if(!isoDate||isFutureISODate(isoDate)){skipped++;skippedRows.push(i+1);return;}
                 const newDate = isoToSystemDate(isoDate);
                 const old = ret.openingDue || null;
                 const oldAmount = old ? (Number(old.amount || 0) || 0) : null;
@@ -8692,10 +8731,11 @@ function renderStockMultiProductList() {
                 if (existing) existing.qty = cartonEquivalent;
                 else nextStocks.push({ productName: product.name, qty: cartonEquivalent });
             });
-            const oldStocks = stocks;
-            stocks = nextStocks;
+            const oldStocks=stocks; const oldStockLogs=stockLogs; const nextStockLogs=JSON.parse(JSON.stringify(stockLogs||[]));
+            parsed.forEach(({product,qtyPieces,ppc})=>{const oldEntry=stocks.find(st=>st.productName===product.name);const before=oldEntry?(Number(oldEntry.qty||0)||0)*ppc:0;const delta=Math.round(qtyPieces-before);if(delta!==0)nextStockLogs.push({id:'SADJ_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),date:isoToSystemDate(getLocalISODate()),productName:product.name,qtyPieces:delta,invoiceRef:'CSV_STOCK_SET',adjustment:true});});
+            stocks=nextStocks; stockLogs=nextStockLogs;
             if (!(await syncToFirebase())) {
-                stocks = oldStocks;
+                stocks=oldStocks; stockLogs=oldStockLogs;
                 renderStocks();
                 renderProductSelectionList();
                 document.getElementById('stockCsvInput').value = '';
@@ -9497,13 +9537,40 @@ function renderStockMultiProductList() {
         // যায়। ইনভয়েসের আইডিতে টাইমস্ট্যাম্প লুকানো থাকে (INV_<millis>),
         // আর নতুন কালেকশনে createdAt ফিল্ড সরাসরি আছে। পুরনো (মাইগ্রেশনের
         // আগের) কালেকশনে এই তথ্য নেই বলে সেগুলোকে "সবচেয়ে পুরনো" ধরা হয়।
-        function getTransactionSortKey(row) {
-            if (row.transactionType === 'invoice') {
-                return getInvoiceCreationOrder({ id: row.id });
+        function getCollectionCreationOrder(c) {
+            if (!c) return 0;
+            const createdAt = c.createdAt;
+            if (createdAt && typeof createdAt.toMillis === 'function') {
+                const ms = Number(createdAt.toMillis());
+                if (Number.isFinite(ms) && ms > 0) return ms;
             }
+            if (typeof createdAt === 'number' && Number.isFinite(createdAt) && createdAt > 0) return createdAt;
+            if (typeof createdAt === 'string') {
+                const n = Number(createdAt);
+                if (Number.isFinite(n) && n > 0) return n;
+                const d = Date.parse(createdAt);
+                if (Number.isFinite(d) && d > 0) return d;
+            }
+            // পুরোনো collection-এ createdAt না থাকলেও RCOL_<timestamp> ID-তে
+            // তৈরির সময় থাকলে সেটি ব্যবহার করা হবে।
+            const m = String(c.id || '').match(/(?:RCOL|COLLECTION|COL)[_-](\d{10,})/i);
+            return m ? Number(m[1]) : 0;
+        }
+
+        function getTransactionSortKey(row) {
+            if (row.transactionType === 'invoice') return getInvoiceCreationOrder({ id: row.id });
             if (row.transactionType === 'collection_v2') {
                 const c = (retailerCollectionsLive || []).find(x => x.id === row.id);
-                return (c && c.createdAt) ? c.createdAt : 0;
+                return getCollectionCreationOrder(c);
+            }
+            if (row.transactionType === 'collection') {
+                const owner = retailers.find(r => (r.collections || []).some(c => c.id === row.id));
+                const c = owner ? (owner.collections || []).find(x => x.id === row.id) : null;
+                return getCollectionCreationOrder(c);
+            }
+            if (row.transactionType === 'openingDue') {
+                const m = String(row.id || '').match(/(?:OPEN|OPENING_DUE)[_-](\d{10,})/i);
+                return m ? Number(m[1]) : 0;
             }
             return 0;
         }
@@ -9511,7 +9578,9 @@ function renderStockMultiProductList() {
         function getRetailerAllLedgerTransactions(ret) {
             const rows = [];
             if (ret && ret.openingDue && Number(ret.openingDue.amount || 0) > 0) {
-                rows.push({date: ret.openingDue.date || '', type:'আগের বাকি', ref:ret.openingDue.id || 'OPENING_DUE', sales:0, credit:Number(ret.openingDue.amount||0)||0, collection:0, cashDepositAmount:0, balanceEffect:Number(ret.openingDue.amount||0)||0, transactionType:'openingDue', id:ret.openingDue.id || 'OPENING_DUE'});
+                const openingAmount = Math.round((Number(ret.openingDue.amount || 0) || 0) * 100) / 100;
+                const openingDate = parseBanglaOrISODate(ret.openingDue.date || '');
+                rows.push({date: openingDate ? ret.openingDue.date : '', type: openingDate ? 'আগের বাকি' : 'আগের বাকি (তারিখ নেই)', ref:ret.openingDue.id || 'OPENING_DUE', sales:0, credit:openingAmount, collection:0, cashDepositAmount:0, balanceEffect:openingDate ? openingAmount : 0, displayOnlyOpening: !openingDate, transactionType:'openingDue', id:ret.openingDue.id || 'OPENING_DUE'});
             }
             getInvoicesForRetailer(ret).forEach(inv => {
                 const amount = Math.round(Number(inv.totalAmount || 0) || 0);
@@ -9532,7 +9601,7 @@ function renderStockMultiProductList() {
                 });
             });
             (ret.collections || []).forEach(c => {
-                const amount = Number(c.amount || 0) || 0;
+                const amount = Math.round((Number(c.amount || 0) || 0) * 100) / 100;
                 rows.push({
                     date: c.date,
                     type: 'কালেকশন',
@@ -9553,7 +9622,7 @@ function renderStockMultiProductList() {
             // সময় বোঝা যায় এটা কোথায় সেভ আছে (পুরোনো embedded অ্যারেতে না
             // নতুন আলাদা কালেকশনে)।
             getRetailerCollectionsV2(ret).forEach(c => {
-                const amount = Number(c.amount || 0) || 0;
+                const amount = Math.round((Number(c.amount || 0) || 0) * 100) / 100;
                 rows.push({
                     date: c.date,
                     type: 'কালেকশন',
@@ -9571,7 +9640,12 @@ function renderStockMultiProductList() {
         }
 
         function getRetailerOpeningBase(ret) {
-            if (ret && ret.openingDue) return 0;
+            if (ret && ret.openingDue) {
+                const openingDate = parseBanglaOrISODate(ret.openingDue.date || '');
+                // তারিখ অকার্যকর হলে row date-filter-এ বাদ পড়তে পারে; amount-টি
+                // তখন opening base হিসেবে রাখা হবে যাতে কোনো টাকা হারিয়ে না যায়।
+                return openingDate ? 0 : Math.round((Number(ret.openingDue.amount || 0) || 0) * 100) / 100;
+            }
             const all = getRetailerAllLedgerTransactions(ret).filter(r => r.transactionType !== 'openingDue');
             // যদি এই কাস্টমারের কোনো ইনভয়েস/কালেকশন ট্রানজেকশন রেকর্ড করা থাকে,
             // তাহলে লেজারের শুরুর ব্যালেন্স সবসময় ০ হবে — কারণ সেই সব ট্রানজেকশনই
@@ -9622,6 +9696,7 @@ function renderStockMultiProductList() {
                         const newAmount = Number(values.amount);
                         if (!Number.isFinite(newAmount) || newAmount <= 0) { showUniversalEditError('সঠিক কালেকশন টাকার পরিমাণ লিখুন।'); return false; }
                         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) { showUniversalEditError('সঠিক তারিখ নির্বাচন করুন।'); return false; }
+                        if(isFutureISODate(values.date)){showUniversalEditError('ভবিষ্যতের তারিখে কালেকশন করা যাবে না।');return false;}
                         // [সংশোধন ৯] এডিট করে কালেকশন এমন বাড়ানো যাবে না যাতে বাকি শূন্যের নিচে
                         // নামে — আগে বাড়তি টাকাটা হিসাব থেকে নিঃশব্দে হারিয়ে যেত (বাকি ০ দেখাত)।
                         {
@@ -9701,6 +9776,7 @@ function renderStockMultiProductList() {
                         const newAmount = Number(values.amount);
                         if (!Number.isFinite(newAmount) || newAmount <= 0) { showUniversalEditError('সঠিক কালেকশন টাকার পরিমাণ লিখুন।'); return false; }
                         if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) { showUniversalEditError('সঠিক তারিখ নির্বাচন করুন।'); return false; }
+                        if(isFutureISODate(values.date)){showUniversalEditError('ভবিষ্যতের তারিখে কালেকশন করা যাবে না।');return false;}
                         // [সংশোধন ৯] এডিট করে কালেকশন এমন বাড়ানো যাবে না যাতে বাকি শূন্যের নিচে
                         // নামে — আগে বাড়তি টাকাটা হিসাব থেকে নিঃশব্দে হারিয়ে যেত (বাকি ০ দেখাত)।
                         {
@@ -9831,6 +9907,9 @@ function renderStockMultiProductList() {
             return toLocalISODate(new Date());
         }
 
+        function isFutureISODate(iso) { return /^\d{4}-\d{2}-\d{2}$/.test(String(iso || '')) && String(iso) > getLocalISODate(); }
+
+
         // Date অবজেক্টকে সবসময় লোকাল টাইমজোন অনুযায়ী YYYY-MM-DD বানায়।
         // .toISOString() ব্যবহার করলে UTC-তে কনভার্ট হয়ে যায় — বাংলাদেশ
         // (UTC+6) হওয়ায় মধ্যরাতের তারিখ সবসময় একদিন আগের তারিখ হিসেবে
@@ -9851,14 +9930,17 @@ function renderStockMultiProductList() {
         // "তারিখ থেকে" পরিবর্তন হলে, যদি ব্যবহারকারী নিজে থেকে "তারিখ পর্যন্ত" আলাদা করে না বদলে থাকেন,
         // তাহলে দুটোতেই একই তারিখ বসিয়ে দেওয়া হয় — এতে একটামাত্র তারিখ সিলেক্ট করলেই সেদিনের লেনদেন দেখা যায়
         let ledgerLastAutoSyncedDate = '';
+        function invalidateLedgerExport() { window._ledgerExport = null; }
+
         function onLedgerFromDateChange() {
             const fromEl = document.getElementById('ledgerFromDate');
             const toEl = document.getElementById('ledgerToDate');
-            if (!toEl.value || toEl.value === ledgerLastAutoSyncedDate) {
-                toEl.value = fromEl.value;
-            }
+            if (!toEl.value || toEl.value === ledgerLastAutoSyncedDate) toEl.value = fromEl.value;
             ledgerLastAutoSyncedDate = fromEl.value;
+            invalidateLedgerExport();
         }
+        function onLedgerToDateChange() { invalidateLedgerExport(); }
+        function onLedgerRetailerChange() { invalidateLedgerExport(); }
         function showFullCustomerLedgerHistory() {
             document.getElementById('ledgerFromDate').value = '';
             document.getElementById('ledgerToDate').value = '';
@@ -9917,6 +9999,7 @@ function renderStockMultiProductList() {
         }
 
         function loadLedgerRetailers() {
+            invalidateLedgerExport();
             const route=document.getElementById('ledgerRouteSelect').value;
             const rs=document.getElementById('ledgerRetailerSelect');
             rs.innerHTML='<option value="">-- রিটেইলার নির্বাচন করুন --</option>';
@@ -9941,12 +10024,18 @@ function renderStockMultiProductList() {
             const endDate = to ? new Date(to+'T23:59:59') : null;
             const all=getRetailerAllLedgerTransactions(ret).filter(r => {
                 const d=parseBanglaOrISODate(r.date);
-                return !!d;
+                return !!d || r.displayOnlyOpening === true;
             });
             all.sort((a,b)=>{
-                const dateDiff = (parseBanglaOrISODate(a.date)||0)-(parseBanglaOrISODate(b.date)||0);
+                const ad=parseBanglaOrISODate(a.date), bd=parseBanglaOrISODate(b.date);
+                if (!ad && !bd) return String(a.id||'').localeCompare(String(b.id||''));
+                if (!ad) return -1;
+                if (!bd) return 1;
+                const dateDiff = ad-bd;
                 if (dateDiff !== 0) return dateDiff;
-                return getTransactionSortKey(a) - getTransactionSortKey(b);
+                const orderDiff = getTransactionSortKey(a) - getTransactionSortKey(b);
+                if (orderDiff !== 0) return orderDiff;
+                return String(a.id||'').localeCompare(String(b.id||''));
             });
 
             const openingBase=getRetailerOpeningBase(ret);
@@ -9958,7 +10047,7 @@ function renderStockMultiProductList() {
 
             const rows=all.filter(r=>{
                 const d=parseBanglaOrISODate(r.date);
-                if(!d) return false;
+                if(!d) return !startDate && !endDate && r.displayOnlyOpening === true;
                 if(startDate && d < startDate) return false;
                 if(endDate && d > endDate) return false;
                 return true;
@@ -9968,12 +10057,20 @@ function renderStockMultiProductList() {
 
             let running=openingBalance;
             let totalSales=0,totalCreditSales=0,totalCashSales=0,totalCollection=0,totalCashDeposit=0;
+            // Aging সবসময় কাস্টমারের সম্পূর্ণ history-র সর্বশেষ collection থেকে হবে,
+            // selected date range-এর ভেতরের সর্বশেষ collection থেকে নয়।
             let lastCollectionDate=null;
+            all.forEach(r=>{
+                if (r.transactionType === 'collection' || r.transactionType === 'collection_v2') {
+                    const d = parseBanglaOrISODate(r.date);
+                    if (d && (!lastCollectionDate || d > lastCollectionDate)) lastCollectionDate = d;
+                }
+            });
             const rowHtmlArr=[];
+            const exportRows=[];
             rows.forEach((r)=>{
-                // ব্যালেন্স ও যোগফলগুলো সবসময় সব ধরনের লেনদেন দিয়েই হিসাব হয়
-                // (ফিল্টার করলেও ভুল ব্যালেন্স দেখাবে না) — শুধু নিচে দেখানোর
-                // সময় ফিল্টার অনুযায়ী কিছু সারি বাদ দেওয়া হয়।
+                // Balance ও summary সব transaction দিয়েই হিসাব হবে; filter শুধু
+                // দৃশ্যমান/export row কমায়, মূল হিসাবকে কখনো বদলায় না।
                 running += r.balanceEffect;
                 totalSales += r.sales;
                 if(r.transactionType==='invoice' && r.type==='ক্রেডিট ইনভয়েস') totalCreditSales += r.sales;
@@ -9984,28 +10081,25 @@ function renderStockMultiProductList() {
                     const d = parseBanglaOrISODate(r.date);
                     if (d && (!lastCollectionDate || d > lastCollectionDate)) lastCollectionDate = d;
                 }
-                if (typeFilter && r.type !== typeFilter) return; // ফিল্টারে না মিললে সারিটা দেখানো হবে না
                 const rowClass = r.transactionType === 'openingDue' ? 'ledger-row-opening'
                     : (r.transactionType === 'collection' || r.transactionType === 'collection_v2') ? 'ledger-row-collection'
                     : (r.transactionType === 'invoice' && r.type === 'ক্রেডিট ইনভয়েস') ? 'ledger-row-credit'
-                    : (r.transactionType === 'invoice' && r.type === 'ক্যাশ ইনভয়েস') ? 'ledger-row-cash'
-                    : '';
-                // "রানিং ব্যালেন্স" সবসময় পুরোনো থেকে নতুন ক্রমে হিসাব করতে হয়
-                // (নাহলে ব্যালেন্স ভুল আসবে) — কিন্তু নতুন তারিখ উপরে দেখানোর
-                // জন্য, প্রতিটা সারির HTML এখানে একটা array-তে জমা রাখা হচ্ছে,
-                // পরে পুরো array উল্টে (reverse করে) দেখানো হবে।
-                rowHtmlArr.push({ running, html: `<tr class="${rowClass}">
-                    <td style="white-space:nowrap;">__SNO__</td>
-                    <td style="white-space:nowrap;">${r.date}</td>
-                    <td style="white-space:nowrap;">${r.type}</td>
-                    <td style="white-space:nowrap;">${r.ref}</td>
-                    <td style="text-align:right; white-space:nowrap;">${r.sales.toLocaleString('en-US')} ৳</td>
-                    <td style="text-align:right; white-space:nowrap;">${r.credit.toLocaleString('en-US')} ৳</td>
-                    <td style="text-align:right; white-space:nowrap;">${r.collection.toLocaleString('en-US')} ৳</td>
-                    <td style="text-align:right; white-space:nowrap;">${(r.cashDepositAmount || 0).toLocaleString('en-US')} ৳</td>
-                    <td style="text-align:right; white-space:nowrap;"><b>${running.toLocaleString('en-US')} ৳</b></td>
-                    <td style="text-align:center; white-space:nowrap;"><button class="btn-action btn-edit" onclick="editLedgerTransaction('${r.transactionType}','${r.id}')">এডিট</button><button class="btn-action btn-delete" onclick="deleteLedgerTransaction('${r.transactionType}','${r.id}')">ডিলিট</button></td>
-                </tr>` });
+                    : (r.transactionType === 'invoice' && r.type === 'ক্যাশ ইনভয়েস') ? 'ledger-row-cash' : '';
+                if (!typeFilter || r.type === typeFilter) {
+                    rowHtmlArr.push({ running, html: `<tr class="${rowClass}">
+                        <td style="white-space:nowrap;">__SNO__</td>
+                        <td style="white-space:nowrap;">${escapeHtml(String(r.date || ''))}</td>
+                        <td style="white-space:nowrap;">${escapeHtml(String(r.type || ''))}</td>
+                        <td style="white-space:nowrap;">${escapeHtml(String(r.ref || ''))}</td>
+                        <td style="text-align:right;white-space:nowrap;">${r.sales.toLocaleString('en-US')} ৳</td>
+                        <td style="text-align:right;white-space:nowrap;">${r.credit.toLocaleString('en-US')} ৳</td>
+                        <td style="text-align:right;white-space:nowrap;">${r.collection.toLocaleString('en-US')} ৳</td>
+                        <td style="text-align:right;white-space:nowrap;">${(r.cashDepositAmount || 0).toLocaleString('en-US')} ৳</td>
+                        <td style="text-align:right;white-space:nowrap;"><b>${running.toLocaleString('en-US')} ৳</b></td>
+                        <td style="text-align:center;white-space:nowrap;"><button class="btn-action btn-edit" onclick="editLedgerTransaction('${r.transactionType}','${r.id}')">এডিট</button><button class="btn-action btn-delete" onclick="deleteLedgerTransaction('${r.transactionType}','${r.id}')">ডিলিট</button></td>
+                    </tr>` });
+                    exportRows.push({r, running});
+                }
             });
             // নতুন তারিখ উপরে, পুরোনো তারিখ নিচে — তাই array উল্টে দিয়ে সিরিয়াল
             // নম্বর নতুন করে বসানো হচ্ছে (উপরের সারি = ক্রম ১)
@@ -10029,7 +10123,7 @@ function renderStockMultiProductList() {
             }
 
             document.getElementById('ledgerResult').innerHTML=`
-              <div style="font-weight:bold;margin-bottom:8px;">${escapeHtml(displayTraderName(ret.trader))}${ret.name ? ` (${escapeHtml(ret.name)})` : ''} | ${rangeLabel} | মোট লেনদেন: ${rows.length}টি</div>
+              <div style="font-weight:bold;margin-bottom:8px;">${escapeHtml(displayTraderName(ret.trader))}${ret.name ? ` (${escapeHtml(ret.name)})` : ''} | ${rangeLabel} | মোট লেনদেন: ${rowHtmlArr.length}টি</div>
               <div class="ledger-table-wrap"><table class="data-table" id="ledgerResultTable">
                 <thead><tr>
                     <th>ক্রম</th><th>তারিখ</th><th>লেনদেন</th><th>রেফারেন্স</th>
@@ -10049,7 +10143,7 @@ function renderStockMultiProductList() {
               </div>
               <button class="btn-submit" style="margin-top:10px;background:#4a6c82;" onclick="downloadLedgerCSV()">লেজার ডাউনলোড (CSV)</button>
               <button class="btn-submit" style="margin-top:10px;background:#1b7a3f;" onclick="downloadLedgerExcel()">লেজার ডাউনলোড (Excel)</button>`;
-            window._ledgerExport={ret,from,to,rangeLabel,rows,openingBalance,closingBalance,totalSales,totalCreditSales,totalCashSales,totalCollection,totalCashDeposit,typeFilter,html,lastCollectionDate};
+            window._ledgerExport={ret,retailerIndex:parseInt(idx),from,to,rangeLabel,rows,exportRows,openingBalance,closingBalance,totalSales,totalCreditSales,totalCashSales,totalCollection,totalCashDeposit,typeFilter,html,lastCollectionDate};
         }
 
         // কাস্টমারের লেজার একটা নতুন ট্যাবে প্রিন্ট-উপযোগী স্টেটমেন্ট আকারে
@@ -10057,8 +10151,11 @@ function renderStockMultiProductList() {
         // তালিকা, এবং সবশেষে সর্বমোট বাকি — একটা প্রমাণ/দলিল হিসেবে
         // কাস্টমারকে দেখানো বা প্রিন্ট করে দেওয়ার জন্য।
         function printCustomerLedger() {
+            const idx = document.getElementById('ledgerRetailerSelect')?.value;
+            if (idx === undefined || idx === '') { alert('আগে রিটেইলার নির্বাচন করুন।'); return; }
+            showCustomerLedger();
             const x = window._ledgerExport;
-            if (!x || !x.html) { alert('আগে "লেজার দেখুন" বাটনে ক্লিক করে লেজার লোড করুন।'); return; }
+            if (!x || !x.html || x.retailerIndex !== parseInt(idx)) { alert('লেজার লোড করা যায়নি। আবার "লেজার দেখুন" চাপুন।'); return; }
             const w = window.open('', '_blank');
             w.document.write(`<html lang="bn"><head><meta charset="UTF-8"><title>কাস্টমার লেজার - ${displayTraderName(x.ret.trader)}</title>
             <style>
@@ -10121,10 +10218,8 @@ function renderStockMultiProductList() {
                 [],
                 ['ক্রম','তারিখ','লেনদেন','রেফারেন্স','মোট সেলস','ক্রেডিট/বাকি','কালেকশন','ক্যাশ জমা','ব্যালেন্স']
             ];
-            let b=x.openingBalance;
-            x.rows.forEach((r,i)=>{
-                b += r.balanceEffect;
-                lines.push([i+1,r.date,r.type,r.ref,r.sales,r.credit,r.collection,(r.cashDepositAmount||0),b]);
+            x.exportRows.forEach(({r,running},i)=>{
+                lines.push([i+1,r.date,r.type,r.ref,r.sales,r.credit,r.collection,(r.cashDepositAmount||0),running]);
             });
             lines.push([]);
             lines.push(['শুরুর বাকি',x.openingBalance]);
@@ -10149,10 +10244,8 @@ function renderStockMultiProductList() {
             const x=window._ledgerExport;
             if(!x) return;
             const headers=['ক্রম','তারিখ','লেনদেন','রেফারেন্স','মোট সেলস','ক্রেডিট/বাকি','কালেকশন','ক্যাশ জমা','ব্যালেন্স'];
-            let b=x.openingBalance;
-            const rows=x.rows.map((r,i)=>{
-                b += r.balanceEffect;
-                return [i+1,r.date,r.type,r.ref,r.sales,r.credit,r.collection,(r.cashDepositAmount||0),b];
+            const rows=x.exportRows.map(({r,running},i)=>{
+                return [i+1,r.date,r.type,r.ref,r.sales,r.credit,r.collection,(r.cashDepositAmount||0),running];
             });
             rows.push([]);
             rows.push(['শুরুর বাকি',x.openingBalance]);
@@ -10255,6 +10348,7 @@ function renderStockMultiProductList() {
             if(!checkConnectionOrAlert()) return;
             const date=document.getElementById('collectionDate').value;
             const idx=document.getElementById('collectionRetailerSelect').value;
+            if(isFutureISODate(date)){alert('ভবিষ্যতের তারিখে কালেকশন করা যাবে না।');return;}
             const amount=Math.round(Number(document.getElementById('collectionAmount').value||0));
             let note=document.getElementById('collectionNote').value.trim();
             // এসপিও-এর রিকোয়েস্ট অ্যাপ্রুভ করার সময় নোটে আগে থেকেই এসপিও-র
@@ -10406,13 +10500,18 @@ function renderStockMultiProductList() {
         // সর্বশেষ বাকি (closingBalance) ব্যবহার করা হয় — যা লাইভ হিসাব থেকেই
         // আসে, তাই সবসময় হালনাগাদ।
         function sendLedgerReminderSms() {
+            const idx = document.getElementById('ledgerRetailerSelect')?.value;
+            if (idx === undefined || idx === '') { alert('আগে রিটেইলার নির্বাচন করুন।'); return; }
+            showCustomerLedger();
             const x = window._ledgerExport;
-            if (!x || !x.ret) { alert('আগে "লেজার দেখুন" বাটনে ক্লিক করে লেজার লোড করুন।'); return; }
-            const ret = x.ret;
+            if (!x || !x.ret || x.retailerIndex !== parseInt(idx)) { alert('লেজার লোড করা যায়নি। আবার "লেজার দেখুন" চাপুন।'); return; }
+            const ret = retailers[parseInt(idx)];
+            if (!ret) return;
             if (!ret.mobile) { alert('এই রিটেইলারের মোবাইল নম্বর সেভ করা নেই।'); return; }
+            recalculateRetailerDue(ret);
             const traderName = displayTraderName(ret.trader || '');
             const todayLabel = getSystemDateString();
-            const dueAmount = Math.round(Number(x.closingBalance || 0) || 0);
+            const dueAmount = Math.round(Number(ret.currentDue || 0) || 0);
             const message = `${traderName}\n` +
                 `তারিখ: ${todayLabel}\n` +
                 `আপনার সর্বমোট বাকি: ${toBanglaNumber(dueAmount.toLocaleString('en-US'))} ৳\n` +
@@ -10635,13 +10734,15 @@ function renderStockMultiProductList() {
         const note = document.getElementById('cashExpenseNote').value.trim();
         if (!category) { alert('খরচের ধরন নির্বাচন করুন।'); return; }
         if (!dateISO) { alert('তারিখ নির্বাচন করুন।'); return; }
+        if(isFutureISODate(dateISO)){alert('ভবিষ্যতের তারিখে খরচ এন্ট্রি করা যাবে না।');return;}
         if (!Number.isFinite(amount) || amount <= 0) { alert('সঠিক টাকার পরিমাণ লিখুন (০-এর বেশি)।'); return; }
         const id = editId || ('CFLOW_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8));
+        const existingExpense=editId?(cashExpenses||[]).find(e=>e&&e.id===editId):null;
         const entry = {
             id, type: 'expense', category,
             date: isoToSystemDate(dateISO),
             amount, party, note,
-            voided: false,
+            voided: existingExpense ? !!existingExpense.voided : false,
             // [নতুন] সেভ "ব্যর্থ" দেখালেও Firebase-এ আসলে পৌঁছে গিয়ে থাকতে
             // পারে কি না, পরে যাচাই করার জন্য (ইনভয়েস/কালেকশনের মতোই)।
             saveToken: 'ST_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10),
@@ -10739,6 +10840,7 @@ function renderStockMultiProductList() {
         const dateISO = document.getElementById('openingBalanceDate').value;
         const amount = parseFloat(document.getElementById('openingBalanceAmount').value);
         if (!dateISO) { alert('তারিখ নির্বাচন করুন।'); return; }
+        if(isFutureISODate(dateISO)){alert('ভবিষ্যতের তারিখে প্রারম্ভিক ক্যাশ ব্যালেন্স সেট করা যাবে না।');return;}
         if (!Number.isFinite(amount) || amount < 0) { alert('সঠিক টাকার পরিমাণ লিখুন (০ বা তার বেশি)।'); return; }
         const entry = {
             id: 'OPENING_BALANCE', type: 'opening_balance',
@@ -10786,6 +10888,7 @@ function renderStockMultiProductList() {
         const amount = parseFloat(document.getElementById('openingBalanceAmount').value);
         const direction = document.getElementById('openingBalanceDirection').value;
         if (!dateISO) { alert('তারিখ নির্বাচন করুন।'); return; }
+        if(isFutureISODate(dateISO)){alert('ভবিষ্যতের তারিখে কোম্পানির প্রারম্ভিক ব্যালেন্স সেট করা যাবে না।');return;}
         if (!Number.isFinite(amount) || amount < 0) { alert('সঠিক টাকার পরিমাণ লিখুন (০ বা তার বেশি)।'); return; }
         const entry = {
             id: 'COMPANY_OPENING_BALANCE', type: 'company_opening_balance',
@@ -10897,7 +11000,7 @@ function renderStockMultiProductList() {
         const openingDate = parseBanglaOrISODate(opening.date);
         const openingISO = openingDate ? toLocalISODate(openingDate) : asOfISO;
         const openingAmt = Number(opening.amount) || 0;
-        if (asOfISO < openingISO) return openingAmt;
+        if (asOfISO < openingISO) return 0;
         const totalSales = getAllInvoiceSalesTotal(openingISO, asOfISO);
         const dueAsOf = getTotalDueAsOfDate(asOfISO);
         const dailyExpTotal = getCashExpenseEntriesInRange(openingISO, asOfISO, 'daily_expense').filter(e => !e.voided).reduce((s, e) => s + (Number(e.amount) || 0), 0);
@@ -11450,9 +11553,9 @@ function renderStockMultiProductList() {
         <div id="ledgerFilterSection">
         <div class="report-form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
           <div class="form-group"><label>তারিখ থেকে</label><input type="date" id="ledgerFromDate" onchange="onLedgerFromDateChange()"></div>
-          <div class="form-group"><label>তারিখ পর্যন্ত</label><input type="date" id="ledgerToDate"></div>
+          <div class="form-group"><label>তারিখ পর্যন্ত</label><input type="date" id="ledgerToDate" onchange="onLedgerToDateChange()"></div>
           <div class="form-group"><label>রুট</label><select id="ledgerRouteSelect" onchange="loadLedgerRetailers()"></select></div>
-          <div class="form-group"><label>রিটেইলার</label><select id="ledgerRetailerSelect"></select></div>
+          <div class="form-group"><label>রিটেইলার</label><select id="ledgerRetailerSelect" onchange="onLedgerRetailerChange()"></select></div>
           <div class="form-group"><label>লেনদেনের ধরন</label>
             <select id="ledgerTypeFilter" onchange="showCustomerLedger()">
               <option value="">-- সব লেনদেন --</option>
@@ -11464,11 +11567,11 @@ function renderStockMultiProductList() {
           </div>
         </div>
         <div style="font-size:12px;color:#666;margin-top:6px;">একটামাত্র তারিখ দেখতে শুধু "তারিখ থেকে" পরিবর্তন করুন — "তারিখ পর্যন্ত" নিজে থেকেই একই তারিখ হয়ে যাবে। রেঞ্জ দেখতে "তারিখ পর্যন্ত" আলাদা করে বদলে দিন।</div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
-          <button class="btn-submit" onclick="showCustomerLedger()">লেজার দেখুন</button>
-          <button class="btn-submit" style="background:#4a6c82;" onclick="showFullCustomerLedgerHistory()">সম্পূর্ণ ইতিহাস দেখুন (সব তারিখ)</button>
-          <button class="btn-submit" style="background:#1b7a3f;" onclick="printCustomerLedger()">🖨️ লেজার প্রিন্ট করুন</button>
-          <button class="btn-submit" style="background:#c0392b;" onclick="sendLedgerReminderSms()">📩 তাগাদা পাঠান</button>
+        <div class="ledger-action-buttons" style="display:flex;gap:10px;flex-wrap:nowrap;margin-top:8px;overflow-x:auto;overflow-y:hidden;padding-bottom:2px;">
+          <button class="btn-submit" style="width:auto;flex:1 1 0;min-width:0;white-space:nowrap;margin-top:0;" onclick="showCustomerLedger()">লেজার দেখুন</button>
+          <button class="btn-submit" style="background:#4a6c82;width:auto;flex:1 1 0;min-width:0;white-space:nowrap;margin-top:0;" onclick="showFullCustomerLedgerHistory()">সম্পূর্ণ ইতিহাস দেখুন (সব তারিখ)</button>
+          <button class="btn-submit" style="background:#1b7a3f;width:auto;flex:1 1 0;min-width:0;white-space:nowrap;margin-top:0;" onclick="printCustomerLedger()">🖨️ লেজার প্রিন্ট করুন</button>
+          <button class="btn-submit" style="background:#c0392b;width:auto;flex:1 1 0;min-width:0;white-space:nowrap;margin-top:0;" onclick="sendLedgerReminderSms()">📩 তাগাদা পাঠান</button>
         </div>
         </div>
         <div id="ledgerResult" style="margin-top:15px;"></div>
