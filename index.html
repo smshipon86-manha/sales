@@ -2414,6 +2414,7 @@ body.edit-modal-open { overflow: hidden !important; }
                             <th>রুট</th>
                             <th>ট্রেডার্সের নাম</th>
                             <th>প্রোপ্রাইটর</th>
+                            <th>ঠিকানা / বাজার</th>
                             <th>মোবাইল</th>
                             <th style="color: #fff; background-color: #d9534f;">মোট বাকি টাকা</th>
                             <th style="width:150px;text-align:center;">অ্যাকশন</th>
@@ -3903,8 +3904,6 @@ body.edit-modal-open { overflow: hidden !important; }
             document.getElementById('universalEditFields').innerHTML = (config.fields || []).map(field => {
                 const value = escapeEditValue(field.value);
                 const required = field.required ? 'required' : '';
-                const readonly = field.readonly ? 'readonly' : '';
-                const disabled = field.readonly ? 'disabled' : '';
                 const min = field.min !== undefined ? `min="${field.min}"` : '';
                 const step = field.step !== undefined ? `step="${field.step}"` : '';
                 if (Array.isArray(field.options)) {
@@ -3913,9 +3912,9 @@ body.edit-modal-open { overflow: hidden !important; }
                         const optionLabel = typeof option === 'object' ? option.label : option;
                         return `<option value="${escapeEditValue(optionValue)}" ${String(optionValue) === String(field.value) ? 'selected' : ''}>${escapeEditValue(optionLabel)}</option>`;
                     }).join('');
-                    return `<div class="form-group"><label for="ue_${field.name}">${field.label}${field.required ? ' *' : ''}</label><select id="ue_${field.name}" data-edit-field="${field.name}" ${required} ${disabled}>${options}</select></div>`;
+                    return `<div class="form-group"><label for="ue_${field.name}">${field.label}${field.required ? ' *' : ''}</label><select id="ue_${field.name}" data-edit-field="${field.name}" ${required}>${options}</select></div>`;
                 }
-                return `<div class="form-group"><label for="ue_${field.name}">${field.label}${field.required ? ' *' : ''}</label><input id="ue_${field.name}" data-edit-field="${field.name}" type="${field.type || 'text'}" value="${value}" placeholder="${escapeEditValue(field.placeholder || '')}" ${required} ${readonly} ${min} ${step}></div>`;
+                return `<div class="form-group"><label for="ue_${field.name}">${field.label}${field.required ? ' *' : ''}</label><input id="ue_${field.name}" data-edit-field="${field.name}" type="${field.type || 'text'}" value="${value}" placeholder="${escapeEditValue(field.placeholder || '')}" ${required} ${min} ${step}></div>`;
             }).join('');
             const modal = document.getElementById('universalEditModal');
             modal.style.display = 'flex';
@@ -6728,29 +6727,24 @@ function renderStockMultiProductList() {
 
         function editStock(index) {
             if (!checkConnectionOrAlert()) return;
-            const originalStock = {...stocks[index]};
-            const originalProductName = originalStock.productName;
-            const product = products.find(p => p.name === originalProductName);
+            const product = products.find(p => p.name === stocks[index].productName);
             const ppc = getPiecesPerCarton(product);
-            const totalPieces = Math.round((parseFloat(originalStock.qty || 0) || 0) * ppc);
+            const totalPieces = Math.round((parseFloat(stocks[index].qty || 0) || 0) * ppc);
             openUniversalEdit({
                 title: 'স্টক এডিট করুন',
-                subtitle: `${originalProductName}-এর বর্তমান স্টক পরিবর্তন করুন`,
+                subtitle: `${stocks[index].productName}-এর বর্তমান স্টক পরিবর্তন করুন`,
                 fields: [
-                    {name:'productName', label:'পণ্য', value:originalProductName, required:true, readonly:true, options:[{value:originalProductName,label:originalProductName}]},
+                    {name:'productName', label:'পণ্য', value:stocks[index].productName, required:true, options:[...products].sort((a,b)=>a.name.localeCompare(b.name)).map(p => ({value:p.name,label:p.name}))},
                     {name:'pieces', label:'বর্তমান মোট স্টক (পিস)', type:'number', value:totalPieces, min:0, step:1, required:true}
                 ],
                 successMessage: 'স্টকের তথ্য সফলভাবে আপডেট হয়েছে',
                 async onSave(values) {
                     const pieces = Number(values.pieces);
-                    const selectedProduct = products.find(p => p.name === originalProductName);
-                    if (!selectedProduct) { showUniversalEditError('এই স্টকের পণ্যটি আর খুঁজে পাওয়া যাচ্ছে না।'); return false; }
+                    const selectedProduct = products.find(p => p.name === values.productName);
+                    if (!selectedProduct) { showUniversalEditError('পণ্য নির্বাচন করুন।'); return false; }
                     if (!Number.isFinite(pieces) || pieces < 0) { showUniversalEditError('সঠিক স্টক পিস লিখুন।'); return false; }
-                    stocks[index] = {...originalStock, productName:originalProductName, qty:pieces / getPiecesPerCarton(selectedProduct)};
-                    if (!(await syncToFirebase())) {
-                        stocks[index] = originalStock;
-                        return false;
-                    }
+                    stocks[index] = {...stocks[index], productName:values.productName, qty:pieces / getPiecesPerCarton(selectedProduct)};
+                    if (!(await syncToFirebase())) return false;
                     renderStocks(); renderProductSelectionList(); renderSavedInvoices();
                     return true;
                 }
@@ -7311,9 +7305,7 @@ function renderStockMultiProductList() {
             // search/filter state, and refresh each due from ledger data first.
             const dueByRetailer = new Map();
             withLedgerIndex(() => retailers.forEach(ret => {
-                const due = isLiveToday
-                    ? calculateRetailerDueRaw(ret)
-                    : Math.round(Number(getRetailerDueAsOfDate(ret, asOfISO) || 0));
+                const due = Math.round(Number(getRetailerDueAsOfDate(ret, asOfISO) || 0));
                 dueByRetailer.set(ret, due);
             }));
             // [সংশোধন] আগে এখানে সব রিটেইলার মিলিয়ে (totalSystemDue) হিসাব হতো,
@@ -7342,6 +7334,7 @@ function renderStockMultiProductList() {
                         <tr>
                             <td style="white-space:nowrap;">${count}</td><td style="white-space:nowrap;"><b>${escapeHtml(ret.route)}</b></td>
                             <td style="white-space:nowrap;">${escapeHtml(displayTraderName(ret.trader))}</td><td style="white-space:nowrap;">${escapeHtml(ret.name) || 'N/A'}</td>
+                            <td style="white-space:normal; min-width:150px;">${escapeHtml(addressWithBazar(ret.address)) || 'N/A'}</td>
                             <td style="white-space:nowrap;">${escapeHtml(ret.mobile) || 'N/A'}</td><td style="white-space:nowrap;"><b>${due.toLocaleString('en-US')} ৳</b></td>
                             <td style="text-align:center;white-space:nowrap;">
                                 <button class="btn-action btn-view" onclick="openCustomerLedgerForRetailer(${index})">লেজার</button>
@@ -7352,7 +7345,7 @@ function renderStockMultiProductList() {
                 }
             });
             tbody.innerHTML = dueRowsHtml;
-            if(count === 0) tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#777; padding:15px;">কোনো রিটেইলার পাওয়া যায়নি।</td></tr>`;
+            if(count === 0) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:#777; padding:15px;">কোনো রিটেইলার পাওয়া যায়নি।</td></tr>`;
             const asOfSuffix = isLiveToday ? '' : ` (${escapeHtml(isoToSystemDate(asOfISO))} পর্যন্ত)`;
             document.getElementById('totalDueAmountSpan').innerText = (routeFilter
                 ? `${escapeHtml(routeFilter)} রুটে মোট বকেয়া: ${filteredTotalDue.toLocaleString('en-US')} ৳`
@@ -8131,8 +8124,8 @@ function renderStockMultiProductList() {
             const todayISO = getLocalISODate();
             const asOfISO = (asOfEl && asOfEl.value) ? asOfEl.value : todayISO;
             const isLiveToday = asOfISO >= todayISO;
-            const dueColumnLabel = isLiveToday ? 'বর্তমান মোট বাকি' : `বাকি (${isoToSystemDate(asOfISO)} পর্যন্ত)`;
-            const rows = [['ক্রমিক','রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','মোবাইল','আগের বাকি',dueColumnLabel]];
+            const dueColumnLabel = `বাকি (${isoToSystemDate(asOfISO)} পর্যন্ত)`;
+            const rows = [['ক্রমিক','রুট','ট্রেডার্সের নাম','প্রোপ্রাইটর','ঠিকানা / বাজার','মোবাইল','আগের বাকি',dueColumnLabel]];
             let n=0;
             // রুট অনুযায়ী গ্রুপ করে সাজানো, তারপর নাম অনুযায়ী — যাতে একই
             // রুটের রিটেইলাররা একসাথে দেখা যায়।
@@ -8146,10 +8139,8 @@ function renderStockMultiProductList() {
                     if (routeFilter && ret.route !== routeFilter) return;
                     const searchStr=`${ret.route} ${ret.trader} ${ret.name}`.toLowerCase();
                     if(q && !searchStr.includes(q)) return;
-                    const due = isLiveToday
-                        ? calculateRetailerDueRaw(ret)
-                        : Math.round(Number(getRetailerDueAsOfDate(ret, asOfISO) || 0));
-                    n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',ret.mobile||'',getExplicitOpeningDue(ret),due]);
+                    const due = Math.round(Number(getRetailerDueAsOfDate(ret, asOfISO) || 0));
+                    n++; rows.push([n,ret.route||'',displayTraderName(ret.trader),ret.name||'',addressWithBazar(ret.address)||'',ret.mobile||'',getExplicitOpeningDue(ret),due]);
                 });
             });
             const fname = routeFilter ? `customer_due_report_${routeFilter}.csv` : 'customer_due_report.csv';
@@ -8903,7 +8894,7 @@ function renderStockMultiProductList() {
 
             if (!confirm('⚠️ ব্যাকআপ থেকে রিস্টোর করবেন?\n\nএই রিস্টোর শুধু বর্তমানে যা মিসিং (হারিয়ে গেছে) তা ব্যাকআপ থেকে ফিরিয়ে দেবে।\nবর্তমান কোনো ডাটা মুছবে না, ওভাররাইট হবে না, এবং ডাবলও হবে না — প্রতিটা রুট/পণ্য/রিটেইলার/ইনভয়েস/কালেকশন তার নিজস্ব পরিচয় (আইডি/কোড) দিয়ে মেলানো হয়, একই জিনিস দুইবার যুক্ত হয় না।\n\nচালিয়ে যেতে চান?')) return;
 
-            let addedRoutes = 0, addedRouteCodes = 0, addedProducts = 0, addedStocks = 0, addedStockLogs = 0, addedRetailers = 0;
+            let addedRoutes = 0, addedRouteCodes = 0, addedProducts = 0, addedStocks = 0, addedRetailers = 0;
 
             if (Array.isArray(backup.routes)) {
                 const existing = new Set(routes.map(r => identityOfRecord(r, 'route')));
@@ -8931,13 +8922,6 @@ function renderStockMultiProductList() {
                     if (id && !existing.has(id)) { stocks.push(s); existing.add(id); addedStocks++; }
                 });
             }
-            if (Array.isArray(backup.stockLogs)) {
-                const existing = new Set((stockLogs || []).map(log => identityOfRecord(log, 'stockLog')));
-                backup.stockLogs.forEach(log => {
-                    const id = identityOfRecord(log, 'stockLog');
-                    if (id && !existing.has(id)) { stockLogs.push(log); existing.add(id); addedStockLogs++; }
-                });
-            }
             if (Array.isArray(backup.retailers)) {
                 const existing = new Set(retailers.map(r => identityOfRecord(r, 'retailer')));
                 backup.retailers.forEach(r => {
@@ -8946,11 +8930,11 @@ function renderStockMultiProductList() {
                 });
             }
 
-            const coreChanged = addedRoutes || addedRouteCodes || addedProducts || addedStocks || addedStockLogs || addedRetailers;
+            const coreChanged = addedRoutes || addedRouteCodes || addedProducts || addedStocks || addedRetailers;
             if (coreChanged) {
                 const saved = await syncToFirebase();
                 if (!saved) {
-                    alert('মূল ডাটা (রুট/পণ্য/স্টক/স্টক ইতিহাস/রিটেইলার) Firebase-এ সংরক্ষণ করা যায়নি। ইনভয়েস/কালেকশন রিস্টোর করা হয়নি। আবার চেষ্টা করুন।');
+                    alert('মূল ডাটা (রুট/পণ্য/স্টক/রিটেইলার) Firebase-এ সংরক্ষণ করা যায়নি। ইনভয়েস/কালেকশন রিস্টোর করা হয়নি। আবার চেষ্টা করুন।');
                     return;
                 }
                 renderRoutes(); renderProducts(); renderStocks(); renderRetailerDropdowns();
@@ -9040,7 +9024,7 @@ function renderStockMultiProductList() {
                 return;
             }
 
-            alert(`✅ রিস্টোর সম্পন্ন হয়েছে।\n\nনতুন যুক্ত হয়েছে:\nরুট: ${addedRoutes}টি\nরুট কোড: ${addedRouteCodes}টি\nপণ্য: ${addedProducts}টি\nস্টক: ${addedStocks}টি\nস্টক ইতিহাস: ${addedStockLogs}টি\nরিটেইলার: ${addedRetailers}টি\nইনভয়েজ: ${addedInvoices}টি\nকালেকশন: ${addedCollections}টি\nঅনলাইন অর্ডার: ${addedOnlineOrders}টি\nঅনলাইন কালেকশন: ${addedOnlineCollections}টি\nইনভয়েজ কাউন্টার: ${restoredInvoiceCounter ? 'পুনরুদ্ধার হয়েছে' : 'কোনো পরিবর্তন নয়'}\nসেটিংস: ${restoredAppSettings ? 'পুনরুদ্ধার হয়েছে' : 'কোনো পরিবর্তন নয়'}\n\nবর্তমান কোনো ডাটা মুছে বা ওভাররাইট করা হয়নি — শুধু যা মিসিং ছিল তা যুক্ত হয়েছে।`);
+            alert(`✅ রিস্টোর সম্পন্ন হয়েছে।\n\nনতুন যুক্ত হয়েছে:\nরুট: ${addedRoutes}টি\nরুট কোড: ${addedRouteCodes}টি\nপণ্য: ${addedProducts}টি\nস্টক: ${addedStocks}টি\nরিটেইলার: ${addedRetailers}টি\nইনভয়েজ: ${addedInvoices}টি\nকালেকশন: ${addedCollections}টি\nঅনলাইন অর্ডার: ${addedOnlineOrders}টি\nঅনলাইন কালেকশন: ${addedOnlineCollections}টি\nইনভয়েজ কাউন্টার: ${restoredInvoiceCounter ? 'পুনরুদ্ধার হয়েছে' : 'কোনো পরিবর্তন নয়'}\nসেটিংস: ${restoredAppSettings ? 'পুনরুদ্ধার হয়েছে' : 'কোনো পরিবর্তন নয়'}\n\nবর্তমান কোনো ডাটা মুছে বা ওভাররাইট করা হয়নি — শুধু যা মিসিং ছিল তা যুক্ত হয়েছে।`);
         }
 
         // পূর্ণ ব্যাকআপ ডাউনলোড — appData-এর সব মূল অ্যারে, প্লাস sales_invoices
