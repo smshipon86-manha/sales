@@ -5357,8 +5357,8 @@ body.edit-modal-open { overflow: hidden !important; }
                  ${totalHtml}`;
             const invSmsBtn = document.getElementById('invoiceSmsBtn');
             if (invSmsBtn) {
-                // শুধু ক্রেডিট ইনভয়েসে এসএমএস বাটন দেখাবে (ক্যাশে বাকি বাড়ে না)
-                const showSms = inv.invoiceType !== 'Cash' && ret && ret.mobile;
+                // ক্যাশ ও ক্রেডিট — দুই ধরনের ইনভয়েসেই এসএমএস বাটন দেখাবে (রিটেইলারের মোবাইল নম্বর থাকলে)
+                const showSms = !!(ret && ret.mobile);
                 invSmsBtn.style.display = showSms ? '' : 'none';
                 invSmsBtn.onclick = () => sendInvoiceSms(inv, ret, totalDue);
             }
@@ -5394,11 +5394,16 @@ body.edit-modal-open { overflow: hidden !important; }
         function sendInvoiceSms(inv, ret, totalDue) {
             const purchase = Math.round(Number(inv.totalAmount || 0) || 0);
             const total = Math.round(Number(totalDue || 0) || 0);
-            const previousDue = Math.max(0, total - purchase);
-            const message = `${formatSmsDate(inv.date)}\n` +
+            // ক্রেডিট ইনভয়েসে এই ইনভয়েসের টাকা মোট বাকির ভেতরেই আছে, তাই বাদ দিয়ে আগের বাকি;
+            // ক্যাশ ইনভয়েসে বাকি বাড়ে না, তাই আগের বাকি = মোট বাকি।
+            const previousDue = inv.invoiceType === 'Credit' ? Math.max(0, total - purchase) : total;
+            // তারিখ dd-mm-yyyy (যেমন 06-10-2026) আকারে
+            const pd = parseBanglaOrISODate(inv.date || '');
+            const smsDate = pd ? isoToSystemDate(toLocalISODate(pd)) : String(inv.date || '');
+            const message = `${smsDate}\n` +
                 `${inv.invoiceNo}\n` +
-                `আগের বাকি = ${toBanglaNumber(previousDue.toLocaleString('en-US'))} ৳\n` +
                 `আজকের কেনা = ${toBanglaNumber(purchase.toLocaleString('en-US'))} ৳\n` +
+                `আগের বাকি = ${toBanglaNumber(previousDue.toLocaleString('en-US'))} ৳\n` +
                 `মোট বাকি = ${toBanglaNumber(total.toLocaleString('en-US'))} ৳\n` +
                 `পরিবেশক সিনজেনটা, ধুনট, বগুড়া | ধন্যবাদ`;
             openRetailerSms(ret, message);
