@@ -5345,7 +5345,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     <div style="font-size:58px;color:#5c7f29;line-height:1;">✓</div>
                     <h2 id="invoiceSuccessTitle" style="color:#5c7f29;margin:8px 0 15px;">ইনভয়েস সফল হয়েছে</h2>
                     <div id="invoiceSuccessDetails" style="line-height:2;font-size:16px;"></div>
-                    <button class="btn-submit" style="background:#5c7f29;" onclick="closeModal('invoiceSuccessModal')">ঠিক আছে</button>
+                    <div style="display:flex; gap:8px; margin-top:10px;"><button class="btn-submit" style="flex:1; background:#5c7f29;" onclick="closeModal('invoiceSuccessModal')">ঠিক আছে</button><button class="btn-submit" id="invoiceSmsBtn" style="flex:0 0 52px; background:#1f6a3a; font-size:20px; padding:10px 0; display:none;" title="রিটেইলারকে মেসেজ পাঠান">💬</button></div>
                 </div>`;
                 document.body.appendChild(popup);
             }
@@ -5355,7 +5355,67 @@ body.edit-modal-open { overflow: hidden !important; }
                  <div><b>ইনভয়েস নাম্বার:</b> ${escapeHtml(inv.invoiceNo)}</div>
                  <div><b>ইনভয়েস টাইপ:</b> ${inv.invoiceType === 'Cash' ? 'ক্যাশ' : 'ক্রেডিট'}</div>
                  ${totalHtml}`;
+            const invSmsBtn = document.getElementById('invoiceSmsBtn');
+            if (invSmsBtn) {
+                // শুধু ক্রেডিট ইনভয়েসে এসএমএস বাটন দেখাবে (ক্যাশে বাকি বাড়ে না)
+                const showSms = inv.invoiceType !== 'Cash' && ret && ret.mobile;
+                invSmsBtn.style.display = showSms ? '' : 'none';
+                invSmsBtn.onclick = () => sendInvoiceSms(inv, ret, totalDue);
+            }
             popup.style.display = 'flex';
+        }
+
+        // এসএমএস-এর জন্য তারিখ d/m/yyyy (ইংরেজি অঙ্কে) আকারে — dd-mm-yyyy বা yyyy-mm-dd থেকে
+        function formatSmsDate(str) {
+            const t = String(str || '').trim();
+            let m = t.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+            if (m) return `${Number(m[1])}/${Number(m[2])}/${m[3]}`;
+            m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (m) return `${Number(m[3])}/${Number(m[2])}/${m[1]}`;
+            return t;
+        }
+
+        // রিটেইলারের নম্বরে ফোনের এসএমএস অ্যাপ খুলে মেসেজ আগে থেকে লিখে দেয়
+        function openRetailerSms(ret, message) {
+            if (!ret || !ret.mobile) { alert('এই রিটেইলারের মোবাইল নম্বর সেভ করা নেই।'); return; }
+            const mobileDigits = String(ret.mobile).trim()
+                .replace(/[০-৯]/g, d => String('০১২৩৪৫৬৭৮৯'.indexOf(d)))
+                .replace(/\D/g, '');
+            let dialNumber = mobileDigits;
+            if (dialNumber.startsWith('880')) dialNumber = '0' + dialNumber.slice(3).replace(/^0+/, '');
+            else if (!dialNumber.startsWith('0')) dialNumber = '0' + dialNumber;
+            if (!/^01\d{9}$/.test(dialNumber)) {
+                if (!confirm(`মোবাইল নম্বরটা (${ret.mobile}) সঠিক ১১ অঙ্কের বাংলাদেশি নম্বর মনে হচ্ছে না। তবুও মেসেজ অ্যাপ খুলবেন?`)) return;
+            }
+            window.location.href = `sms:${dialNumber}?body=${encodeURIComponent(message)}`;
+        }
+
+        // নতুন ইনভয়েস সফল হওয়ার পপ-আপ থেকে এসএমএস
+        function sendInvoiceSms(inv, ret, totalDue) {
+            const purchase = Math.round(Number(inv.totalAmount || 0) || 0);
+            const total = Math.round(Number(totalDue || 0) || 0);
+            const previousDue = Math.max(0, total - purchase);
+            const message = `${formatSmsDate(inv.date)}\n` +
+                `${inv.invoiceNo}\n` +
+                `আগের বাকি = ${toBanglaNumber(previousDue.toLocaleString('en-US'))} ৳\n` +
+                `আজকের কেনা = ${toBanglaNumber(purchase.toLocaleString('en-US'))} ৳\n` +
+                `মোট বাকি = ${toBanglaNumber(total.toLocaleString('en-US'))} ৳\n` +
+                `পরিবেশক সিনজেনটা, ধুনট, বগুড়া | ধন্যবাদ`;
+            openRetailerSms(ret, message);
+        }
+
+        // কাস্টমার ডিউ রিপোর্টের সারি থেকে এসএমএস
+        function sendDueReportSms(index) {
+            const ret = retailers[index];
+            if (!ret) return;
+            const asOfEl = document.getElementById('dueReportAsOfDate');
+            const asOfISO = (asOfEl && asOfEl.value) ? asOfEl.value : getLocalISODate();
+            let due = 0;
+            withLedgerIndex(() => { due = Math.round(Number(getRetailerDueAsOfDate(ret, asOfISO) || 0)); });
+            const message = `${formatSmsDate(getSystemDateString())}\n` +
+                `আপনার সর্বমোট বাকি = ${toBanglaNumber(due.toLocaleString('en-US'))} ৳\n` +
+                `পরিবেশক সিনজেনটা, ধুনট, বগুড়া | ধন্যবাদ`;
+            openRetailerSms(ret, message);
         }
 
         // ইনভয়েসের id-এর ভেতরে (নতুন তৈরি করা হলে) তৈরির সময়ের মিলিসেকেন্ড
@@ -7339,7 +7399,7 @@ function renderStockMultiProductList() {
                             <td style="text-align:center;white-space:nowrap;">
                                 <button class="btn-action btn-view" onclick="openCustomerLedgerForRetailer(${index})">লেজার</button>
                                 <button class="btn-action btn-edit" onclick="editOpeningDue(${index})">এডিট</button>
-                                <button class="btn-action btn-delete" onclick="deleteOpeningDue(${index})">ডিলিট</button>
+                                <button class="btn-action btn-view" onclick="sendDueReportSms(${index})" title="রিটেইলারকে মেসেজ পাঠান">💬</button>
                             </td>
                         </tr>`;
                 }
@@ -10529,12 +10589,11 @@ function renderStockMultiProductList() {
             if (!ret || !ret.mobile) { alert('এই রিটেইলারের মোবাইল নম্বর সেভ করা নেই।'); return; }
             const previousDue = due + amount;
             const traderName = displayTraderName(ret.trader || '');
-            const message = `${traderName}\n` +
-                `তারিখ: ${date}\n` +
-                `পূর্বের বাকি: ${toBanglaNumber(previousDue.toLocaleString('en-US'))} ৳\n` +
-                `পরিশোধ: ${toBanglaNumber(amount.toLocaleString('en-US'))} ৳\n` +
-                `বর্তমান বাকি: ${toBanglaNumber(due.toLocaleString('en-US'))} ৳\n` +
-                `পরিবেশক: সিনজেনটা, ধুনট, বগুড়া`;
+            const message = `${formatSmsDate(date)}\n` +
+                `পূর্বের বাকি = ${toBanglaNumber(previousDue.toLocaleString('en-US'))} ৳\n` +
+                `কালেকশন দেওয়া = ${toBanglaNumber(amount.toLocaleString('en-US'))} ৳\n` +
+                `বর্তমান বাকি = ${toBanglaNumber(due.toLocaleString('en-US'))} ৳\n` +
+                `পরিবেশক সিনজেনটা, ধুনট, বগুড়া | ধন্যবাদ`;
             // [সংশোধন ১৬খ] বাংলা অঙ্ক, স্পেস/ড্যাশ, আর +৮৮০/৮৮০ দিয়ে সেভ করা নম্বরও
             // ঠিকভাবে ০১XXXXXXXXX আকারে আনা হয় (আগে "0+880..." হয়ে ভুল নম্বরে যেত)।
             const mobileDigits = String(ret.mobile).trim()
