@@ -2935,12 +2935,12 @@ body.edit-modal-open { overflow: hidden !important; }
                     console.error("Invoices listener error:", error);
                 });
 
-            // [Phase-1 Read Optimization + লাইভ ব্যাজ]
-            // প্রথমে একবার পুরো ডাটা (ইতিহাস, ব্যাকআপ ও স্ট্যাটাসহীন পুরনো ডকুমেন্টসহ) পড়া হয়;
-            // তারপর শুধু status == 'pending' ডকুমেন্টের ছোট লাইভ লিসেনার চালু হয় — নতুন অর্ডার/কালেকশন রিকোয়েস্ট
-            // সাথে সাথে ব্যাজে আসে, কিন্তু সব ডকুমেন্ট আর বারবার পড়া হয় না।
-            loadOnlineOrdersOnce().then(() => startOnlineOrdersLiveListener());
-            loadOnlineCollectionsOnce().then(() => startOnlineCollectionsLiveListener());
+            // [Phase-2 Read Optimization + লাইভ ব্যাজ]
+            // অ্যাপ খোলার সময় শুধু status == 'pending' ডকুমেন্টের ছোট লাইভ লিসেনার চালু হয় — নতুন অর্ডার/কালেকশন
+            // রিকোয়েস্ট সাথে সাথে ব্যাজে আসে। পুরো ইতিহাস (সম্পন্ন অর্ডার/কালেকশন) অ্যাপ খোলার সময় আর পড়া হয় না;
+            // অনলাইন অর্ডার/কালেকশন মেনু প্রথমবার খুললে, এবং ব্যাকআপ/রিস্টোরের আগে একবার পড়া হয়।
+            startOnlineOrdersLiveListener();
+            startOnlineCollectionsLiveListener();
 
             // নতুন (আলাদা কালেকশনে সেভ হওয়া) রিটেইলার-কালেকশন এন্ট্রিগুলো
             // লাইভ শোনার ব্যবস্থা -- এগুলো পুরোনো embedded collections-এর
@@ -6198,7 +6198,9 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!db || !navigator.onLine) return false;
             try {
                 const snapshot = await db.collection('online_orders').get();
-                onlineOrders = snapshot.docs.map(d => d.data());
+                const fetchedOrders = snapshot.docs.map(d => d.data());
+                const fetchedOrderIds = new Set(fetchedOrders.map(o => o && o.id));
+                onlineOrders = fetchedOrders.concat((onlineOrders || []).filter(o => o && o.id && !fetchedOrderIds.has(o.id)));
                 onlineOrdersFirstLoadDone = true;
                 updateOnlineOrderBadge();
                 return true;
@@ -6215,7 +6217,9 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!db || !navigator.onLine) return false;
             try {
                 const snapshot = await db.collection('online_collections').get();
-                onlineCollections = snapshot.docs.map(d => d.data());
+                const fetchedReqs = snapshot.docs.map(d => d.data());
+                const fetchedReqIds = new Set(fetchedReqs.map(o => o && o.id));
+                onlineCollections = fetchedReqs.concat((onlineCollections || []).filter(o => o && o.id && !fetchedReqIds.has(o.id)));
                 onlineCollectionsFirstLoadDone = true;
                 updateOnlineCollectionBadge();
                 return true;
@@ -6227,7 +6231,7 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         // [লাইভ ব্যাজ] status == 'pending' ডকুমেন্টের ছোট লাইভ লিসেনার।
-        // পুরো ডাটা আগেই একবার লোড হয়ে আছে; এখানে শুধু নতুন/বদলানো পেন্ডিং ডকুমেন্ট মিলিয়ে নেওয়া হয়।
+        // অ্যাপ খোলার সময় শুধু পেন্ডিং ডকুমেন্ট আসে; পুরো ডাটা মেনু খুললে/ব্যাকআপে একবার লোড হয়, তখন এই লিসেনারের ডাটা মিলিয়ে নেওয়া হয়।
         // কোনো ডকুমেন্ট পেন্ডিং থেকে বেরিয়ে গেলে (ইনভয়েস/অনুমোদন/বাতিল) তার নতুন অবস্থা শুধু সেই একটা ডকুমেন্ট পড়ে নেওয়া হয়।
         function mergeOnlineDocs(list, snapshot) {
             const byId = new Map();
@@ -9138,6 +9142,9 @@ function renderStockMultiProductList() {
             if (!file) return;
             if (inputEl) inputEl.value = '';
             if (!checkConnectionOrAlert()) return;
+            // অ্যাপ খোলার সময় শুধু পেন্ডিং পড়া হয়, তাই এখানে পুরো অনলাইন অর্ডার/কালেকশন একবার লোড করে নেওয়া হয়
+            if (!onlineOrdersFirstLoadDone) await loadOnlineOrdersOnce();
+            if (!onlineCollectionsFirstLoadDone) await loadOnlineCollectionsOnce();
             if (!(initialDataLoaded && serverDataWasLoaded && lastServerCoreHash && invoicesFirstLoadDone && collectionsFirstLoadDone && onlineOrdersFirstLoadDone && onlineCollectionsFirstLoadDone)) {
                 alert('রিস্টোর করার আগে Firebase-এর মূল ডাটা, সব ইনভয়েস, কালেকশন, অনলাইন অর্ডার ও অনলাইন কালেকশন সম্পূর্ণ লোড হওয়া পর্যন্ত অপেক্ষা করুন।');
                 return;
@@ -9295,6 +9302,9 @@ function renderStockMultiProductList() {
         // ও retailer_collections কালেকশনের সব ডকুমেন্ট, একটা JSON ফাইলে।
         async function downloadFullDataBackup() {
             if (!checkConnectionOrAlert()) return;
+            // অ্যাপ খোলার সময় শুধু পেন্ডিং পড়া হয়, তাই এখানে পুরো অনলাইন অর্ডার/কালেকশন একবার লোড করে নেওয়া হয়
+            if (!onlineOrdersFirstLoadDone) await loadOnlineOrdersOnce();
+            if (!onlineCollectionsFirstLoadDone) await loadOnlineCollectionsOnce();
             if (!(initialDataLoaded && serverDataWasLoaded && lastServerCoreHash && invoicesFirstLoadDone && collectionsFirstLoadDone && onlineOrdersFirstLoadDone && onlineCollectionsFirstLoadDone)) {
                 alert('সম্পূর্ণ ব্যাকআপ নেওয়ার আগে Firebase-এর মূল ডাটা, সব ইনভয়েস, কালেকশন, অনলাইন অর্ডার ও অনলাইন কালেকশন সম্পূর্ণ লোড হওয়া পর্যন্ত অপেক্ষা করুন। অসম্পূর্ণ ব্যাকআপ বন্ধ রাখা হয়েছে।');
                 return;
