@@ -2935,29 +2935,12 @@ body.edit-modal-open { overflow: hidden !important; }
                     console.error("Invoices listener error:", error);
                 });
 
-            // এসআর-এর পাঠানো অনলাইন অর্ডার লাইভ শোনার ব্যবস্থা — এসআর যখনই
-            // কোনো অর্ডার সাবমিট করবে, এখানে সাথে সাথেই (রিফ্রেশ না করেও)
-            // নোটিফিকেশন ব্যাজের সংখ্যা বেড়ে যাবে।
-            onlineOrdersUnsubscribe = db.collection("online_orders")
-                .onSnapshot((snapshot) => {
-                    onlineOrders = snapshot.docs.map(d => d.data());
-                    onlineOrdersFirstLoadDone = true;
-                    updateOnlineOrderBadge();
-                    renderOnlineOrdersList();
-                }, (error) => {
-                    console.error("Online orders listener error:", error);
-                });
-
-            // এসপিও-এর পাঠানো কালেকশন (বাকি জমার) রিকোয়েস্ট লাইভ শোনার ব্যবস্থা
-            onlineCollectionsUnsubscribe = db.collection("online_collections")
-                .onSnapshot((snapshot) => {
-                    onlineCollections = snapshot.docs.map(d => d.data());
-                    onlineCollectionsFirstLoadDone = true;
-                    updateOnlineCollectionBadge();
-                    renderOnlineCollectionsList();
-                }, (error) => {
-                    console.error("Online collections listener error:", error);
-                });
+            // [Phase-1 Read Optimization + লাইভ ব্যাজ]
+            // প্রথমে একবার পুরো ডাটা (ইতিহাস, ব্যাকআপ ও স্ট্যাটাসহীন পুরনো ডকুমেন্টসহ) পড়া হয়;
+            // তারপর শুধু status == 'pending' ডকুমেন্টের ছোট লাইভ লিসেনার চালু হয় — নতুন অর্ডার/কালেকশন রিকোয়েস্ট
+            // সাথে সাথে ব্যাজে আসে, কিন্তু সব ডকুমেন্ট আর বারবার পড়া হয় না।
+            loadOnlineOrdersOnce().then(() => startOnlineOrdersLiveListener());
+            loadOnlineCollectionsOnce().then(() => startOnlineCollectionsLiveListener());
 
             // নতুন (আলাদা কালেকশনে সেভ হওয়া) রিটেইলার-কালেকশন এন্ট্রিগুলো
             // লাইভ শোনার ব্যবস্থা -- এগুলো পুরোনো embedded collections-এর
@@ -3479,6 +3462,7 @@ body.edit-modal-open { overflow: hidden !important; }
             animateDashboardValue('dashboardDue', totalDue);
             dashboardStatsAnimatedOnce = true;
             schedulePublishMohajonView();
+            schedulePublishSpoView();
         }
 
         // ========== "মহাজন" (সাপ্লায়ার) ড্যাশবোর্ডের জন্য আলাদা সারাংশ প্রকাশ ==========
@@ -3574,6 +3558,79 @@ body.edit-modal-open { overflow: hidden !important; }
                 // এটা একটা সহায়ক/অতিরিক্ত ফিচার — ব্যর্থ হলেও মূল অ্যাপের
                 // কোনো সেভ/হিসাব/সিঙ্ক আটকাবে না, শুধু লগ হবে।
                 console.error('Mohajon view publish failed (non-critical):', e);
+            }
+        }
+
+        // ========== SPO অ্যাপের জন্য আলাদা ছোট সারাংশ ডকুমেন্ট ==========
+        // SPO অ্যাপ আর সব ইনভয়েস/কালেকশন পড়ে না (Firestore রিড কমানোর জন্য) —
+        // শুধু এই একটামাত্র ডকুমেন্ট "sales_system/spoToday" পড়ে: আজকের মোট বিক্রি,
+        // আজকের মোট কালেকশন এবং প্রতিটি রিটেইলারের (শুধু যাদের বাকি আছে) বর্তমান বাকি।
+        // সংখ্যাগুলো ড্যাশবোর্ডের কার্ড/বাকির হিসাবের একই ফাংশন থেকেই আসে।
+        // এই ফাংশন মূল appData/invoices/retailers কিছুই বদলায় না; ব্যর্থ হলেও মূল অ্যাপে প্রভাব নেই।
+        let __spoPublishTimer = null;
+        let __lastSpoPublishedStr = null;
+        function schedulePublishSpoView() {
+            if (__spoPublishTimer) clearTimeout(__spoPublishTimer);
+            __spoPublishTimer = setTimeout(() => { publishSpoView(); }, 4000);
+        }
+        async function publishSpoView() {
+            try {
+                if (!isConnectedToDB) return;
+                if (!(initialDataLoaded && invoicesFirstLoadDone && collectionsFirstLoadDone)) return;
+                const today = getLocalISODate();
+
+                const todayInvoices = (invoices || []).filter(inv => {
+                    const d = parseBanglaOrISODate(inv.date || '');
+                    return d && toLocalISODate(d) === today;
+                });
+                const todaySales = todayInvoices.reduce((s, inv) => s + (Number(inv.totalAmount || 0) || 0), 0);
+
+                let todayCollection = 0, todayCollectionCount = 0;
+                (retailers || []).forEach(ret => {
+                    (ret.collections || []).forEach(c => {
+                        const d = parseBanglaOrISODate(c.date || '');
+                        if (d && toLocalISODate(d) === today) {
+                            todayCollection += Number(c.amount || 0) || 0;
+                            todayCollectionCount++;
+                        }
+                    });
+                });
+                (retailerCollectionsLive || []).forEach(c => {
+                    const d = parseBanglaOrISODate(c.date || '');
+                    if (d && toLocalISODate(d) === today) {
+                        todayCollection += Number(c.amount || 0) || 0;
+                        todayCollectionCount++;
+                    }
+                });
+
+                // রিটেইলার আইডি -> বর্তমান বাকি (শুধু যাদের বাকি > ০)
+                const dues = {};
+                withLedgerIndex(() => {
+                    (retailers || []).forEach(ret => {
+                        if (!ret || !ret.id) return;
+                        const due = Math.max(0, Math.round(Number(recalculateRetailerDue(ret) || 0)));
+                        if (due > 0) dues[ret.id] = due;
+                    });
+                });
+
+                const payload = {
+                    date: today,
+                    todaySales: Math.round(todaySales),
+                    todayInvoiceCount: todayInvoices.length,
+                    todayCollection: Math.round(todayCollection),
+                    todayCollectionCount,
+                    dues
+                };
+                // আগের লেখা সংখ্যার সাথে হুবহু একই হলে আবার লেখা হবে না (রাইট বাঁচানো)
+                const payloadStr = JSON.stringify(payload);
+                if (payloadStr === __lastSpoPublishedStr) return;
+                await db.collection('sales_system').doc('spoToday').set({
+                    ...payload,
+                    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                });
+                __lastSpoPublishedStr = payloadStr;
+            } catch (e) {
+                console.error('SPO view publish failed (non-critical):', e);
             }
         }
 
@@ -4003,6 +4060,7 @@ body.edit-modal-open { overflow: hidden !important; }
             }
             overlay.style.display = 'none';
             clearEditModal(id);
+            if (typeof stopCashExpensesListenerIfUnused === 'function') stopCashExpensesListenerIfUnused();
         }
 
         // প্রতিটা পপ-আপের (মোডাল) হেডারে ক্লোজ বাটনের পাশাপাশি মিনিমাইজ ও
@@ -6133,6 +6191,111 @@ body.edit-modal-open { overflow: hidden !important; }
         // এখানেই সেই রেকর্ড জমা হয়।
         // ব্যাজের সংখ্যা লাইভ আপডেট করে — যতগুলো অর্ডার এখনো "pending"
         // (অসম্পন্ন) অবস্থায় আছে, ততগুলো দেখাবে।
+        // [Phase-1 Read Optimization]
+        // অনলাইন অর্ডারের continuous onSnapshot-এর বদলে প্রয়োজনমতো one-time read।
+        // পুরো collection পড়া হচ্ছে — status query দিয়ে পুরোনো data বাদ দেওয়া হচ্ছে না।
+        async function loadOnlineOrdersOnce() {
+            if (!db || !navigator.onLine) return false;
+            try {
+                const snapshot = await db.collection('online_orders').get();
+                onlineOrders = snapshot.docs.map(d => d.data());
+                onlineOrdersFirstLoadDone = true;
+                updateOnlineOrderBadge();
+                return true;
+            } catch (error) {
+                console.error('Online orders read failed:', error);
+                onlineOrdersFirstLoadDone = false;
+                return false;
+            }
+        }
+
+        // [Phase-1 Read Optimization]
+        // অনলাইন collection request-এর continuous listener-এর বদলে প্রয়োজনমতো one-time read।
+        async function loadOnlineCollectionsOnce() {
+            if (!db || !navigator.onLine) return false;
+            try {
+                const snapshot = await db.collection('online_collections').get();
+                onlineCollections = snapshot.docs.map(d => d.data());
+                onlineCollectionsFirstLoadDone = true;
+                updateOnlineCollectionBadge();
+                return true;
+            } catch (error) {
+                console.error('Online collections read failed:', error);
+                onlineCollectionsFirstLoadDone = false;
+                return false;
+            }
+        }
+
+        // [লাইভ ব্যাজ] status == 'pending' ডকুমেন্টের ছোট লাইভ লিসেনার।
+        // পুরো ডাটা আগেই একবার লোড হয়ে আছে; এখানে শুধু নতুন/বদলানো পেন্ডিং ডকুমেন্ট মিলিয়ে নেওয়া হয়।
+        // কোনো ডকুমেন্ট পেন্ডিং থেকে বেরিয়ে গেলে (ইনভয়েস/অনুমোদন/বাতিল) তার নতুন অবস্থা শুধু সেই একটা ডকুমেন্ট পড়ে নেওয়া হয়।
+        function mergeOnlineDocs(list, snapshot) {
+            const byId = new Map();
+            const noId = [];
+            (list || []).forEach(o => { if (!o) return; if (o.id) byId.set(o.id, o); else noId.push(o); });
+            const seen = new Set();
+            snapshot.docs.forEach(d => {
+                const o = d.data();
+                if (!o.id) o.id = d.id;
+                seen.add(o.id);
+                byId.set(o.id, o);
+            });
+            const leftPending = [];
+            byId.forEach((o, id) => { if (o && o.status === 'pending' && !seen.has(id)) leftPending.push(id); });
+            return { list: Array.from(byId.values()).concat(noId), leftPending };
+        }
+
+        async function refreshOnlineDocs(collectionName, ids, getList, setList) {
+            for (const id of ids) {
+                try {
+                    const snap = await db.collection(collectionName).doc(id).get();
+                    const list = (getList() || []).filter(o => !(o && o.id === id));
+                    if (snap.exists) { const o = snap.data(); if (!o.id) o.id = snap.id; list.push(o); }
+                    setList(list);
+                } catch (e) {
+                    console.error('Online doc refresh failed:', collectionName, id, e);
+                }
+            }
+        }
+
+        function startOnlineOrdersLiveListener() {
+            if (!db || typeof onlineOrdersUnsubscribe === 'function') return;
+            if (!firebase.auth().currentUser) return;
+            onlineOrdersUnsubscribe = db.collection('online_orders').where('status', '==', 'pending')
+                .onSnapshot(async (snapshot) => {
+                    const merged = mergeOnlineDocs(onlineOrders, snapshot);
+                    onlineOrders = merged.list;
+                    updateOnlineOrderBadge();
+                    renderOnlineOrdersList();
+                    if (merged.leftPending.length) {
+                        await refreshOnlineDocs('online_orders', merged.leftPending, () => onlineOrders, l => { onlineOrders = l; });
+                        updateOnlineOrderBadge();
+                        renderOnlineOrdersList();
+                    }
+                }, (error) => {
+                    console.error('Online orders live listener error:', error);
+                });
+        }
+
+        function startOnlineCollectionsLiveListener() {
+            if (!db || typeof onlineCollectionsUnsubscribe === 'function') return;
+            if (!firebase.auth().currentUser) return;
+            onlineCollectionsUnsubscribe = db.collection('online_collections').where('status', '==', 'pending')
+                .onSnapshot(async (snapshot) => {
+                    const merged = mergeOnlineDocs(onlineCollections, snapshot);
+                    onlineCollections = merged.list;
+                    updateOnlineCollectionBadge();
+                    renderOnlineCollectionsList();
+                    if (merged.leftPending.length) {
+                        await refreshOnlineDocs('online_collections', merged.leftPending, () => onlineCollections, l => { onlineCollections = l; });
+                        updateOnlineCollectionBadge();
+                        renderOnlineCollectionsList();
+                    }
+                }, (error) => {
+                    console.error('Online collections live listener error:', error);
+                });
+        }
+
         function updateOnlineOrderBadge() {
             const pendingCount = (onlineOrders || []).filter(o => !o.status || o.status === 'pending').length;
             const badge = document.getElementById('onlineOrderBadge');
@@ -6145,9 +6308,10 @@ body.edit-modal-open { overflow: hidden !important; }
             }
         }
 
-        function openOnlineOrdersModal() {
+        async function openOnlineOrdersModal() {
             if (!checkConnectionOrAlert()) return;
             document.getElementById('onlineOrdersModal').style.display = 'flex';
+            if (!onlineOrdersFirstLoadDone) await loadOnlineOrdersOnce();
             renderOnlineOrdersList();
         }
 
@@ -6267,8 +6431,25 @@ body.edit-modal-open { overflow: hidden !important; }
                 : 'এই অর্ডারটা বাতিল করতে চান?';
             if (!confirm(confirmMsg)) return;
             try {
-                await db.collection('online_orders').doc(orderId).set({ status }, { merge: true });
+                await db.runTransaction(async tx => {
+                    const ref = db.collection('online_orders').doc(orderId);
+                    const snap = await tx.get(ref);
+                    if (!snap.exists) throw new Error('__MISSING__');
+                    const st = snap.data().status;
+                    if (st && st !== 'pending') throw new Error('__ALREADY_HANDLED__:' + st);
+                    tx.set(ref, { status: status }, { merge: true });
+                });
+                // তাৎক্ষণিক স্ক্রিনে হালনাগাদ (বাড়তি রিড ছাড়া)
+                const localItem = (onlineOrders || []).find(o => o && o.id === orderId);
+                if (localItem) localItem.status = status;
+                updateOnlineOrderBadge(); renderOnlineOrdersList();
             } catch (e) {
+                if (e && String(e.message || '').startsWith('__ALREADY_HANDLED__')) {
+                    alert('এই অর্ডারটা আগেই প্রসেস হয়ে গেছে (ইনভয়েস/বাতিল)। তালিকা হালনাগাদ হচ্ছে।');
+                    refreshOnlineDocs('online_orders', [orderId], () => onlineOrders, l => { onlineOrders = l; }).then(() => { updateOnlineOrderBadge(); renderOnlineOrdersList(); });
+                    return;
+                }
+                if (e && String(e.message || '') === '__MISSING__') { alert('অর্ডারটা আর পাওয়া যাচ্ছে না।'); return; }
                 alert('আপডেট করতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');
             }
         }
@@ -6286,9 +6467,10 @@ body.edit-modal-open { overflow: hidden !important; }
             }
         }
 
-        function openOnlineCollectionsModal() {
+        async function openOnlineCollectionsModal() {
             if (!checkConnectionOrAlert()) return;
             document.getElementById('onlineCollectionsModal').style.display = 'flex';
+            if (!onlineCollectionsFirstLoadDone) await loadOnlineCollectionsOnce();
             renderOnlineCollectionsList();
         }
 
@@ -6398,8 +6580,25 @@ body.edit-modal-open { overflow: hidden !important; }
             if (!checkConnectionOrAlert()) return;
             if (!confirm('এই কালেকশন রিকোয়েস্টটা বাতিল করতে চান?')) return;
             try {
-                await db.collection('online_collections').doc(reqId).set({ status: 'rejected' }, { merge: true });
+                await db.runTransaction(async tx => {
+                    const ref = db.collection('online_collections').doc(reqId);
+                    const snap = await tx.get(ref);
+                    if (!snap.exists) throw new Error('__MISSING__');
+                    const st = snap.data().status;
+                    if (st && st !== 'pending') throw new Error('__ALREADY_HANDLED__:' + st);
+                    tx.set(ref, { status: 'rejected' }, { merge: true });
+                });
+                // তাৎক্ষণিক স্ক্রিনে হালনাগাদ (বাড়তি রিড ছাড়া)
+                const localItem = (onlineCollections || []).find(o => o && o.id === reqId);
+                if (localItem) localItem.status = 'rejected';
+                updateOnlineCollectionBadge(); renderOnlineCollectionsList();
             } catch (e) {
+                if (e && String(e.message || '').startsWith('__ALREADY_HANDLED__')) {
+                    alert('এই কালেকশন রিকোয়েস্টটা আগেই প্রসেস হয়ে গেছে (অনুমোদন/বাতিল)। তালিকা হালনাগাদ হচ্ছে।');
+                    refreshOnlineDocs('online_collections', [reqId], () => onlineCollections, l => { onlineCollections = l; }).then(() => { updateOnlineCollectionBadge(); renderOnlineCollectionsList(); });
+                    return;
+                }
+                if (e && String(e.message || '') === '__MISSING__') { alert('রিকোয়েস্টটা আর পাওয়া যাচ্ছে না।'); return; }
                 alert('আপডেট করতে সমস্যা হয়েছে, আবার চেষ্টা করুন।');
             }
         }
@@ -10797,13 +10996,13 @@ function renderStockMultiProductList() {
         }
     }
 
-    // মূল initAppData()-কে "wrap" করে ওপরে আরেকটা লাইভ লিসেনার জুড়ে দেওয়া হলো —
-    // ঠিক যেভাবে এই ফাইলে saveInvoiceData/saveProduct ইত্যাদিকে
-    // guardAgainstDoubleSubmit দিয়ে wrap করা হয়েছে। মূল ফাংশনের ভেতরের একটা
-    // অক্ষরও বদলায় না, শুধু তার পরে নতুন কাজ যুক্ত হয়।
-    const __originalInitAppDataForCashFlow = initAppData;
-    initAppData = function () {
-        __originalInitAppDataForCashFlow();
+    // [Phase-1 Read Optimization]
+    // cash_expenses আর login-এর পর থেকে সবসময় live listener চালাবে না।
+    // Cash Flow / Expense / Opening Balance screen ব্যবহার করার সময় listener চালু হবে,
+    // আর সব সংশ্লিষ্ট modal বন্ধ হলে listener বন্ধ হবে। ফলে idle অবস্থায় continuous reads থাকবে না।
+    function startCashExpensesListener() {
+        if (!db || !isConnectedToDB) return;
+        if (typeof cashExpensesUnsubscribe === 'function') return;
         cashExpensesUnsubscribe = db.collection('cash_expenses')
             .onSnapshot((snapshot) => {
                 cashExpenses = snapshot.docs.map(d => d.data());
@@ -10811,8 +11010,39 @@ function renderStockMultiProductList() {
                 if (document.getElementById('cashFlowReportModal') && document.getElementById('cashFlowReportModal').style.display === 'flex') renderCashFlowReport();
             }, (error) => {
                 console.error('Cash expenses listener error:', error);
+                cashExpensesFirstLoadDone = false;
             });
-    };
+    }
+
+    // [নিরাপত্তা] লিসেনার চালু করে প্রথম ডাটা আসা পর্যন্ত অপেক্ষা (সর্বোচ্চ ৬ সেকেন্ড)।
+    // এতে ওপেনিং ব্যালান্স/ক্যাশ রিপোর্ট খালি দেখিয়ে ভুল সেভ হওয়ার ঝুঁকি থাকে না।
+    function ensureCashExpensesLoaded() {
+        startCashExpensesListener();
+        if (cashExpensesFirstLoadDone) return Promise.resolve(true);
+        return new Promise(resolve => {
+            let tries = 0;
+            const t = setInterval(() => {
+                tries++;
+                if (cashExpensesFirstLoadDone) { clearInterval(t); resolve(true); }
+                else if (tries >= 40) { clearInterval(t); resolve(false); }
+            }, 150);
+        });
+    }
+
+    function stopCashExpensesListenerIfUnused() {
+        const ids = ['cashFlowReportModal', 'cashExpenseModal', 'openingBalanceModal'];
+        const anyOpen = ids.some(id => {
+            const el = document.getElementById(id);
+            return el && el.style.display === 'flex';
+        });
+        if (anyOpen) return;
+        if (typeof cashExpensesUnsubscribe === 'function') {
+            try { cashExpensesUnsubscribe(); } catch (e) { console.warn('Listener cleanup failed: cashExpensesUnsubscribe', e); }
+        }
+        cashExpensesUnsubscribe = null;
+        cashExpensesFirstLoadDone = false;
+    }
+
     const __originalUnsubscribeAllForCashFlow = unsubscribeAllFirebaseListeners;
     unsubscribeAllFirebaseListeners = function () {
         __originalUnsubscribeAllForCashFlow();
@@ -10823,8 +11053,13 @@ function renderStockMultiProductList() {
         cashExpensesFirstLoadDone = false;
     };
 
-    function openCashExpenseModal(editId) {
+    async function openCashExpenseModal(editId) {
         if (!checkConnectionOrAlert()) return;
+        if (editId) {
+            if (!(await ensureCashExpensesLoaded())) { alert('ক্যাশের তথ্য লোড করা যায়নি — ইন্টারনেট ঠিক করে আবার চেষ্টা করুন।'); return; }
+        } else {
+            startCashExpensesListener();
+        }
         const entry = editId ? (cashExpenses || []).find(e => e && e.id === editId) : null;
         document.getElementById('editCashExpenseId').value = editId || '';
         document.getElementById('cashExpenseModalTitle').innerText = entry ? 'খরচ এডিট করুন' : 'নতুন খরচ যোগ করুন';
@@ -10915,8 +11150,9 @@ function renderStockMultiProductList() {
     // saveCompanyOpeningBalance) মধ্যে সঠিকটা কল করে -- এই দুইটা ফাংশনের
     // আসল Firestore-সেভ লজিক অপরিবর্তিত, শুধু ইনপুট ফিল্ডের আইডি এখন
     // শেয়ার্ড (openingBalanceDate/openingBalanceAmount/openingBalanceDirection)।
-    function openOpeningBalanceModal(type) {
+    async function openOpeningBalanceModal(type) {
         if (!checkConnectionOrAlert()) return;
+        if (!(await ensureCashExpensesLoaded())) { alert('ক্যাশের তথ্য লোড করা যায়নি — ইন্টারনেট ঠিক করে আবার চেষ্টা করুন।'); return; }
         document.getElementById('openingBalanceType').value = type || 'cash';
         refreshOpeningBalanceModalView();
         document.getElementById('openingBalanceModal').style.display = 'flex';
@@ -11220,8 +11456,9 @@ function renderStockMultiProductList() {
         return labels[catFilter] || 'কার কাছে/কোম্পানি';
     }
 
-    function openCashFlowReportModal() {
+    async function openCashFlowReportModal() {
         if (!checkConnectionOrAlert()) return;
+        if (!(await ensureCashExpensesLoaded())) { alert('ক্যাশের তথ্য লোড করা যায়নি — ইন্টারনেট ঠিক করে আবার চেষ্টা করুন।'); return; }
         document.getElementById('cashFlowReportModal').style.display = 'flex';
         const today = getLocalISODate();
         const fromEl = document.getElementById('cashFlowFromDate');
