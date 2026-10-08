@@ -1621,6 +1621,7 @@ body.edit-modal-open { overflow: hidden !important; }
                     <li><a onclick="openDuplicateRetailerFinder()">ডুপ্লিকেট রিটেইলার খুঁজুন</a></li>
                     <li><a onclick="openOrphanInvoiceFinder()">এতিম ইনভয়েস খুঁজুন (রিটেইলার নেই)</a></li>
                     <li><a onclick="backfillAllCodes()">পুরোনো সবার কোড বসান</a></li>
+                    <li><a onclick="openDataUsageMeter()">📊 ডাটা ব্যবহার মাপুন (Firebase রিড)</a></li>
                 </ul>
             </li>
             <!-- নতুন যোগ করা মেনু: ক্যাশ ফ্লো (পণ্য কেনা/কোম্পানিকে পেমেন্ট/মালিককে দেওয়া/দৈনিক খরচ)।
@@ -1687,6 +1688,18 @@ body.edit-modal-open { overflow: hidden !important; }
                 <span class="close-btn" onclick="closeModal('lowStockListModal')">&times;</span>
             </div>
             <div id="lowStockListResult"></div>
+        </div>
+    </div>
+
+    <!-- ডাটা ব্যবহার মাপা — শুধু দেখার জন্য। অ্যাপে আগে থেকে লোড হওয়া ডাটা গুনে দেখায়;
+         Firebase থেকে কোনো রিড খরচ করে না এবং কোনো ডাটা বদলায় না। -->
+    <div class="modal-overlay" id="dataUsageModal">
+        <div class="modal-box" style="width: 760px; max-width: 96%;">
+            <div class="modal-header">
+                <h3>📊 ডাটা ব্যবহার ও Firebase রিড মাপা</h3>
+                <span class="close-btn" onclick="closeModal('dataUsageModal')">&times;</span>
+            </div>
+            <div id="dataUsageResult"></div>
         </div>
     </div>
 
@@ -8113,6 +8126,114 @@ function renderStockMultiProductList() {
                 return !validTraders.has(inv.retailer);
             });
         }
+
+        // ========== ডাটা ব্যবহার মাপা (শুধু দেখার জন্য) ==========
+        // অ্যাপে আগে থেকে লোড হওয়া ডাটা গুনে একবার অ্যাপ খুললে আনুমানিক Firebase রিড কত হয় দেখায়।
+        // Firebase থেকে কিছু পড়ে না, কিছু লেখেও না — তাই নিজে কোনো রিড খরচ হয় না।
+        function computeDataUsage() {
+            const pend = o => !!o && (!o.status || o.status === 'pending');
+            const bytes = v => { try { return new Blob([JSON.stringify(v == null ? [] : v)]).size; } catch (e) { return 0; } };
+            const invCount = (invoices || []).length;
+            const colCount = (retailerCollectionsLive || []).length;
+            const ordAll = (onlineOrders || []).length, ordPend = (onlineOrders || []).filter(pend).length;
+            const reqAll = (onlineCollections || []).length, reqPend = (onlineCollections || []).filter(pend).length;
+            const ordFull = !!onlineOrdersFirstLoadDone, reqFull = !!onlineCollectionsFirstLoadDone;
+            // অ্যাডমিন খুললে: ইনভয়েস + কালেকশন + appData(১) + পেন্ডিং অর্ডার + পেন্ডিং রিকোয়েস্ট
+            const openReads = invCount + colCount + 1 + ordPend + reqPend;
+            // SPO খুললে: appData + spoToday + পেন্ডিং + সাম্প্রতিক সর্বোচ্চ ৪০+৪০
+            const spoReads = 2 + ordPend + reqPend + 80;
+            const parts = [
+                ['রিটেইলার (' + (retailers || []).length + ' জন)', bytes(retailers)],
+                ['পণ্য (' + (products || []).length + 'টি)', bytes(products)],
+                ['স্টক', bytes(stocks)],
+                ['স্টক লগ (' + (stockLogs || []).length + 'টি এন্ট্রি)', bytes(stockLogs)],
+                ['রুট ও রুট কোড', bytes(routes) + bytes(routeCodes)],
+                ['সেটিংস', bytes(appSettings)]
+            ];
+            const appBytes = parts.reduce((s, p) => s + p[1], 0);
+            return { invCount, colCount, ordAll, ordPend, reqAll, reqPend, ordFull, reqFull,
+                     cashCount: (cashExpenses || []).length, openReads, spoReads, parts, appBytes,
+                     appLimit: 1048576, freeDaily: 50000 };
+        }
+
+        function renderDataUsage() {
+            const d = computeDataUsage();
+            const bn = n => Number(n).toLocaleString('bn-BD');
+            const kb = b => (b / 1024).toLocaleString('bn-BD', { maximumFractionDigits: 1 }) + ' KB';
+            const level = d.openReads < 1000 ? { c: '#17643a', bg: '#e8f5ee', t: '✅ ভালো — এখনই কিছু করার দরকার নেই' }
+                : d.openReads < 2000 ? { c: '#9a6700', bg: '#fff6dd', t: '⚠️ নজর রাখুন — বাড়ছে, পরিকল্পনা শুরু করার সময় হচ্ছে' }
+                : { c: '#b3261e', bg: '#fdecea', t: '❗ রিড কমানোর কাজ শুরু করার সময় হয়েছে' };
+            const appPct = d.appBytes / d.appLimit * 100;
+            const appLevel = appPct < 60 ? '#17643a' : (appPct < 80 ? '#9a6700' : '#b3261e');
+            const timesPerDay = d.openReads > 0 ? Math.floor(d.freeDaily / d.openReads) : 0;
+            const th = 'style="text-align:left;padding:7px 9px;border-bottom:1px solid #ddd;background:#f4f4f4;font-size:13px;"';
+            const td = 'style="padding:7px 9px;border-bottom:1px solid #eee;font-size:14px;"';
+            const tdn = 'style="padding:7px 9px;border-bottom:1px solid #eee;font-size:14px;text-align:right;font-weight:bold;"';
+            const rows = [
+                ['ইনভয়েস (sales_invoices)', d.invCount, 'প্রতিবার অ্যাপ খুললে সব'],
+                ['কালেকশন (retailer_collections)', d.colCount, 'প্রতিবার অ্যাপ খুললে সব'],
+                ['appData (রিটেইলার, পণ্য, স্টক…)', 1, 'প্রতিবার, ১টা ডকুমেন্ট'],
+                ['অনলাইন অর্ডার — পেন্ডিং', d.ordPend, 'প্রতিবার অ্যাপ খুললে'],
+                ['অনলাইন কালেকশন রিকোয়েস্ট — পেন্ডিং', d.reqPend, 'প্রতিবার অ্যাপ খুললে']
+            ].map(r => `<tr><td ${td}>${r[0]}</td><td ${tdn}>${bn(r[1])}</td><td ${td} >${r[2]}</td></tr>`).join('');
+            const partsRows = d.parts.slice().sort((a, b) => b[1] - a[1]).map(p =>
+                `<tr><td ${td}>${p[0]}</td><td ${tdn}>${kb(p[1])}</td></tr>`).join('');
+            const historyNote = (d.ordFull ? `অনলাইন অর্ডার মোট ${bn(d.ordAll)}টি` : 'অনলাইন অর্ডারের ইতিহাস এখনো লোড হয়নি')
+                + ' · ' + (d.reqFull ? `কালেকশন রিকোয়েস্ট মোট ${bn(d.reqAll)}টি` : 'কালেকশন রিকোয়েস্টের ইতিহাস এখনো লোড হয়নি')
+                + ' (ওই মেনু একবার খুললে মোট সংখ্যা জানা যায়; ক্যাশ ফ্লো মেনু খুললে ক্যাশ খরচ ' + bn(d.cashCount) + 'টি)';
+
+            document.getElementById('dataUsageResult').innerHTML = `
+                <div style="background:${level.bg};color:${level.c};border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+                    <div style="font-size:13px;">একবার এডমিন অ্যাপ খুললে আনুমানিক রিড</div>
+                    <div style="font-size:26px;font-weight:bold;">${bn(d.openReads)}</div>
+                    <div style="font-size:14px;">${level.t}</div>
+                </div>
+                <table style="width:100%;border-collapse:collapse;margin-bottom:12px;">
+                    <tr><th ${th}>কী পড়া হয়</th><th ${th} >সংখ্যা</th><th ${th}>কখন</th></tr>
+                    ${rows}
+                    <tr><td ${td}><b>মোট (একবার খুললে)</b></td><td ${tdn}>${bn(d.openReads)}</td><td ${td}></td></tr>
+                </table>
+                <div style="font-size:14px;line-height:1.7;margin-bottom:12px;">
+                    <div>🔸 ফ্রি সীমা দিনে <b>${bn(d.freeDaily)}</b> রিড। শুধু এডমিন খুললে দিনে প্রায় <b>${bn(timesPerDay)} বার</b> খোলা যায় (SPO ও অন্য ডিভাইসের রিডও একই সীমা থেকে কাটে)।</div>
+                    <div>🔸 SPO অ্যাপ একবার খুললে সর্বোচ্চ প্রায় <b>${bn(d.spoReads)}</b> রিড।</div>
+                    <div style="color:#666;">${historyNote}</div>
+                </div>
+                <div style="border:1px solid #ddd;border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+                    <div style="font-weight:bold;margin-bottom:6px;">appData ডকুমেন্টের সাইজ: <span style="color:${appLevel};">${kb(d.appBytes)}</span> / সীমা ${kb(d.appLimit)} (${bn(Math.round(appPct * 10) / 10)}%)</div>
+                    <div style="background:#eee;border-radius:6px;height:10px;overflow:hidden;margin-bottom:8px;"><div style="width:${Math.min(100, appPct)}%;height:10px;background:${appLevel};"></div></div>
+                    <div style="font-size:12px;color:#666;margin-bottom:6px;">সীমা পার হলে রিটেইলার, পণ্য বা স্টক সেভই আটকে যাবে — তাই এটা ৮০%-এর কাছে গেলে আগে জানাবেন।</div>
+                    <table style="width:100%;border-collapse:collapse;">${partsRows}</table>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn-submit" style="flex:1;min-width:140px;" onclick="copyDataUsageSummary()">📋 সংখ্যাগুলো কপি করুন</button>
+                    <button class="btn-submit" style="flex:1;min-width:140px;background:#666;" onclick="renderDataUsage()">🔄 আবার গুনুন</button>
+                </div>
+                <div style="font-size:12px;color:#888;margin-top:10px;">এই হিসাব অ্যাপে এখন লোড থাকা ডাটা গুনে করা, তাই নিজে কোনো Firebase রিড খরচ হয় না। দিনের আসল মোট রিড দেখতে Firebase Console → Firestore → Usage দেখুন।</div>`;
+            window.__lastDataUsageText = [
+                'এডমিন একবার খুললে আনুমানিক রিড: ' + d.openReads,
+                'ইনভয়েস: ' + d.invCount + ', কালেকশন: ' + d.colCount + ', অনলাইন অর্ডার পেন্ডিং: ' + d.ordPend + ' (মোট ' + (d.ordFull ? d.ordAll : 'অজানা') + '), কালেকশন রিকোয়েস্ট পেন্ডিং: ' + d.reqPend + ' (মোট ' + (d.reqFull ? d.reqAll : 'অজানা') + ')',
+                'appData সাইজ: ' + Math.round(d.appBytes / 1024) + ' KB / ' + Math.round(d.appLimit / 1024) + ' KB',
+                d.parts.map(p => p[0] + ': ' + Math.round(p[1] / 1024) + ' KB').join(' | '),
+                'SPO একবার খুললে সর্বোচ্চ রিড: ' + d.spoReads,
+                'তারিখ: ' + new Date().toLocaleDateString('bn-BD')
+            ].join('\n');
+        }
+
+        function copyDataUsageSummary() {
+            const text = window.__lastDataUsageText || '';
+            const done = () => alert('কপি হয়েছে — এখন যেকোনো জায়গায় পেস্ট করতে পারেন।');
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done).catch(() => alert(text));
+            } else {
+                alert(text);
+            }
+        }
+
+        function openDataUsageMeter() {
+            document.getElementById('dataUsageModal').style.display = 'flex';
+            renderDataUsage();
+        }
+
 
         function openOrphanInvoiceFinder() {
             if (!checkConnectionOrAlert()) return;
