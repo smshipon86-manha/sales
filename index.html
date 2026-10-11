@@ -9284,7 +9284,7 @@ function renderStockMultiProductList() {
                 return;
             }
 
-            if (!confirm('⚠️ ব্যাকআপ থেকে রিস্টোর করবেন?\n\nএই রিস্টোর শুধু বর্তমানে যা মিসিং (হারিয়ে গেছে) তা ব্যাকআপ থেকে ফিরিয়ে দেবে।\nবর্তমান কোনো ডাটা মুছবে না, ওভাররাইট হবে না, এবং ডাবলও হবে না — প্রতিটা রুট/পণ্য/রিটেইলার/ইনভয়েস/কালেকশন তার নিজস্ব পরিচয় (আইডি/কোড) দিয়ে মেলানো হয়, একই জিনিস দুইবার যুক্ত হয় না।\n\nচালিয়ে যেতে চান?')) return;
+            if (!confirm('⚠️ ব্যাকআপ থেকে রিস্টোর করবেন?\n\nএই রিস্টোর শুধু বর্তমানে যা মিসিং (হারিয়ে গেছে) তা ব্যাকআপ থেকে ফিরিয়ে দেবে।\nবর্তমান কোনো ডাটা মুছবে না, ওভাররাইট হবে না, এবং ডাবলও হবে না — প্রতিটা রুট/পণ্য/রিটেইলার/ইনভয়েস/কালেকশন/ক্যাশ ফ্লো এন্ট্রি তার নিজস্ব পরিচয় (আইডি/কোড) দিয়ে মেলানো হয়, একই জিনিস দুইবার যুক্ত হয় না।\n\nচালিয়ে যেতে চান?')) return;
 
             let addedRoutes = 0, addedRouteCodes = 0, addedProducts = 0, addedStocks = 0, addedRetailers = 0;
 
@@ -9322,7 +9322,19 @@ function renderStockMultiProductList() {
                 });
             }
 
-            const coreChanged = addedRoutes || addedRouteCodes || addedProducts || addedStocks || addedRetailers;
+            // [নতুন] স্টক যোগের ইতিহাস (stockLogs) — ব্যাকআপে আগে থেকেই ছিল কিন্তু
+            // রিস্টোরে ফেরত আসত না। এখন আইডি দিয়ে মিলিয়ে শুধু মিসিংগুলো যোগ হয়;
+            // বর্তমান কোনো এন্ট্রি বদলায় না, স্টকের পরিমাণেও হাত পড়ে না।
+            let addedStockLogs = 0;
+            if (Array.isArray(backup.stockLogs)) {
+                const existing = new Set(stockLogs.map(l => identityOfRecord(l, 'stockLog')));
+                backup.stockLogs.forEach(l => {
+                    const id = identityOfRecord(l, 'stockLog');
+                    if (id && !existing.has(id)) { stockLogs.push(l); existing.add(id); addedStockLogs++; }
+                });
+            }
+
+            const coreChanged = addedRoutes || addedRouteCodes || addedProducts || addedStocks || addedRetailers || addedStockLogs;
             if (coreChanged) {
                 const saved = await syncToFirebase();
                 if (!saved) {
@@ -9387,6 +9399,36 @@ function renderStockMultiProductList() {
                 }
             }
 
+            // [নতুন] ক্যাশ ফ্লো (cash_expenses): সার্ভারে এখন কোন কোন ডকুমেন্ট আছে তা
+            // সরাসরি পড়ে দেখা হয়, তারপর শুধু যেগুলো নেই সেগুলোই যোগ হয়। যা আগে থেকে
+            // আছে (প্রারম্ভিক ব্যালেন্সসহ) তা কখনো বদলায় না। সার্ভার তালিকা পড়া না গেলে
+            // অনুমান করে কিছু লেখা হয় না।
+            let addedCashExpenses = 0;
+            if (Array.isArray(backup.cashExpenses) && backup.cashExpenses.length) {
+                try {
+                    const cashSnap = await db.collection('cash_expenses').get({ source: 'server' });
+                    const existingIds = new Set(cashSnap.docs.map(d => d.id));
+                    const reviveTs = (v) => (v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length === 2 && typeof v.seconds === 'number' && typeof v.nanoseconds === 'number')
+                        ? new firebase.firestore.Timestamp(v.seconds, v.nanoseconds) : v;
+                    const missing = backup.cashExpenses.filter(c => c && c.id && !String(c.id).includes('/') && !existingIds.has(String(c.id)));
+                    const CHUNK = 450;
+                    for (let i = 0; i < missing.length; i += CHUNK) {
+                        const chunk = missing.slice(i, i + CHUNK);
+                        const batch = db.batch();
+                        chunk.forEach(c => {
+                            const revived = {};
+                            Object.keys(c).forEach(k => { revived[k] = reviveTs(c[k]); });
+                            batch.set(db.collection('cash_expenses').doc(String(c.id)), revived);
+                        });
+                        try { await batch.commit(); addedCashExpenses += chunk.length; }
+                        catch (e) { console.error('Cash expenses restore batch failed:', e); alert('কিছু ক্যাশ ফ্লো এন্ট্রি রিস্টোর করতে সমস্যা হয়েছে, বাকিটা আবার চেষ্টা করুন।'); break; }
+                    }
+                } catch (e) {
+                    console.error('Cash expenses restore failed:', e);
+                    alert('ক্যাশ ফ্লোর বর্তমান তালিকা সার্ভার থেকে পড়া যায়নি, তাই ক্যাশ ফ্লো এন্ট্রি রিস্টোর করা হয়নি (কিছুই লেখা হয়নি)। ইন্টারনেট ঠিক করে আবার চেষ্টা করুন।');
+                }
+            }
+
             let restoredInvoiceCounter = false;
             if (backup.invoiceCounter && typeof backup.invoiceCounter === 'object') {
                 try {
@@ -9411,16 +9453,16 @@ function renderStockMultiProductList() {
                 }
             }
 
-            if (!coreChanged && !addedInvoices && !addedCollections && !addedOnlineOrders && !addedOnlineCollections && !restoredInvoiceCounter && !restoredAppSettings) {
+            if (!coreChanged && !addedCashExpenses && !addedInvoices && !addedCollections && !addedOnlineOrders && !addedOnlineCollections && !restoredInvoiceCounter && !restoredAppSettings) {
                 alert('✅ কিছুই মিসিং পাওয়া যায়নি — বর্তমান সব ডাটা ব্যাকআপের সাথে ইতিমধ্যেই মিলে আছে। কিছু রিস্টোর করার প্রয়োজন হয়নি।');
                 return;
             }
 
-            alert(`✅ রিস্টোর সম্পন্ন হয়েছে।\n\nনতুন যুক্ত হয়েছে:\nরুট: ${addedRoutes}টি\nরুট কোড: ${addedRouteCodes}টি\nপণ্য: ${addedProducts}টি\nস্টক: ${addedStocks}টি\nরিটেইলার: ${addedRetailers}টি\nইনভয়েজ: ${addedInvoices}টি\nকালেকশন: ${addedCollections}টি\nঅনলাইন অর্ডার: ${addedOnlineOrders}টি\nঅনলাইন কালেকশন: ${addedOnlineCollections}টি\nইনভয়েজ কাউন্টার: ${restoredInvoiceCounter ? 'পুনরুদ্ধার হয়েছে' : 'কোনো পরিবর্তন নয়'}\nসেটিংস: ${restoredAppSettings ? 'পুনরুদ্ধার হয়েছে' : 'কোনো পরিবর্তন নয়'}\n\nবর্তমান কোনো ডাটা মুছে বা ওভাররাইট করা হয়নি — শুধু যা মিসিং ছিল তা যুক্ত হয়েছে।`);
+            alert(`✅ রিস্টোর সম্পন্ন হয়েছে।\n\nনতুন যুক্ত হয়েছে:\nরুট: ${addedRoutes}টি\nরুট কোড: ${addedRouteCodes}টি\nপণ্য: ${addedProducts}টি\nস্টক: ${addedStocks}টি\nরিটেইলার: ${addedRetailers}টি\nইনভয়েজ: ${addedInvoices}টি\nকালেকশন: ${addedCollections}টি\nস্টক ইতিহাস: ${addedStockLogs}টি\nক্যাশ ফ্লো এন্ট্রি: ${addedCashExpenses}টি\nঅনলাইন অর্ডার: ${addedOnlineOrders}টি\nঅনলাইন কালেকশন: ${addedOnlineCollections}টি\nইনভয়েজ কাউন্টার: ${restoredInvoiceCounter ? 'পুনরুদ্ধার হয়েছে' : 'কোনো পরিবর্তন নয়'}\nসেটিংস: ${restoredAppSettings ? 'পুনরুদ্ধার হয়েছে' : 'কোনো পরিবর্তন নয়'}\n\nবর্তমান কোনো ডাটা মুছে বা ওভাররাইট করা হয়নি — শুধু যা মিসিং ছিল তা যুক্ত হয়েছে।`);
         }
 
-        // পূর্ণ ব্যাকআপ ডাউনলোড — appData-এর সব মূল অ্যারে, প্লাস sales_invoices
-        // ও retailer_collections কালেকশনের সব ডকুমেন্ট, একটা JSON ফাইলে।
+        // পূর্ণ ব্যাকআপ ডাউনলোড — appData-এর সব মূল অ্যারে, প্লাস sales_invoices,
+        // retailer_collections ও cash_expenses কালেকশনের সব ডকুমেন্ট, একটা JSON ফাইলে।
         async function downloadFullDataBackup() {
             if (!checkConnectionOrAlert()) return;
             // অ্যাপ খোলার সময় শুধু পেন্ডিং পড়া হয়, তাই এখানে পুরো অনলাইন অর্ডার/কালেকশন একবার লোড করে নেওয়া হয়
@@ -9442,6 +9484,23 @@ function renderStockMultiProductList() {
                 alert('Invoice counter পড়া যায়নি। নিরাপত্তার জন্য অসম্পূর্ণ ব্যাকআপ ডাউনলোড করা বন্ধ রাখা হয়েছে। আবার চেষ্টা করুন।');
                 return;
             }
+            // [নতুন] ক্যাশ ফ্লোর সব ডকুমেন্ট (দৈনিক খরচ, কোম্পানিকে পেমেন্ট, পণ্য কেনা,
+            // মালিককে দেওয়া, এবং প্রারম্ভিক ব্যালেন্স OPENING_BALANCE ও
+            // COMPANY_OPENING_BALANCE) — আগে এগুলো ব্যাকআপে ছিল না। এই কালেকশনের
+            // লাইভ লিসেনার সবসময় চালু থাকে না, তাই মেমোরির তালিকা না ধরে সরাসরি
+            // সার্ভার থেকে পড়া হচ্ছে। পড়া ব্যর্থ হলে অসম্পূর্ণ ব্যাকআপ না নিয়ে বন্ধ রাখা হয়।
+            let cashExpensesData = [];
+            try {
+                const cashSnap = await db.collection('cash_expenses').get({ source: 'server' });
+                cashExpensesData = cashSnap.docs.map(d => {
+                    const data = d.data() || {};
+                    return data.id ? data : { ...data, id: d.id };
+                });
+            } catch (e) {
+                console.error('Cash expenses backup read failed:', e);
+                alert('ক্যাশ ফ্লোর তথ্য (cash_expenses) সার্ভার থেকে পড়া যায়নি। নিরাপত্তার জন্য অসম্পূর্ণ ব্যাকআপ ডাউনলোড করা বন্ধ রাখা হয়েছে। ইন্টারনেট ঠিক করে আবার চেষ্টা করুন।');
+                return;
+            }
             const backup = {
                 backupTakenAt: new Date().toISOString(),
                 routes: routes || [],
@@ -9455,6 +9514,7 @@ function renderStockMultiProductList() {
                 onlineOrders: onlineOrders || [],
                 onlineCollections: onlineCollections || [],
                 invoiceCounter: invoiceCounterData,
+                cashExpenses: cashExpensesData,
                 appSettings: appSettings || {}
             };
             const json = JSON.stringify(backup, null, 2);
@@ -9466,7 +9526,7 @@ function renderStockMultiProductList() {
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
-            alert('সম্পূর্ণ ডাটা ব্যাকআপ ডাউনলোড হয়েছে। ফাইলটা নিরাপদ জায়গায় (যেমন Google Drive/পেনড্রাইভ) রেখে দিন।');
+            alert('সম্পূর্ণ ডাটা ব্যাকআপ ডাউনলোড হয়েছে।\n\nফাইলে আছে: ইনভয়েস ' + (invoices || []).length + 'টি, কালেকশন ' + (retailerCollectionsLive || []).length + 'টি, রিটেইলার ' + (retailers || []).length + 'টি, পণ্য ' + (products || []).length + 'টি, স্টক ইতিহাস ' + (stockLogs || []).length + 'টি, ক্যাশ ফ্লো এন্ট্রি ' + cashExpensesData.length + 'টি।\n\nফাইলটা নিরাপদ জায়গায় (যেমন Google Drive/পেনড্রাইভ) রেখে দিন।');
         }
 
 
