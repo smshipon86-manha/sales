@@ -688,10 +688,10 @@
                 backdrop-filter: none !important;
                 -webkit-backdrop-filter: none !important;
             }
-            /* ২) মেমোর ফন্ট Nirmala UI (Windows-এর নিজস্ব বাংলা ফন্ট — ইন্টারনেট লাগে না, প্রিন্টে পরিষ্কার)।
-                  না থাকলে (যেমন Mac/Android) আগের ফন্টগুলোতেই ফিরে যায়। শুধু ফন্টের ধরন বদলায়, সাইজ নয়। */
+            /* ২) মেমোর ফন্ট Noto Sans Bengali (অ্যাপ স্ক্রিনে যে ফন্ট ব্যবহার করে সেটাই; Google Fonts থেকে আসে,
+                  ইন্টারনেট না থাকলে Hind Siliguri, তারপর Nirmala UI-তে ফিরে যায়। শুধু ফন্টের ধরন বদলায়, সাইজ নয়। */
             #cashMemoModal, #cashMemoModal * {
-                font-family: 'Nirmala UI', 'Noto Sans Bengali', 'Hind Siliguri', 'Segoe UI', Arial, sans-serif !important;
+                font-family: 'Noto Sans Bengali', 'Hind Siliguri', 'Nirmala UI', 'Segoe UI', Arial, sans-serif !important;
             }
         }
         .memo-copy-break {
@@ -10599,9 +10599,9 @@ function renderStockMultiProductList() {
                 // পরে পুরো array উল্টে (reverse করে) দেখানো হবে।
                 rowHtmlArr.push({ running, html: `<tr class="${rowClass}">
                     <td style="white-space:nowrap;">__SNO__</td>
-                    <td style="white-space:nowrap;">${r.date}</td>
-                    <td style="white-space:nowrap;">${r.type}</td>
-                    <td style="white-space:nowrap;">${r.ref}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(r.date)}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(r.type)}</td>
+                    <td style="white-space:nowrap;">${escapeHtml(r.ref)}</td>
                     <td style="text-align:right; white-space:nowrap;">${r.sales.toLocaleString('en-US')} ৳</td>
                     <td style="text-align:right; white-space:nowrap;">${r.credit.toLocaleString('en-US')} ৳</td>
                     <td style="text-align:right; white-space:nowrap;">${r.collection.toLocaleString('en-US')} ৳</td>
@@ -10664,7 +10664,7 @@ function renderStockMultiProductList() {
             const x = window._ledgerExport;
             if (!x || !x.html) { alert('আগে "লেজার দেখুন" বাটনে ক্লিক করে লেজার লোড করুন।'); return; }
             const w = window.open('', '_blank');
-            w.document.write(`<html lang="bn"><head><meta charset="UTF-8"><title>কাস্টমার লেজার - ${displayTraderName(x.ret.trader)}</title>
+            w.document.write(`<html lang="bn"><head><meta charset="UTF-8"><title>কাস্টমার লেজার - ${escapeHtml(displayTraderName(x.ret.trader))}</title>
             <style>
                 body{font-family:'Nirmala UI','SolaimanLipi',Arial,sans-serif;padding:25px;}
                 h2{margin-bottom:2px;} .sub{color:#555;margin-bottom:15px;}
