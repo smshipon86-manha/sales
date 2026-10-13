@@ -681,6 +681,18 @@
             .no-print {
                 display: none !important;
             }
+            /* [প্রিন্ট স্পষ্ট করার সংশোধন — শুধু প্রিন্টের সময় প্রযোজ্য, স্ক্রিন বা কাগজের মাপ/ফন্ট সাইজ অপরিবর্তিত]
+               ১) মেমো পপআপে স্ক্রিনের জন্য ব্যাকগ্রাউন্ড-ঝাপসা (backdrop-filter) দেওয়া আছে। প্রিন্টে এটা
+                  থেকে গেলে ব্রাউজার লেখা ও টেবিল ছবির মতো (bitmap) করে ফেলে, ফলে ঝাপসা আসে — তাই বন্ধ। */
+            #cashMemoModal {
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+            }
+            /* ২) মেমোর ফন্ট Nirmala UI (Windows-এর নিজস্ব বাংলা ফন্ট — ইন্টারনেট লাগে না, প্রিন্টে পরিষ্কার)।
+                  না থাকলে (যেমন Mac/Android) আগের ফন্টগুলোতেই ফিরে যায়। শুধু ফন্টের ধরন বদলায়, সাইজ নয়। */
+            #cashMemoModal, #cashMemoModal * {
+                font-family: 'Nirmala UI', 'Noto Sans Bengali', 'Hind Siliguri', 'Segoe UI', Arial, sans-serif !important;
+            }
         }
         .memo-copy-break {
             page-break-before: always;
