@@ -1522,6 +1522,16 @@ body.edit-modal-open { overflow: hidden !important; }
 }
 </style>
 
+
+<style>
+/* মেনু পাথ (breadcrumb) - মেনুবারের ঠিক নিচে */
+#menuPathBar{display:flex;align-items:center;flex-wrap:wrap;gap:2px;padding:6px 16px;background:#1a3120;border-top:1px solid rgba(255,255,255,.08);color:#d4edda;font-size:14px;font-weight:600;line-height:1.5}
+#menuPathBar .mp-sep{color:#d4a017;margin:0 7px;font-weight:700}
+#menuPathBar .mp-item{color:#d4edda}
+#menuPathBar .mp-last{color:#ffd770}
+#menuPathBar .mp-root{cursor:pointer}
+@media print{#menuPathBar{display:none}}
+</style>
 </head>
 <body>
     <!-- Firebase-এ ইনভয়েস/কালেকশন/অন্যান্য সেভ চলাকালীন ডাবল-ক্লিক ও অন্য বাটন চাপা বন্ধ রাখে -->
@@ -1583,80 +1593,83 @@ body.edit-modal-open { overflow: hidden !important; }
         <button class="mobile-menu-btn" type="button" aria-label="মেনু খুলুন" aria-expanded="false" onclick="toggleMobileMenu(this)">☰</button>
         <ul class="nav-links">
             <li class="has-dropdown">
-                <a href="#">সেটআপ ▾</a>
+                <a data-slug="Setup" href="#">সেটআপ ▾</a>
                 <ul class="dropdown">
-                    <li><a onclick="openProductModal()">পণ্য যোগ করুন</a></li>
-                    <li><a onclick="openOpeningDueModal()">আগের বাকি সেট করুন</a></li>
+                    <li><a data-slug="AddProduct" onclick="openProductModal()">পণ্য যোগ করুন</a></li>
+                    <li><a data-slug="OpeningDue" onclick="openOpeningDueModal()">আগের বাকি সেট করুন</a></li>
                 </ul>
             </li>
 
             <li class="has-dropdown">
-                <a href="#">আউটলেট ▾</a>
+                <a data-slug="Outlet" href="#">আউটলেট ▾</a>
                 <ul class="dropdown">
-                    <li><a onclick="openRouteModal()">রুট</a></li>
-                    <li><a onclick="openRetailerModal()">রিটেইলার যোগ করুন</a></li>
-                    <li><a onclick="openCreditLimitModal()">কাস্টমার ক্রেডিট লিমিট</a></li>
+                    <li><a data-slug="Route" onclick="openRouteModal()">রুট</a></li>
+                    <li><a data-slug="AddRetailer" onclick="openRetailerModal()">রিটেইলার যোগ করুন</a></li>
+                    <li><a data-slug="CreditLimit" onclick="openCreditLimitModal()">কাস্টমার ক্রেডিট লিমিট</a></li>
                 </ul>
             </li>
 
             <li class="has-dropdown">
-                <a href="#">স্টক ▾</a>
+                <a data-slug="Stock" href="#">স্টক ▾</a>
                 <ul class="dropdown">
-                    <li><a onclick="openStockModal()">স্টক এড করুন</a></li>
+                    <li><a data-slug="AddStock" onclick="openStockModal()">স্টক এড করুন</a></li>
                 </ul>
             </li>
 
             <li class="has-dropdown">
-                <a href="#" class="active">বিক্রয় (সেলস) ▾</a>
+                <a data-slug="Sales" href="#" class="active">বিক্রয় (সেলস) ▾</a>
                 <ul class="dropdown">
-                    <li><a onclick="openSalesModal()">সেলস ম্যানেজার (ইনভয়েস)</a></li>
+                    <li><a data-slug="SalesManager" onclick="openSalesModal()">সেলস ম্যানেজার (ইনভয়েস)</a></li>
                 </ul>
             </li>
             
             <li class="has-dropdown">
-                <a href="#">রিপোর্টস ▾</a>
+                <a data-slug="Reports" href="#">রিপোর্টস ▾</a>
                 <ul class="dropdown">
-                    <li><a onclick="openRetailerReportModal()">রিটেইলার তালিকা</a></li>
-                    <li><a onclick="openCustomerDueReportModal()">কাস্টমার বাকি (Due Report)</a></li>
-                    <li><a onclick="openStockReportModal()">স্টক রিপোর্ট</a></li>
-                    <li><a onclick="openSalesDateRangeReportModal()">আজকের সেলস</a></li>
-                    <li><a onclick="openCustomerLedgerModal()">কাস্টমারের লেজার</a></li>
-                    <li><a onclick="openStockLogReportModal()">স্টক যোগের ইতিহাস</a></li>
-                    <li><a onclick="openCollectionReportModal()">কালেকশন রিপোর্ট</a></li>
+                    <li><a data-slug="RetailerList" onclick="openRetailerReportModal()">রিটেইলার তালিকা</a></li>
+                    <li><a data-slug="CustomerDue" onclick="openCustomerDueReportModal()">কাস্টমার বাকি (Due Report)</a></li>
+                    <li><a data-slug="StockReport" onclick="openStockReportModal()">স্টক রিপোর্ট</a></li>
+                    <li><a data-slug="TodaySales" onclick="openSalesDateRangeReportModal()">আজকের সেলস</a></li>
+                    <li><a data-slug="CustomerLedger" onclick="openCustomerLedgerModal()">কাস্টমারের লেজার</a></li>
+                    <li><a data-slug="StockLog" onclick="openStockLogReportModal()">স্টক যোগের ইতিহাস</a></li>
+                    <li><a data-slug="CollectionReport" onclick="openCollectionReportModal()">কালেকশন রিপোর্ট</a></li>
                 </ul>
             </li>
             <li class="has-dropdown">
-                <a href="#">ব্যাকআপ ▾</a>
+                <a data-slug="Backup" href="#">ব্যাকআপ ▾</a>
                 <ul class="dropdown">
-                    <li><a onclick="downloadFullDataBackup()">ব্যাকআপ ডাউনলোড করুন</a></li>
-                    <li><a onclick="document.getElementById('restoreBackupInput').click()">রিস্টোর করুন</a></li>
-                    <li><a onclick="openDuplicateRetailerFinder()">ডুপ্লিকেট রিটেইলার খুঁজুন</a></li>
-                    <li><a onclick="openOrphanInvoiceFinder()">এতিম ইনভয়েস খুঁজুন (রিটেইলার নেই)</a></li>
-                    <li><a onclick="backfillAllCodes()">পুরোনো সবার কোড বসান</a></li>
-                    <li><a onclick="openDataUsageMeter()">📊 ডাটা ব্যবহার মাপুন (Firebase রিড)</a></li>
+                    <li><a data-slug="DownloadBackup" onclick="downloadFullDataBackup()">ব্যাকআপ ডাউনলোড করুন</a></li>
+                    <li><a data-slug="Restore" onclick="document.getElementById('restoreBackupInput').click()">রিস্টোর করুন</a></li>
+                    <li><a data-slug="DuplicateRetailer" onclick="openDuplicateRetailerFinder()">ডুপ্লিকেট রিটেইলার খুঁজুন</a></li>
+                    <li><a data-slug="OrphanInvoice" onclick="openOrphanInvoiceFinder()">এতিম ইনভয়েস খুঁজুন (রিটেইলার নেই)</a></li>
+                    <li><a data-slug="BackfillCodes" onclick="backfillAllCodes()">পুরোনো সবার কোড বসান</a></li>
+                    <li><a data-slug="DataUsage" onclick="openDataUsageMeter()">📊 ডাটা ব্যবহার মাপুন (Firebase রিড)</a></li>
                 </ul>
             </li>
             <!-- নতুন যোগ করা মেনু: ক্যাশ ফ্লো (পণ্য কেনা/কোম্পানিকে পেমেন্ট/মালিককে দেওয়া/দৈনিক খরচ)।
                  এটি সম্পূর্ণ আলাদা Firestore কালেকশনে (cash_expenses) সেভ হয় — বিদ্যমান
                  ইনভয়েস/স্টক/বাকির কোনো হিসাবে হাত দেয় না। -->
             <li class="has-dropdown">
-                <a href="#">ক্যাশ ফ্লো ▾</a>
+                <a data-slug="CashFlow" href="#">ক্যাশ ফ্লো ▾</a>
                 <ul class="dropdown">
-                    <li><a onclick="openCashExpenseModal()">নতুন খরচ যোগ করুন</a></li>
-                    <li><a onclick="openCashFlowReportModal()">ক্যাশ ফ্লো রিপোর্ট</a></li>
-                    <li><a onclick="openOpeningBalanceModal('cash')">প্রারম্ভিক ব্যালেন্স সেট করুন</a></li>
+                    <li><a data-slug="NewExpense" onclick="openCashExpenseModal()">নতুন খরচ যোগ করুন</a></li>
+                    <li><a data-slug="CashFlowReport" onclick="openCashFlowReportModal()">ক্যাশ ফ্লো রিপোর্ট</a></li>
+                    <li><a data-slug="OpeningBalance" onclick="openOpeningBalanceModal('cash')">প্রারম্ভিক ব্যালেন্স সেট করুন</a></li>
                 </ul>
             </li>
 
-            <li><a href="#" onclick="openCollectionModal(); return false;">কালেকশন</a></li>
-            <li><a href="#" onclick="openOnlineOrdersModal(); return false;" style="background:#7a1f2b !important; color:#fff !important; position:relative;">অনলাইন অর্ডার<span id="onlineOrderBadge" style="display:none; position:absolute; top:-8px; right:-8px; background:#ffcc00; color:#7a1f2b; font-size:11px; font-weight:bold; border-radius:50%; width:20px; height:20px; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,0.4);">0</span></a></li>
-            <li><a href="#" onclick="openOnlineCollectionsModal(); return false;" style="background:#1f6a3a !important; color:#fff !important; position:relative;">কালেকশন রিকোয়েস্ট<span id="onlineCollectionBadge" style="display:none; position:absolute; top:-8px; right:-8px; background:#ffcc00; color:#1f6a3a; font-size:11px; font-weight:bold; border-radius:50%; width:20px; height:20px; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,0.4);">0</span></a></li>
+            <li><a data-slug="Collection" href="#" onclick="openCollectionModal(); return false;">কালেকশন</a></li>
+            <li><a data-slug="OnlineOrders" href="#" onclick="openOnlineOrdersModal(); return false;" style="background:#7a1f2b !important; color:#fff !important; position:relative;">অনলাইন অর্ডার<span id="onlineOrderBadge" style="display:none; position:absolute; top:-8px; right:-8px; background:#ffcc00; color:#7a1f2b; font-size:11px; font-weight:bold; border-radius:50%; width:20px; height:20px; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,0.4);">0</span></a></li>
+            <li><a data-slug="CollectionRequests" href="#" onclick="openOnlineCollectionsModal(); return false;" style="background:#1f6a3a !important; color:#fff !important; position:relative;">কালেকশন রিকোয়েস্ট<span id="onlineCollectionBadge" style="display:none; position:absolute; top:-8px; right:-8px; background:#ffcc00; color:#1f6a3a; font-size:11px; font-weight:bold; border-radius:50%; width:20px; height:20px; align-items:center; justify-content:center; box-shadow:0 1px 4px rgba(0,0,0,0.4);">0</span></a></li>
         </ul>
         <div class="nav-home">
             <a href="#">হোম</a>
         </div>
         <input type="file" id="restoreBackupInput" accept=".json" style="display:none" onchange="restoreFromBackupJSON(this.files[0])">
     </div>
+
+
+    <div id="menuPathBar" aria-label="মেনু পাথ"><span class="mp-item mp-root mp-last">হোম</span></div>
 
     <!-- ডুপ্লিকেট রিটেইলার খুঁজে বের করা ও মার্জ (একত্রীকরণ) করার পপ-আপ -->
     <div class="modal-overlay" id="duplicateRetailerModal">
@@ -12197,5 +12210,50 @@ function renderStockMultiProductList() {
     </div>
 
     </div> <!-- /#appMainWrapper -->
+
+<script>
+(function(){
+  var bar = document.getElementById('menuPathBar');
+  if(!bar) return;
+  var baseTitle = document.title;
+  function labelOf(a){
+    return Array.prototype.filter.call(a.childNodes,function(n){return n.nodeType===3;})
+      .map(function(n){return n.textContent;}).join('').replace('▾','').replace(/\s+/g,' ').trim();
+  }
+  function setUrl(slugs){
+    try{
+      if(slugs.length){ location.hash = '/' + slugs.join('/'); }
+      else { history.replaceState(null,'',location.pathname+location.search); }
+    }catch(e){}
+  }
+  function setPath(parts, slugs){
+    bar.innerHTML = '';
+    parts.forEach(function(p,i){
+      if(i>0){ var s=document.createElement('span'); s.className='mp-sep'; s.textContent='/'; bar.appendChild(s); }
+      var el=document.createElement('span');
+      el.className='mp-item'+(i===parts.length-1?' mp-last':'')+(i===0?' mp-root':'');
+      el.textContent=p; bar.appendChild(el);
+    });
+    document.title = parts.length>1 ? parts.slice(1).join(' / ')+' - '+baseTitle : baseTitle;
+    setUrl(slugs);
+  }
+  function goHome(){ setPath(['হোম'], []); }
+  document.addEventListener('click',function(e){
+    var a = e.target.closest ? e.target.closest('a') : null;
+    if(!a) return;
+    if(a.closest('.nav-home')){ goHome(); return; }
+    var li = a.closest('.nav-links li');
+    if(!li || !a.closest('.nav-links')) return;
+    var parent = a.closest('ul.dropdown');
+    if(parent){
+      var top = parent.parentElement.querySelector(':scope > a');
+      setPath(['হোম', labelOf(top), labelOf(a)], [top.getAttribute('data-slug')||labelOf(top), a.getAttribute('data-slug')||labelOf(a)]);
+    } else if(!li.classList.contains('has-dropdown')){
+      setPath(['হোম', labelOf(a)], [a.getAttribute('data-slug')||labelOf(a)]);
+    }
+  }, true);
+  bar.addEventListener('click',function(e){ if(e.target.classList.contains('mp-root')) goHome(); });
+})();
+</script>
 </body>
 </html>
