@@ -1523,15 +1523,6 @@ body.edit-modal-open { overflow: hidden !important; }
 </style>
 
 
-<style>
-/* মেনু পাথ (breadcrumb) - মেনুবারের ঠিক নিচে */
-#menuPathBar{display:flex;align-items:center;flex-wrap:wrap;gap:2px;padding:6px 16px;background:#1a3120;border-top:1px solid rgba(255,255,255,.08);color:#d4edda;font-size:14px;font-weight:600;line-height:1.5}
-#menuPathBar .mp-sep{color:#d4a017;margin:0 7px;font-weight:700}
-#menuPathBar .mp-item{color:#d4edda}
-#menuPathBar .mp-last{color:#ffd770}
-#menuPathBar .mp-root{cursor:pointer}
-@media print{#menuPathBar{display:none}}
-</style>
 </head>
 <body>
     <!-- Firebase-এ ইনভয়েস/কালেকশন/অন্যান্য সেভ চলাকালীন ডাবল-ক্লিক ও অন্য বাটন চাপা বন্ধ রাখে -->
@@ -1669,7 +1660,6 @@ body.edit-modal-open { overflow: hidden !important; }
     </div>
 
 
-    <div id="menuPathBar" aria-label="মেনু পাথ"><span class="mp-item mp-root mp-last">হোম</span></div>
 
     <!-- ডুপ্লিকেট রিটেইলার খুঁজে বের করা ও মার্জ (একত্রীকরণ) করার পপ-আপ -->
     <div class="modal-overlay" id="duplicateRetailerModal">
@@ -12213,47 +12203,65 @@ function renderStockMultiProductList() {
 
 <script>
 (function(){
-  var bar = document.getElementById('menuPathBar');
-  if(!bar) return;
-  var baseTitle = document.title;
-  function labelOf(a){
-    return Array.prototype.filter.call(a.childNodes,function(n){return n.nodeType===3;})
-      .map(function(n){return n.textContent;}).join('').replace('▾','').replace(/\s+/g,' ').trim();
-  }
   function setUrl(slugs){
     try{
       if(slugs.length){ location.hash = '/' + slugs.join('/'); }
       else { history.replaceState(null,'',location.pathname+location.search); }
     }catch(e){}
   }
-  function setPath(parts, slugs){
-    bar.innerHTML = '';
-    parts.forEach(function(p,i){
-      if(i>0){ var s=document.createElement('span'); s.className='mp-sep'; s.textContent='/'; bar.appendChild(s); }
-      var el=document.createElement('span');
-      el.className='mp-item'+(i===parts.length-1?' mp-last':'')+(i===0?' mp-root':'');
-      el.textContent=p; bar.appendChild(el);
-    });
-    document.title = parts.length>1 ? parts.slice(1).join(' / ')+' - '+baseTitle : baseTitle;
-    setUrl(slugs);
-  }
-  function goHome(){ setPath(['হোম'], []); }
   document.addEventListener('click',function(e){
     var a = e.target.closest ? e.target.closest('a') : null;
     if(!a) return;
-    if(a.closest('.nav-home')){ goHome(); return; }
+    if((e.ctrlKey||e.metaKey||e.shiftKey) && a.closest('.nav-links') && a.getAttribute('href') && a.getAttribute('href').indexOf('#/')===0){
+      e.stopPropagation(); return;   // নতুন ট্যাবে খুলবে, এই ট্যাবে কিছু হবে না
+    }
+    if(a.closest('.nav-home')){ setUrl([]); return; }
     var li = a.closest('.nav-links li');
     if(!li || !a.closest('.nav-links')) return;
     var parent = a.closest('ul.dropdown');
     if(parent){
       var top = parent.parentElement.querySelector(':scope > a');
-      setPath(['হোম', labelOf(top), labelOf(a)], [top.getAttribute('data-slug')||labelOf(top), a.getAttribute('data-slug')||labelOf(a)]);
+      var ts = top && top.getAttribute('data-slug'), cs = a.getAttribute('data-slug');
+      if(ts && cs) setUrl([ts, cs]);
     } else if(!li.classList.contains('has-dropdown')){
-      setPath(['হোম', labelOf(a)], [a.getAttribute('data-slug')||labelOf(a)]);
+      var s1 = a.getAttribute('data-slug');
+      if(s1) setUrl([s1]);
     }
   }, true);
-  bar.addEventListener('click',function(e){ if(e.target.classList.contains('mp-root')) goHome(); });
 })();
 </script>
-</body>
+<script>
+(function(){
+  var routes = {};
+  var links = document.querySelectorAll('.nav-links a[data-slug]');
+  Array.prototype.forEach.call(links,function(a){
+    var parent = a.closest('ul.dropdown');
+    var path;
+    if(parent){
+      var top = parent.parentElement.querySelector(':scope > a');
+      var ts = top && top.getAttribute('data-slug');
+      if(!ts) return;
+      if(ts==='Backup') return;            // ব্যাকআপ/রিস্টোর নতুন ট্যাবে খোলার দরকার নেই
+      path = '/'+ts+'/'+a.getAttribute('data-slug');
+    } else if(!a.parentElement.classList.contains('has-dropdown')){
+      path = '/'+a.getAttribute('data-slug');
+    } else { return; }
+    a.setAttribute('href','#'+path);       // রাইট-ক্লিক / Ctrl+ক্লিক / মাঝের বাটনে নতুন ট্যাব খুলবে
+    routes[path.toLowerCase()] = a;
+  });
+
+  // ঠিকানায় পাথ থাকলে (যেমন নতুন ট্যাবে) লগইন ও ডাটা লোড শেষে ওই মেনু নিজে খুলবে
+  var want = decodeURIComponent((location.hash||'').replace(/\/+$/,'')).toLowerCase();
+  if(!want || !routes[want]) return;
+  var tries = 0;
+  var timer = setInterval(function(){
+    tries++;
+    var wrap = document.getElementById('appMainWrapper');
+    var ready = false;
+    try { ready = wrap && wrap.style.display!=='none' && initialDataLoaded === true; } catch(e){}
+    if(ready){ clearInterval(timer); setTimeout(function(){ routes[want].click(); }, 300); }
+    else if(tries>240){ clearInterval(timer); }   // ~১২০ সেকেন্ড পর থামবে
+  }, 500);
+})();
+</script></body>
 </html>
