@@ -1699,7 +1699,7 @@ body.edit-modal-open { overflow: hidden !important; }
     <div class="modal-overlay" id="lowStockListModal">
         <div class="modal-box" style="width: 650px; max-width: 96%;">
             <div class="modal-header">
-                <h3>⚠️ কম স্টক পণ্য (৩ কার্টুনের নিচে)</h3>
+                <h3 id="lowStockListTitle">⚠️ কম স্টক পণ্য (৩ কার্টুনের নিচে)</h3>
                 <span class="close-btn" onclick="closeModal('lowStockListModal')">&times;</span>
             </div>
             <div id="lowStockListResult"></div>
@@ -2734,7 +2734,8 @@ body.edit-modal-open { overflow: hidden !important; }
         // অ্যাপের সেটিংস — এখন পর্যন্ত শুধু ড্যাশবোর্ডের "মোট স্টকের মূল্য" কার্ডে
         // MRP থেকে কত শতাংশ বাদ দেওয়া হবে তা রাখা হয় (ডিফল্ট ১৫%, আগের হার্ডকোড করা
         // মানের সাথে মিল রেখে — পুরোনো ব্যবহারকারীদের জন্য আচরণ অপরিবর্তিত থাকে)।
-        let appSettings = { stockValueDeductionPercent: 15 };
+        const DEFAULT_APP_SETTINGS = { stockValueDeductionPercent: 15, lowStockThreshold: 3, customerNote: '' };
+        let appSettings = { ...DEFAULT_APP_SETTINGS };
         let invoices = [];
         let selectedInvoiceItems = [];
 
@@ -2853,7 +2854,7 @@ body.edit-modal-open { overflow: hidden !important; }
                         stocks = data.stocks || [];
                         stockLogs = Array.isArray(data.stockLogs) ? data.stockLogs : [];
                         products = Array.isArray(data.products) ? data.products : defaultProducts;
-                        appSettings = (data.appSettings && typeof data.appSettings === 'object') ? { stockValueDeductionPercent: 15, ...data.appSettings } : { stockValueDeductionPercent: 15 };
+                        appSettings = (data.appSettings && typeof data.appSettings === 'object') ? { ...DEFAULT_APP_SETTINGS, ...data.appSettings } : { ...DEFAULT_APP_SETTINGS };
                         // আসল ডেটা সফলভাবে লোড হয়ে গেছে — এখন থেকে সেভ/সিঙ্ক
                         // করা নিরাপদ, কারণ লোকাল মেমোরি আর ফায়ারবেজের ডেটা
                         // একই অবস্থায় আছে।
@@ -3442,7 +3443,7 @@ body.edit-modal-open { overflow: hidden !important; }
             const totalDue = withLedgerIndex(() => (retailers || []).reduce((sum, retailer) => sum + Math.max(0, Number(recalculateRetailerDue(retailer) || 0)), 0));
 
             // কম স্টকের সতর্কতা — ৩ কার্টুনের নিচে নামলে ড্যাশবোর্ডে দেখানো হয়
-            const LOW_STOCK_THRESHOLD = 3;
+            const LOW_STOCK_THRESHOLD = getLowStockThreshold();
             const lowStockItems = (stocks || []).filter(st => {
                 const product = findProductByName(st.productName);
                 const parts = getStockDisplayParts(st.qty, product);
@@ -3452,7 +3453,7 @@ body.edit-modal-open { overflow: hidden !important; }
             if (dashLowStockBanner) {
                 if (lowStockItems.length > 0) {
                     dashLowStockBanner.style.display = 'block';
-                    dashLowStockBanner.innerText = `⚠️ ${lowStockItems.length}টি পণ্যের স্টক ৩ কার্টুনের নিচে নেমে গেছে — দেখতে ট্যাপ করুন: ${lowStockItems.map(s => s.productName).slice(0, 3).join(', ')}${lowStockItems.length > 3 ? ' ইত্যাদি' : ''}`;
+                    dashLowStockBanner.innerText = `⚠️ ${lowStockItems.length}টি পণ্যের স্টক ${toBanglaNumber(LOW_STOCK_THRESHOLD)} কার্টুনের নিচে নেমে গেছে — দেখতে ট্যাপ করুন: ${lowStockItems.map(s => s.productName).slice(0, 3).join(', ')}${lowStockItems.length > 3 ? ' ইত্যাদি' : ''}`;
                 } else {
                     dashLowStockBanner.style.display = 'none';
                 }
@@ -3681,11 +3682,26 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         // ========== সেটিংস মেনু ==========
+        // কম-স্টকের সংকেত কত কার্টুনের নিচে নামলে দেখাবে (ডিফল্ট ৩)। ০ দিলে সংকেত বন্ধ।
+        function getLowStockThreshold() {
+            const n = Number(appSettings && appSettings.lowStockThreshold);
+            return (Number.isFinite(n) && n >= 0) ? Math.floor(n) : 3;
+        }
+
+        function updateSettingsNoteCounter() {
+            const ta = document.getElementById('settingsCustomerNote');
+            const c = document.getElementById('settingsCustomerNoteCount');
+            if (ta && c) c.textContent = toBanglaNumber(ta.value.length) + ' / ' + toBanglaNumber(ta.maxLength);
+        }
+
         function openSettingsModal() {
             if (!checkConnectionOrAlert()) return;
             document.getElementById('settingsModal').style.display = 'flex';
             const percent = Number(appSettings?.stockValueDeductionPercent);
             document.getElementById('settingsStockValuePercent').value = Number.isFinite(percent) ? percent : 15;
+            document.getElementById('settingsLowStockThreshold').value = getLowStockThreshold();
+            document.getElementById('settingsCustomerNote').value = String(appSettings?.customerNote || '');
+            updateSettingsNoteCounter();
         }
 
         async function saveSettings() {
@@ -3696,10 +3712,18 @@ body.edit-modal-open { overflow: hidden !important; }
                 alert('শতাংশ ০ থেকে ১০০-এর মধ্যে একটি সঠিক সংখ্যা লিখুন।');
                 return;
             }
+            const thresholdRaw = document.getElementById('settingsLowStockThreshold').value;
+            const threshold = parseInt(thresholdRaw, 10);
+            if (thresholdRaw === '' || !Number.isFinite(threshold) || threshold < 0 || threshold > 1000) {
+                alert('কম-স্টকের সংকেতের জন্য কার্টুন সংখ্যা ০ থেকে ১০০০-এর মধ্যে একটি পূর্ণসংখ্যা লিখুন।');
+                return;
+            }
+            const note = document.getElementById('settingsCustomerNote').value.replace(/\r\n/g, '\n').trim();
             const oldSettings = { ...appSettings };
-            appSettings = { ...appSettings, stockValueDeductionPercent: percent };
+            appSettings = { ...appSettings, stockValueDeductionPercent: percent, lowStockThreshold: threshold, customerNote: note };
             if (!(await syncToFirebase())) { appSettings = oldSettings; return; }
             updateDashboardStats();
+            try { if (typeof renderStocks === 'function') renderStocks(); } catch (e) {}
             closeModal('settingsModal');
             showSaveToast('সেটিংস সফলভাবে সংরক্ষণ হয়েছে');
         }
@@ -5826,6 +5850,7 @@ body.edit-modal-open { overflow: hidden !important; }
                             <td style="width:45%; text-align:center; border:none; border-top:1px solid #000; padding-top:4px; font-size:12px; font-weight:bold;">বিক্রেতার স্বাক্ষর/সীল</td>
                         </tr>
                     </table>
+                    ${(!isSellerCopy && String((appSettings && appSettings.customerNote) || '').trim()) ? `<div style="margin-top:10px; padding-top:6px; border-top:1px dashed #777; font-size:11px; line-height:1.5; text-align:center; white-space:pre-line;">${escapeHtml(String(appSettings.customerNote).trim())}</div>` : ''}
                 </div>`;
         }
 
@@ -6186,7 +6211,9 @@ body.edit-modal-open { overflow: hidden !important; }
         }
 
         function renderLowStockList() {
-            const LOW_STOCK_THRESHOLD = 3;
+            const LOW_STOCK_THRESHOLD = getLowStockThreshold();
+            const lowTitleEl = document.getElementById('lowStockListTitle');
+            if (lowTitleEl) lowTitleEl.textContent = `⚠️ কম স্টক পণ্য (${toBanglaNumber(LOW_STOCK_THRESHOLD)} কার্টুনের নিচে)`;
             const container = document.getElementById('lowStockListResult');
             const lowStockItems = (stocks || []).map(st => {
                 const product = findProductByName(st.productName);
@@ -6936,7 +6963,7 @@ function renderStockMultiProductList() {
             const tbody = document.getElementById('stockTableBody');
             tbody.innerHTML = '';
             let lowStockCount = 0;
-            const LOW_STOCK_THRESHOLD = 3; // ৩ কার্টুনের নিচে নামলে সতর্কতা
+            const LOW_STOCK_THRESHOLD = getLowStockThreshold(); // সেটিংস থেকে পরিবর্তনযোগ্য (ডিফল্ট ৩)
             // অক্ষর অনুযায়ী (A-Z) সাজানো হচ্ছে — এডিট/ডিলিট বাটনে তবুও স্টকের
             // আসল (original) ইনডেক্স ব্যবহার হয়, যাতে সঠিক এন্ট্রিটাই এডিট/ডিলিট হয়।
             const sortedStocks = stocks.map((st, index) => ({st, index})).sort((a, b) => String(a.st.productName||'').localeCompare(String(b.st.productName||'')));
@@ -12118,17 +12145,63 @@ function renderStockMultiProductList() {
     </div>
 
     <!-- সেটিংস পপ-আপ -->
+    <style>
+        #settingsModal .st-box { width: 560px; max-width: 96vw; max-height: 92vh; overflow-y: auto; }
+        #settingsModal .st-section { border: 1px solid #dfe8e2; border-radius: 12px; background: #f9fbfa; margin-bottom: 14px; overflow: hidden; }
+        #settingsModal .st-section-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #eaf3ed; color: #1f4d33; font-weight: bold; font-size: 15px; }
+        #settingsModal .st-section-body { padding: 12px 14px 14px; }
+        #settingsModal .st-item { margin-bottom: 14px; }
+        #settingsModal .st-item:last-child { margin-bottom: 0; }
+        #settingsModal .st-item + .st-item { border-top: 1px dashed #cfdcd3; padding-top: 14px; }
+        #settingsModal .st-label { display: block; font-weight: bold; font-size: 14px; color: #2c3a32; margin-bottom: 6px; }
+        #settingsModal .st-help { font-size: 12px; color: #667; margin-top: 5px; line-height: 1.5; }
+        #settingsModal .st-row { display: flex; align-items: center; gap: 8px; }
+        #settingsModal .st-row input[type=number] { width: 110px; }
+        #settingsModal .st-unit { font-weight: bold; color: #2c3a32; }
+        #settingsModal textarea { width: 100%; box-sizing: border-box; min-height: 84px; padding: 9px 10px; border: 1px solid #bfd0c5; border-radius: 8px; font-family: inherit; font-size: 14px; resize: vertical; }
+        #settingsModal .st-count { text-align: right; font-size: 11px; color: #889; margin-top: 3px; }
+    </style>
     <div class="modal-overlay" id="settingsModal">
-        <div class="modal-box" style="width: 520px; max-width: 96vw;">
+        <div class="modal-box st-box">
             <div class="modal-header">
-                <h3>সেটিংস</h3>
+                <h3>⚙️ সেটিংস</h3>
                 <span class="close-btn" onclick="closeModal('settingsModal')">&times;</span>
             </div>
-            <div class="form-group">
-                <label>"মোট স্টকের মূল্য" কার্ডে MRP থেকে কত শতাংশ বাদ দেওয়া হবে:</label>
-                <input type="number" id="settingsStockValuePercent" min="0" max="100" step="0.01" placeholder="যেমন: 15">
-                <div style="font-size:12px;color:#666;margin-top:4px;">ড্যাশবোর্ডের "মোট স্টকের মূল্য" কার্ডটি এখন পণ্যের MRP থেকে এই শতাংশ বাদ দিয়ে হিসাব করে দেখায়। ডিফল্ট ১৫%।</div>
+
+            <div class="st-section">
+                <div class="st-section-head">📊 ড্যাশবোর্ড</div>
+                <div class="st-section-body">
+                    <div class="st-item">
+                        <label class="st-label" for="settingsStockValuePercent">"মোট স্টকের মূল্য" কার্ডে MRP থেকে কত শতাংশ বাদ যাবে</label>
+                        <div class="st-row">
+                            <input type="number" id="settingsStockValuePercent" min="0" max="100" step="0.01" placeholder="১৫">
+                            <span class="st-unit">%</span>
+                        </div>
+                        <div class="st-help">ড্যাশবোর্ডের "মোট স্টকের মূল্য" পণ্যের MRP থেকে এই শতাংশ বাদ দিয়ে হিসাব হয়। ডিফল্ট ১৫%।</div>
+                    </div>
+                    <div class="st-item">
+                        <label class="st-label" for="settingsLowStockThreshold">কম স্টকের সংকেত — কত কার্টুনের নিচে নামলে জানাবে</label>
+                        <div class="st-row">
+                            <input type="number" id="settingsLowStockThreshold" min="0" max="1000" step="1" placeholder="৩">
+                            <span class="st-unit">কার্টুন</span>
+                        </div>
+                        <div class="st-help">কোনো পণ্যের স্টক এই সংখ্যার নিচে নামলে ড্যাশবোর্ডে ও স্টক তালিকায় লাল সংকেত দেখাবে (যেমন ২, ৩ বা ৪)। ডিফল্ট ৩। ০ দিলে সংকেত বন্ধ থাকবে।</div>
+                    </div>
+                </div>
             </div>
+
+            <div class="st-section">
+                <div class="st-section-head">🧾 ক্রেতার কপি</div>
+                <div class="st-section-body">
+                    <div class="st-item">
+                        <label class="st-label" for="settingsCustomerNote">নোট (ক্রেতার কপির নিচে ছাপা হবে)</label>
+                        <textarea id="settingsCustomerNote" maxlength="400" placeholder="যেমন: বিক্রিত মাল ফেরত নেওয়া হয় না। বাকির টাকা নির্দিষ্ট সময়ে পরিশোধ করুন।" oninput="updateSettingsNoteCounter()"></textarea>
+                        <div class="st-count" id="settingsCustomerNoteCount"></div>
+                        <div class="st-help">এই লেখা শুধু ইনভয়েসের "ক্রেতার কপি"-তে স্বাক্ষরের নিচে দেখাবে, বিক্রেতার কপিতে নয়। যতবার ইচ্ছা বদলাতে পারবেন, ফাঁকা রাখলে কিছুই ছাপা হবে না।</div>
+                    </div>
+                </div>
+            </div>
+
             <button class="btn-submit" onclick="saveSettings()">সেভ করুন</button>
         </div>
     </div>
