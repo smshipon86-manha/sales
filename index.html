@@ -6911,11 +6911,28 @@ function renderStockMultiProductList() {
                 <div style="font-size:12px;color:#666;margin-bottom:8px;">${toBanglaNumber(indexes.length)}টি পণ্য নির্বাচিত হয়েছে — আপনার টিক দেওয়ার ক্রমেই তালিকাটি আছে। প্রতিটির পাশে কার্টুন সংখ্যা লিখুন; রেশিও অনুযায়ী পিস স্বয়ংক্রিয়ভাবে হিসাব হবে।</div>
                 <div>${rowsHtml}</div>`;
             if (actionBar) {
-                actionBar.innerHTML = `<button type="button" class="btn-action btn-edit" style="width:100%; padding:10px;" onclick="backToStockSelection()">← আরও পণ্য যোগ করুন</button>`;
+                actionBar.innerHTML = `<div id="stockTotalCartonsBox" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding:10px 12px; background:#eef6f1; border:1px solid #b9d6c4; border-radius:8px; font-weight:bold; color:#1f4d33;"><span>📦 মোট কার্টুন যোগ হচ্ছে</span><span id="stockTotalCartonsValue" style="font-size:17px;">${toBanglaNumber(getStockTotalCartons())} কার্টুন</span></div><button type="button" class="btn-action btn-edit" style="width:100%; padding:10px;" onclick="backToStockSelection()">← আরও পণ্য যোগ করুন</button>`;
             }
         }
 
+        // এখন যে পণ্যগুলো নির্বাচিত আছে তাদের কার্টুন সংখ্যার যোগফল
+        function getStockTotalCartons() {
+            let total = 0;
+            stockSelectionOrder.forEach(idx => {
+                if (!stockSelectedIndexes.has(idx)) return;
+                const n = parseFloat(stockQtyValues[idx]);
+                if (Number.isFinite(n) && n > 0) total += n;
+            });
+            return Math.round(total * 100) / 100;
+        }
+
+        function updateStockTotalCartons() {
+            const el = document.getElementById('stockTotalCartonsValue');
+            if (el) el.textContent = toBanglaNumber(getStockTotalCartons()) + ' কার্টুন';
+        }
+
         function updateStockQtyPreview(index, value) {
+    updateStockTotalCartons();
     const n = Number(value);
     if (!Number.isFinite(n) || n <= 0) return;
 }
